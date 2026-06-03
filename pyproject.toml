@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tvastar"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tvastar — a programmable agent harness framework for Python. Agent = Model + Harness."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -49,6 +49,7 @@ all = [
 
 [project.scripts]
 tvastar = "tvastar.serving.cli:main"
+tvastar-fix = "tvastar.fix.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tvastar"]

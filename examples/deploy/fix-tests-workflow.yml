@@ -1,0 +1,47 @@
+# Example: drop this in your repo as .github/workflows/fix-tests.yml
+#
+# When CI tests fail (or on demand), a Tvastar agent tries to fix them and opens
+# a pull request with the change. Uses Groq's free tier by default — add a
+# GROQ_API_KEY secret (or wire any other provider).
+
+name: Auto-fix tests
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]          # run after your test workflow fails
+    types: [completed]
+
+jobs:
+  fix:
+    # only act when the upstream run failed (or on manual dispatch)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install project (so tests can run)
+        run: pip install -e ".[dev]" || pip install -e . || true
+
+      - name: Tvastar — fix failing tests
+        id: fix
+        uses: vanamayaswanth/tvastar/action@v0.2.0
+        with:
+          test-command: "pytest -q"
+          groq-api-key: ${{ secrets.GROQ_API_KEY }}
+
+      - name: Open a pull request with the fix
+        if: ${{ steps.fix.outputs.fixed == 'true' }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: tvastar/auto-fix-tests
+          title: "🤖 Auto-fix failing tests"
+          commit-message: "Auto-fix failing tests (Tvastar agent)"
+          body: |
+            A Tvastar agent fixed the failing test suite.
+            Verified by re-running the tests in CI.
+
+            Changed files: ${{ steps.fix.outputs.changed_files }}

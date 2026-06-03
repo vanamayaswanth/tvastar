@@ -1,0 +1,75 @@
+name: "Tvastar Fix Tests"
+description: "Auto-fix a failing test suite with a Tvastar agent, verified by re-running the tests."
+author: "vanamayaswanth"
+branding:
+  icon: "check-circle"
+  color: "purple"
+
+inputs:
+  test-command:
+    description: "Command that runs the test suite."
+    required: false
+    default: "pytest -q"
+  path:
+    description: "Project directory to fix."
+    required: false
+    default: "."
+  model:
+    description: "Model name (provider-specific). Leave blank to auto-pick."
+    required: false
+    default: ""
+  base-url:
+    description: "OpenAI-compatible endpoint URL (for Groq/Ollama/etc.)."
+    required: false
+    default: ""
+  api-key:
+    description: "API key for the model provider."
+    required: false
+    default: ""
+  groq-api-key:
+    description: "Convenience: Groq API key (free tier)."
+    required: false
+    default: ""
+  max-steps:
+    description: "Maximum agent steps."
+    required: false
+    default: "15"
+  check:
+    description: "If 'true', the step fails when tests can't be fixed."
+    required: false
+    default: "false"
+
+outputs:
+  status:
+    description: "already-green | fixed | unfixed"
+    value: ${{ steps.fix.outputs.status }}
+  fixed:
+    description: "true if the suite passes after the run"
+    value: ${{ steps.fix.outputs.fixed }}
+  changed_files:
+    description: "comma-separated list of files the agent changed"
+    value: ${{ steps.fix.outputs.changed_files }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+
+    - name: Install Tvastar
+      shell: bash
+      run: uv pip install --system "tvastar"
+
+    - name: Fix tests
+      id: fix
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      env:
+        TVASTAR_FIX_MODEL: ${{ inputs.model }}
+        TVASTAR_FIX_BASE_URL: ${{ inputs.base-url }}
+        TVASTAR_FIX_API_KEY: ${{ inputs.api-key }}
+        GROQ_API_KEY: ${{ inputs.groq-api-key }}
+      run: |
+        ARGS="--test-cmd \"${{ inputs.test-command }}\" --max-steps ${{ inputs.max-steps }}"
+        if [ "${{ inputs.check }}" = "true" ]; then ARGS="$ARGS --check"; fi
+        eval tvastar-fix $ARGS

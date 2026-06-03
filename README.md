@@ -43,6 +43,8 @@ print(asyncio.run(Harness(agent).run("Create hello.py and run it.")))
   succeeded but didn't (e.g. "all tests pass" over a failing run).
 - 🚀 **Deploys anywhere.** The same agent runs as a web service, an AWS Lambda,
   a GitHub Action, a container, or any serverless function.
+- 🛠️ **Ships a real app:** [`tvastar-fix`](#-tvastar-fix--auto-fix-failing-tests),
+  a command + GitHub Action that auto-fixes your failing tests.
 
 Want to see something fun? Watch an agent fix its own failing tests:
 
@@ -286,6 +288,40 @@ fn = serverless_handler(agent)        # GCP/Azure/Vercel functions: fn({"prompt"
 
 Ready-to-use [`Dockerfile`](examples/deploy/Dockerfile) and
 [GitHub Actions workflow](.github/workflows/agent.yml) are included.
+
+## 🛠️ `tvastar-fix` — auto-fix failing tests
+
+Tvastar ships a real, useful application built on itself: a command (and a
+GitHub Action) that **fixes your failing test suite**. An agent reads the
+failures, edits the source, and iterates — then Tvastar **re-runs the tests
+itself** and reports success based on the real exit code, never the model's
+word. (An agent that fixes tests is only trustworthy if it can't lie about it.)
+
+```bash
+pip install tvastar
+
+# Pick a free model: Groq free tier, or local Ollama, or any provider key
+export GROQ_API_KEY=...            # or run `ollama serve`
+
+tvastar-fix                        # fixes ./ using `pytest -q`
+tvastar-fix --test-cmd "pytest tests/ -q" --check   # CI gate
+```
+
+It auto-selects a model (Groq → OpenAI → Anthropic → local Ollama) or takes any
+OpenAI-compatible endpoint via `--model/--base-url/--api-key`. It only touches
+your code when the tests actually pass afterward.
+
+**As a GitHub Action** — open a PR that fixes the build when CI goes red:
+
+```yaml
+- uses: vanamayaswanth/tvastar/action@v0.2.0
+  with:
+    test-command: "pytest -q"
+    groq-api-key: ${{ secrets.GROQ_API_KEY }}
+```
+
+A complete PR-opening workflow is in
+[examples/deploy/fix-tests-workflow.yml](examples/deploy/fix-tests-workflow.yml).
 
 ## Durable execution
 

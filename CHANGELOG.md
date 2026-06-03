@@ -6,6 +6,18 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-04
+
+### Added
+
+- **`tvastar-fix`** — a flagship application built on Tvastar: a CLI and a
+  GitHub Action that auto-fix a failing test suite. An agent edits the source
+  and iterates; Tvastar re-runs the suite itself and reports success from the
+  real exit code (never the model's claim). Free-model friendly (auto-selects
+  Groq / OpenAI / Anthropic / local Ollama, or any OpenAI-compatible endpoint).
+  Includes a composite GitHub Action (`action/action.yml`) and an example
+  PR-opening workflow.
+
 ## [0.1.0] — 2026-06-04
 
 Initial release. Tvastar is a programmable agent harness for Python:
@@ -43,5 +55,6 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/vanamayaswanth/tvastar/releases/tag/v0.1.0
