@@ -58,7 +58,9 @@ runs:
 
     - name: Install Tvastar
       shell: bash
-      run: uv pip install --system "tvastar"
+      # Install as a uv tool so `tvastar-fix` is on PATH for the next step,
+      # with the model SDKs it needs (openai covers Groq/Ollama/OpenAI-compatible).
+      run: uv tool install "tvastar[openai,anthropic]"
 
     - name: Fix tests
       id: fix

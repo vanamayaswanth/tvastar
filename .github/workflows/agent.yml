@@ -19,7 +19,9 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install Tvastar
-        run: uv pip install --system -e ".[anthropic]"
+        run: |
+          uv venv
+          uv pip install -e ".[anthropic]"
 
       - name: Run agent
         id: agent
@@ -27,7 +29,7 @@ jobs:
           # Offline-safe default; set TVASTAR_REAL=1 + the secret to use Claude.
           INPUT_PROMPT: ${{ github.event.inputs.prompt }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python examples/deploy/github_action_entry.py
+        run: uv run python examples/deploy/github_action_entry.py
 
       - name: Show result
         run: |

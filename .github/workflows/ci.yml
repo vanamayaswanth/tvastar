@@ -20,14 +20,17 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Create virtual environment
+        run: uv venv
+
       - name: Install (all extras + dev)
-        run: uv pip install --system -e ".[all,dev]"
+        run: uv pip install -e ".[all,dev]"
 
       - name: Lint
-        run: ruff check tvastar/ examples/ tests/
+        run: uv run ruff check tvastar/ examples/ tests/
 
       - name: Format check
-        run: ruff format --check tvastar/ examples/ tests/
+        run: uv run ruff format --check tvastar/ examples/ tests/
 
       - name: Tests
-        run: pytest -q
+        run: uv run pytest -q
