@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Tvastar runtime artifacts
+.tvastar-workspace/
+.tvastar-state/
+*-trace.jsonl
+tvastar-trace.jsonl
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local agent / editor state
+.claude/
+.vscode/
+.idea/

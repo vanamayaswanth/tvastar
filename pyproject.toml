@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tvastar"
+version = "0.1.0"
+description = "Tvastar — a programmable agent harness framework for Python. Agent = Model + Harness."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "vanamayaswanth", email = "vanamayaswanth@gmail.com" }]
+keywords = ["agents", "llm", "harness", "ai", "claude", "tools", "skills", "mcp", "model-context-protocol", "sandbox"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/vanamayaswanth/tvastar"
+Repository = "https://github.com/vanamayaswanth/tvastar"
+Issues = "https://github.com/vanamayaswanth/tvastar/issues"
+Changelog = "https://github.com/vanamayaswanth/tvastar/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40.0"]
+openai = ["openai>=1.40.0"]
+serve = ["fastapi>=0.110.0", "uvicorn[standard]>=0.27.0", "websockets>=12.0"]
+otel = ["opentelemetry-api>=1.20.0", "opentelemetry-sdk>=1.20.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4"]
+all = [
+  "anthropic>=0.40.0",
+  "openai>=1.40.0",
+  "fastapi>=0.110.0",
+  "uvicorn[standard]>=0.27.0",
+  "websockets>=12.0",
+  "opentelemetry-api>=1.20.0",
+  "opentelemetry-sdk>=1.20.0",
+]
+
+[project.scripts]
+tvastar = "tvastar.serving.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tvastar"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

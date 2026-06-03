@@ -1,0 +1,35 @@
+name: Tvastar Agent
+
+# Run a Tvastar agent as a CI job — on demand, or wire it to issues/PRs.
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "What should the agent do?"
+        required: true
+        default: "List the files in the workspace and summarize the project."
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install Tvastar
+        run: uv pip install --system -e ".[anthropic]"
+
+      - name: Run agent
+        id: agent
+        env:
+          # Offline-safe default; set TVASTAR_REAL=1 + the secret to use Claude.
+          INPUT_PROMPT: ${{ github.event.inputs.prompt }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python examples/deploy/github_action_entry.py
+
+      - name: Show result
+        run: |
+          echo "Agent finished with: ${{ steps.agent.outputs.stopped }}"
+          echo "${{ steps.agent.outputs.result }}"
