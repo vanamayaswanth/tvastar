@@ -15,22 +15,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Create virtual environment
-        run: uv venv
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
+      # Install into the setup-python interpreter (not externally managed),
+      # so --system works without a venv.
       - name: Install (all extras + dev)
-        run: uv pip install -e ".[all,dev]"
+        run: uv pip install --system -e ".[all,dev]"
 
       - name: Lint
-        run: uv run ruff check tvastar/ examples/ tests/
+        run: ruff check tvastar/ examples/ tests/
 
       - name: Format check
-        run: uv run ruff format --check tvastar/ examples/ tests/
+        run: ruff format --check tvastar/ examples/ tests/
 
       - name: Tests
-        run: uv run pytest -q
+        run: pytest -q
