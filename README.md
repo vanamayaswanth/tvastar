@@ -5,7 +5,7 @@
 [![CI](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml/badge.svg)](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**A Python agent harness framework. `Agent = Model + Harness`.**
+**Not another SDK. Build autonomous agents and powerful AI workflows.**
 
 ```bash
 pip install tvastar
@@ -27,6 +27,43 @@ print(result.text)
 ```
 
 No Docker. No containers. Zero core dependencies. Real code execution out of the box.
+
+---
+
+## Why Tvastar
+
+Every junior AI developer hits the same wall. The Anthropic API tutorial works great — 50 lines, chatbot done. Then they try to add tools, and suddenly they're writing a while loop, parsing tool call blocks, handling errors, watching context blow up at 10k tokens, wondering why their agent loops forever. Nobody warned them about any of this.
+
+Tvastar is the answer to that wall.
+
+### The one-line difference
+
+> Every other framework makes you learn the framework first.
+> Tvastar makes you learn agents first.
+
+`Agent = AgentSpec + Harness` — two things. Know what each one does, you understand the whole system.
+
+### vs. LangGraph
+
+LangGraph makes you think like a graph architect before you've built your first agent. Nodes, edges, state reducers, conditional routing. A junior dev spends two days learning LangGraph before writing a line of their actual product. In Tvastar, you write `harness.run("do something")` on day one and add complexity only when you need it.
+
+### vs. LangChain
+
+Abstraction on top of abstraction. When something breaks in LangChain, you're three layers deep trying to figure out which chain failed. The API changes every few months. Tvastar has no hidden magic — the loop is readable, the tools are plain Python functions, the retry is a dataclass.
+
+### vs. Agno / Phidata
+
+Packed with built-in opinions: memory, knowledge bases, built-in storage. Great if their opinions match yours. When they don't, you fight the framework. Tvastar is additive — start with zero opinions, add what you need.
+
+### vs. CrewAI
+
+Forces you to think in "roles" and "crews." A great metaphor for simple multi-agent demos, awkward for real production systems where your agents aren't playing characters.
+
+### What you actually get
+
+You already know Python functions. In Tvastar, a tool is just a function with `@tool`. An agent is just a spec with a model and some tools. A session is just a conversation thread. Everything else — retry, compaction, parallelism, streaming, workflows — is one line when you need it, invisible when you don't.
+
+**The learning curve is the product.**
 
 ---
 
