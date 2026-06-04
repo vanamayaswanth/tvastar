@@ -115,8 +115,9 @@ from .approval import (
     require_approval,
     set_default_gate,
 )
+from .bench import BenchSuite, BenchTask, BenchResult, BenchReport, swe_bench_tasks
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "create_agent",
@@ -233,4 +234,10 @@ __all__ = [
     "ApprovalTimeout",
     "require_approval",
     "set_default_gate",
+    # benchmarks
+    "BenchSuite",
+    "BenchTask",
+    "BenchResult",
+    "BenchReport",
+    "swe_bench_tasks",
 ]

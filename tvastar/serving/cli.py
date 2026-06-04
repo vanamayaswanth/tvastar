@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 
 from ..harness import Harness
 from ..observability import ConsoleExporter, Tracer
@@ -52,6 +53,17 @@ def main(argv: list[str] | None = None) -> int:
         "--registry", default=".tvastar-runs", help="path to run registry directory"
     )
 
+    bench_p = sub.add_parser("bench", help="run standardised benchmarks (SWE-bench etc.)")
+    bench_p.add_argument("agent", help="agent reference, e.g. file.py:agent")
+    bench_p.add_argument(
+        "--suite",
+        default="swe-lite",
+        help="benchmark suite: 'swe-lite' (HuggingFace, default) or path to a .jsonl file",
+    )
+    bench_p.add_argument("--max-tasks", type=int, default=None, help="limit number of tasks")
+    bench_p.add_argument("--concurrency", type=int, default=2, help="parallel tasks (default 2)")
+    bench_p.add_argument("--out", default=None, help="write JSON report to this file")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "info":
@@ -66,6 +78,10 @@ def main(argv: list[str] | None = None) -> int:
         from ..workflow import cli_logs
 
         return cli_logs(args.run_id, args.registry)
+    if args.cmd == "bench":
+        return asyncio.run(
+            _bench(args.agent, args.suite, args.max_tasks, args.concurrency, args.out)
+        )
     return 1
 
 
@@ -129,6 +145,40 @@ async def _chat(ref: str, trace: bool) -> int:
     finally:
         await session.close()
     return 0
+
+
+async def _bench(
+    ref: str,
+    suite_name: str,
+    max_tasks: int | None,
+    concurrency: int,
+    out: str | None,
+) -> int:
+    import json as _json
+
+    from ..bench import BenchSuite, swe_bench_tasks
+
+    spec = load_agent(ref)
+    suite = BenchSuite(spec, concurrency=concurrency)
+    suite.name = suite_name
+
+    print(f"Loading benchmark tasks ({suite_name!r}) …")
+    if suite_name.endswith(".jsonl"):
+        tasks = swe_bench_tasks(source="jsonl", path=suite_name, max_tasks=max_tasks)
+    else:
+        tasks = swe_bench_tasks(source="hf", split="lite", max_tasks=max_tasks)
+
+    suite.add_many(tasks)
+    print(f"Running {len(tasks)} task(s) with concurrency={concurrency} …\n")
+
+    report = await suite.run()
+    report.print()
+
+    if out:
+        Path(out).write_text(_json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+        print(f"Report written to {out}")
+
+    return 0 if report.score > 0 else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

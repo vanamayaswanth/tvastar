@@ -6,6 +6,24 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-06-04
+
+### Added
+
+- **Benchmark runner** (`tvastar.bench`) — `BenchSuite` / `BenchTask` /
+  `BenchResult` / `BenchReport`: run an agent against standardised task sets
+  and get a *resolve rate* (fraction of tasks where a real verifier — not the
+  model's claim — reports success). Same "verify with real signals" principle
+  as `tvastar-fix`.
+- **SWE-bench adapter** (`swe_bench_tasks`) — loads tasks from
+  `princeton-nlp/SWE-bench_Lite` via HuggingFace (`pip install datasets`) or
+  a local JSONL file. Each task's verifier runs pytest on the workspace and
+  reports the real exit code. Results are labelled `swe_lite_local` to
+  distinguish from the official Docker-based harness.
+- **`tvastar bench` CLI command** — `tvastar bench agent.py:agent
+  --suite swe-lite --max-tasks 10 --out report.json` runs a benchmark,
+  prints a resolve-rate report, and optionally writes JSON.
+
 ## [0.5.0] — 2026-06-04
 
 Harness-engineering round, measured against the field's taxonomy
@@ -150,7 +168,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.1...v0.3.2

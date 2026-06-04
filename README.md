@@ -695,6 +695,49 @@ Run on every PR to catch regressions before they ship.
 
 ---
 
+## Benchmarks — measure quality against the real world
+
+`EvalSuite` measures against *your* checks. `BenchSuite` measures against
+*standardised, external* task sets — the difference between testing whether
+your code works and testing whether your agent works on real software
+engineering problems.
+
+```python
+import asyncio
+from tvastar import create_agent, BenchSuite, swe_bench_tasks, default_toolset
+from tvastar.model import AnthropicModel
+
+agent = create_agent("coder", model=AnthropicModel(), tools=default_toolset())
+suite = BenchSuite(agent, concurrency=4)
+suite.add_many(swe_bench_tasks(split="lite", max_tasks=10))   # needs: pip install datasets
+report = asyncio.run(suite.run())
+report.print()
+# ═══════════════════════════════════════════════════════════════
+# Benchmark Report
+#   Resolved : 7/10  (70.0%)
+#   Duration : 142.3s
+# ═══════════════════════════════════════════════════════════════
+```
+
+Or from the CLI:
+
+```bash
+tvastar bench agent.py:agent --suite swe-lite --max-tasks 50 --out report.json
+```
+
+**Local JSONL** — bring your own benchmark in SWE-bench format:
+
+```bash
+tvastar bench agent.py:agent --suite ./my_tasks.jsonl --max-tasks 20
+```
+
+Verification runs **real pytest** on the workspace — not the model's say-so.
+Results are labelled `swe_lite_local` to distinguish them from the official
+Docker-based harness numbers. Use the official harness for published
+comparisons; use this for rapid iteration.
+
+---
+
 ## Human-in-the-loop — require approval before dangerous actions
 
 Pause an agent run and wait for a human to approve before taking an irreversible action.
