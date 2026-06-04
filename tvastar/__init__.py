@@ -90,7 +90,7 @@ from .dispatch import (
 )
 from .profiles import AgentProfile, define_agent_profile, MAX_TASK_DEPTH
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "create_agent",
