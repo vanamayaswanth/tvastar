@@ -1,5 +1,10 @@
 # Tvastar
 
+[![PyPI](https://img.shields.io/pypi/v/tvastar.svg)](https://pypi.org/project/tvastar/)
+[![Python](https://img.shields.io/pypi/pyversions/tvastar.svg)](https://pypi.org/project/tvastar/)
+[![CI](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml/badge.svg)](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **A Python agent harness framework. `Agent = Model + Harness`.**
 
 ```bash

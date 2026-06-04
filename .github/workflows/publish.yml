@@ -1,0 +1,48 @@
+name: Publish to PyPI
+
+# Token-free publishing via PyPI Trusted Publishing (OIDC).
+# Fires when you publish a GitHub Release. One-time setup on PyPI:
+#   pypi.org → your project → Publishing → Add a GitHub publisher:
+#     Owner: vanamayaswanth   Repository: tvastar
+#     Workflow: publish.yml    Environment: pypi
+# After that, no API token is ever needed again.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write          # required for Trusted Publishing (OIDC)
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
