@@ -6,6 +6,12 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-06-04
+
+### Changed
+
+- Docs: further README revisions. Refreshes the project description on PyPI.
+
 ## [0.3.1] — 2026-06-04
 
 ### Changed
@@ -89,7 +95,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.1.0...v0.2.0
