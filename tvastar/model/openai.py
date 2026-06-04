@@ -43,6 +43,8 @@ class OpenAIModel(Model):
     configured ``client``.
     """
 
+    system = "openai"
+
     def __init__(
         self,
         model: str = "gpt-4o",

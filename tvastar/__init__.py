@@ -37,8 +37,11 @@ from .detect import (
     RunContext,
     Severity,
     default_detectors,
+    prompt_injection,
     run_detectors,
 )
+from .boundary import looks_like_injection, scan_for_injection, wrap_untrusted
+from .masking import MaskContext, ToolPolicy, allow_only, deny, phases
 from .harness import Harness
 from .mcp import MCPClient, connect_mcp_server
 from .memory import FileStore, InMemoryStore, Memory, Store
@@ -113,7 +116,7 @@ from .approval import (
     set_default_gate,
 )
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "create_agent",
@@ -158,6 +161,17 @@ __all__ = [
     "RunContext",
     "default_detectors",
     "run_detectors",
+    "prompt_injection",
+    # content boundary / injection scan (honest mitigation, not protection)
+    "wrap_untrusted",
+    "scan_for_injection",
+    "looks_like_injection",
+    # tool masking
+    "MaskContext",
+    "ToolPolicy",
+    "allow_only",
+    "deny",
+    "phases",
     "Tracer",
     "ConsoleExporter",
     "JSONLExporter",

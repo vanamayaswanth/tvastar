@@ -54,6 +54,8 @@ _THINKING_BUDGET: dict[str, int] = {
 
 
 class AnthropicModel(Model):
+    system = "anthropic"
+
     def __init__(
         self,
         model: str = "claude-opus-4-8",

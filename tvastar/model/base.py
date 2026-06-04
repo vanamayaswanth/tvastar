@@ -20,6 +20,8 @@ class Model(abc.ABC):
 
     #: human-readable identifier, e.g. "claude-opus-4-8"
     name: str = "model"
+    #: provider family for OTel GenAI traces (gen_ai.system), e.g. "anthropic"
+    system: str = "unknown"
 
     @abc.abstractmethod
     async def generate(

@@ -30,6 +30,7 @@ Scripted = Union[str, ToolUseBlock, Message]
 
 class MockModel(Model):
     name = "mock"
+    system = "mock"
 
     def __init__(self, script: Optional[Sequence[Scripted]] = None):
         self._script = list(script or [])

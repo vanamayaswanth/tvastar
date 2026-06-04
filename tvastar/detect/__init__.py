@@ -21,6 +21,7 @@ from .detectors import (
     default_detectors,
     empty_answer,
     ignored_tool_error,
+    prompt_injection,
     schema_mismatch,
     step_limit,
     thrash_loop,
@@ -43,6 +44,7 @@ __all__ = [
     "thrash_loop",
     "ignored_tool_error",
     "unverified_completion",
+    "prompt_injection",
     "empty_answer",
     "step_limit",
 ]

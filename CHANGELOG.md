@@ -6,6 +6,40 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-06-04
+
+Harness-engineering round, measured against the field's taxonomy
+([awesome-harness-engineering](https://github.com/walkinglabs/awesome-harness-engineering)).
+These deepen pillars Tvastar already has rather than adding new surface — and
+each ships honestly scoped, with tests.
+
+### Added
+
+- **Tool masking** — `create_agent(tool_policy=...)` filters the visible toolset
+  *per turn* so the model only sees the tools that matter right now (cuts context
+  and tool-confusion on long runs). Helpers: `allow_only`, `deny`, `phases`, or
+  any `Callable[[MaskContext], list[str]]`. A policy can only hide available
+  tools, never grant new ones, and a misbehaving policy never breaks the run.
+- **OpenTelemetry GenAI semantic conventions** — the `model.generate` span now
+  emits standard `gen_ai.*` attributes (`gen_ai.system`, `gen_ai.request.model`,
+  `gen_ai.usage.input_tokens`/`output_tokens`, `gen_ai.response.finish_reasons`,
+  …), so traces drop into Braintrust / Honeycomb / Datadog without custom mapping.
+  `Model.system` names the provider (`anthropic` / `openai` / `mock`).
+- **Untrusted content & injection detection** (honest mitigation, *not* a shield)
+  — `wrap_untrusted(content, source=...)` fences external content as data, and
+  the new `prompt_injection` detector flags tool output that matches injection
+  signatures as a `WARNING` finding. Also exported: `scan_for_injection`,
+  `looks_like_injection`.
+- **`AGENTS.md`** contributor guide and a **12-Factor Agents map**
+  (`docs/twelve-factor-agents.md`) with honest ✅/🟡/⬜ verdicts.
+
+### Notes
+
+- We deliberately did **not** add the more speculative items from the taxonomy
+  (context backpressure, KV-cache locality). They'd be feature-for-the-checklist;
+  they wait for a real need. Benchmark integration (SWE-bench/Terminal-Bench) is
+  the planned next focused effort.
+
 ## [0.4.0] — 2026-06-04
 
 ### Added
@@ -116,7 +150,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.0...v0.3.1

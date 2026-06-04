@@ -503,6 +503,37 @@ from tvastar import OTelExporter
 harness = Harness(agent, tracer=Tracer([OTelExporter()]))
 ```
 
+The `model.generate` span follows the [OpenTelemetry GenAI semantic
+conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) —
+`gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`,
+`gen_ai.response.finish_reasons`, … — so traces drop into Braintrust / Honeycomb
+/ Datadog dashboards without custom attribute mapping.
+
+---
+
+## Tool masking — show the model only the tools it needs now
+
+Exposing every tool on every turn burns context and tempts the model to reach
+for the wrong one. A `tool_policy` filters the visible toolset **per turn**
+(it can only hide available tools, never grant new ones, and never breaks a run):
+
+```python
+from tvastar import create_agent, allow_only, deny, phases
+
+# only one tool, ever
+create_agent(..., tool_policy=allow_only("read_file"))
+
+# everything except the dangerous one
+create_agent(..., tool_policy=deny("bash"))
+
+# research first, unlock writes once we're a few steps in
+create_agent(..., tool_policy=phases({1: ["grep", "read_file"],
+                                      4: ["grep", "read_file", "write_file"]}))
+
+# or any callable: (MaskContext) -> list[str]
+create_agent(..., tool_policy=lambda ctx: ["bash"] if ctx.step > 2 else [])
+```
+
 ---
 
 ## Silent-failure detection
@@ -516,7 +547,7 @@ if not result.ok:
 # → [WARNING] unverified_completion: model claimed success but last tool result shows failures
 ```
 
-Built-in detectors: `unknown_tool`, `schema_mismatch`, `thrash_loop`, `ignored_tool_error`, `unverified_completion`, `empty_answer`, `step_limit`.
+Built-in detectors: `unknown_tool`, `schema_mismatch`, `thrash_loop`, `ignored_tool_error`, `unverified_completion`, `prompt_injection`, `empty_answer`, `step_limit`.
 
 Write your own:
 
@@ -529,6 +560,35 @@ def slow_run(ctx):
     return []
 
 create_agent(..., detect=[*default_detectors(), slow_run])
+```
+
+---
+
+## Untrusted content & prompt-injection detection
+
+No one has *solved* prompt injection — so Tvastar doesn't claim to. It gives you
+the two honest things that genuinely help:
+
+1. **Fence untrusted content** so the model treats it as data, not orders. This
+   reduces — does not eliminate — the model following injected instructions.
+2. **Detect** content that *looks like* an injection attempt and surface it as a
+   `WARNING` finding (the built-in `prompt_injection` detector). Detection, not
+   prevention.
+
+```python
+from tvastar import wrap_untrusted, scan_for_injection
+
+@tool
+async def fetch(url: str) -> str:
+    "Fetch a web page."
+    page = await http_get(url)
+    return wrap_untrusted(page, source=url)   # the model sees it as DATA
+
+# the prompt_injection detector flags suspicious tool output automatically:
+result = await harness.run("Summarise that page.")
+for f in result.warnings:
+    if f.detector == "prompt_injection":
+        print("⚠ possible injection in tool output:", f.message)
 ```
 
 ---
@@ -706,6 +766,8 @@ Supported models with automatic pricing: Claude (all tiers), GPT-4o, GPT-4o-mini
 
 - [API Reference](docs/API.md) — every public symbol, fully typed
 - [Patterns Cookbook](docs/PATTERNS.md) — 20 copy-paste recipes
+- [12-Factor Agents map](docs/twelve-factor-agents.md) — how Tvastar maps to the production checklist (honest verdicts)
+- [AGENTS.md](AGENTS.md) — contributor guide for working in this repo
 - [CLAUDE.md](CLAUDE.md) — codebase map for AI assistants
 
 ---

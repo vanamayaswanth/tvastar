@@ -44,6 +44,8 @@ class AgentSpec:
     budget: Optional[Any] = None  # BudgetPolicy
     #: optional human-in-the-loop approval gate, exposed to tools via ctx
     approval_gate: Optional[Any] = None  # ApprovalGate
+    #: optional tool-masking policy applied before each model call (None = expose all)
+    tool_policy: Optional[Any] = None  # masking.ToolPolicy
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self) -> str:
@@ -77,6 +79,7 @@ def create_agent(
     tool_retry: Optional[Any] = None,
     budget: Optional[Any] = None,
     approval_gate: Optional[Any] = None,
+    tool_policy: Optional[Any] = None,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -146,5 +149,6 @@ def create_agent(
         subagents=subagent_map,
         budget=budget,
         approval_gate=approval_gate,
+        tool_policy=tool_policy,
         metadata=metadata,
     )

@@ -137,6 +137,34 @@ class Session:
             return reg
         return self.spec.tools
 
+    def _visible_tool_specs(self, step: int) -> list[ToolSpec]:
+        """Tools exposed to the model this turn: skill-scoped, then mask-policy.
+
+        Masking is dynamic (recomputed each step) and can only *hide* available
+        tools, never grant new ones. A misbehaving policy falls back to exposing
+        everything — masking must never break a run.
+        """
+        from .masking import MaskContext, apply_policy
+
+        reg = self._active_tools()
+        specs = reg.specs
+        policy = getattr(self.spec, "tool_policy", None)
+        if policy is None:
+            return specs
+        ctx = MaskContext(
+            step=step,
+            available=reg.names(),
+            messages=self.messages,
+            active_skill=self._active_skill.name if self._active_skill else None,
+        )
+        allowed = apply_policy(policy, ctx)
+        if allowed is None:
+            return specs
+        masked = [s for s in specs if s.name in allowed]
+        if len(masked) != len(specs):
+            self.tracer_event("tools_masked", step=step, visible=len(masked), total=len(specs))
+        return masked
+
     def _system_prompt(self) -> str:
         base = self.spec.build_system_prompt()
         if self._active_skill:
@@ -370,11 +398,14 @@ class Session:
         steps = 0
         stopped = "end_turn"
         spec = self.spec
-        tools: list[ToolSpec] = self._active_tools().specs
 
         while steps < spec.max_steps:
             steps += 1
-            with self.tracer.span("model.generate", step=steps, model=spec.model.name):
+            tools: list[ToolSpec] = self._visible_tool_specs(steps)
+            with self.tracer.span(
+                "model.generate",
+                **_genai_request_attrs(spec, step=steps, n_tools=len(tools)),
+            ) as sp:
                 resp: ModelResponse = await spec.model.generate(
                     self.messages,
                     system=self._system_prompt(),
@@ -383,6 +414,7 @@ class Session:
                     temperature=spec.temperature,
                     thinking_level=spec.thinking_level,
                 )
+            _set_genai_response_attrs(sp, resp)
             total = total + resp.usage
             self.messages.append(resp.message)
 
@@ -465,10 +497,10 @@ class Session:
             await self.start()
         self.messages.append(Message("user", text))
         spec = self.spec
-        tools = self._active_tools().specs
         steps = 0
         while steps < spec.max_steps:
             steps += 1
+            tools = self._visible_tool_specs(steps)
             yield StreamEvent("turn_start", {"step": steps})
             resp: Optional[ModelResponse] = None
             async for ev in spec.model.stream(
@@ -537,6 +569,37 @@ class Session:
         snap = record.get("fs_snapshot")
         if snap and isinstance(self.sandbox, VirtualSandbox):
             self.sandbox.fs.restore(snap)
+
+
+# ── OpenTelemetry GenAI semantic conventions ───────────────────────────────────
+# Span attributes follow the OTel `gen_ai.*` schema so Tvastar traces drop into
+# Braintrust / Honeycomb / Datadog dashboards without custom mapping.
+# https://opentelemetry.io/docs/specs/semconv/gen-ai/
+
+
+def _genai_request_attrs(spec: "AgentSpec", *, step: int, n_tools: int) -> dict[str, Any]:
+    attrs: dict[str, Any] = {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.system": getattr(spec.model, "system", "unknown"),
+        "gen_ai.request.model": spec.model.name,
+        "gen_ai.request.max_tokens": spec.max_tokens,
+        "gen_ai.request.temperature": spec.temperature,
+        # Tvastar-specific extras (kept namespaced so they don't clash):
+        "tvastar.step": step,
+        "tvastar.tools.visible": n_tools,
+    }
+    return attrs
+
+
+def _set_genai_response_attrs(span: Any, resp: "ModelResponse") -> None:
+    """Stamp gen_ai response attributes on the live model.generate span."""
+    try:
+        span.attributes["gen_ai.usage.input_tokens"] = resp.usage.input_tokens
+        span.attributes["gen_ai.usage.output_tokens"] = resp.usage.output_tokens
+        finish = getattr(resp.stop_reason, "value", str(resp.stop_reason))
+        span.attributes["gen_ai.response.finish_reasons"] = [finish]
+    except Exception:
+        pass  # tracing must never break a run
 
 
 # ── Structured result helpers ─────────────────────────────────────────────────

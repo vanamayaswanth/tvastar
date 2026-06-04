@@ -135,6 +135,35 @@ def empty_answer(ctx: RunContext, *, min_len: int = 1) -> list[Finding]:
     return []
 
 
+def prompt_injection(ctx: RunContext) -> list[Finding]:
+    """A tool result contains content that *looks like* a prompt-injection
+    attempt (e.g. "ignore previous instructions", a fake system turn, or a
+    request to exfiltrate secrets).
+
+    This is *detection, not prevention*: it surfaces suspicious tool output so a
+    human can look. To reduce the model acting on it, fence untrusted content
+    with :func:`tvastar.boundary.wrap_untrusted` when you feed it in.
+    """
+    from ..boundary import scan_for_injection
+
+    out = []
+    for ev in ctx.events:
+        if ev.result is None:
+            continue
+        hits = scan_for_injection(ev.result.content)
+        if hits:
+            out.append(
+                Finding(
+                    "prompt_injection",
+                    Severity.WARNING,
+                    f"tool '{ev.call.name}' returned content matching injection "
+                    f"patterns: {', '.join(hits)}",
+                    {"tool": ev.call.name, "patterns": hits, "excerpt": ev.result.content[:200]},
+                )
+            )
+    return out
+
+
 def step_limit(ctx: RunContext) -> list[Finding]:
     """The agent hit its step ceiling without finishing — likely incomplete."""
     if ctx.stopped == "max_steps":
@@ -156,6 +185,7 @@ def default_detectors() -> list:
         thrash_loop,
         ignored_tool_error,
         unverified_completion,
+        prompt_injection,
         empty_answer,
         step_limit,
     ]
