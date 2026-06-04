@@ -1,20 +1,26 @@
-"""FastAPI HTTP + WebSocket server for an agent.
+"""FastAPI HTTP + WebSocket + SSE server for an agent.
 
 Endpoints:
-    GET  /                      health + agent info
-    GET  /sessions              list known session ids
-    POST /sessions              create a session -> {session_id}
-    POST /sessions/{id}/prompt  {"text": "..."} -> {"text", "usage", "steps"}
-    WS   /sessions/{id}/stream  send {"text": "..."}, receive StreamEvent JSON
+    GET  /                          health + agent info
+    GET  /sessions                  list known session ids
+    POST /sessions                  create a session -> {session_id}
+    POST /sessions/{id}/prompt      {"text": "..."} -> {"text", "usage", "steps"}
+    WS   /sessions/{id}/stream      send {"text": "..."}, receive StreamEvent JSON
+    GET  /sessions/{id}/stream      SSE — ?text=... -> text/event-stream
 
-Requires ``tvastar[serve]``. Sessions live for the lifetime of the harness
+The SSE endpoint (GET /sessions/{id}/stream) lets browser clients and CLI tools
+stream agent responses without a WebSocket library. Each StreamEvent is emitted
+as a ``data: <json>`` SSE line. The stream ends with ``data: [DONE]``.
+
+Requires ``tvastar[serve]``.  Sessions live for the lifetime of the harness
 (durable checkpoints persist across restarts when a FileStore is used).
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 from ..agent import AgentSpec
 from ..harness import Harness
@@ -23,7 +29,8 @@ from ..memory.store import FileStore, Store
 
 def create_app(spec: AgentSpec, *, store: Optional[Store] = None) -> Any:
     try:
-        from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+        from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+        from fastapi.responses import StreamingResponse
         from pydantic import BaseModel
     except ImportError as e:  # pragma: no cover
         raise RuntimeError("Serving needs: uv pip install 'tvastar[serve]'") from e
@@ -33,6 +40,8 @@ def create_app(spec: AgentSpec, *, store: Optional[Store] = None) -> Any:
 
     class PromptIn(BaseModel):
         text: str
+
+    # ── Info / session management ─────────────────────────────────────────
 
     @app.get("/")
     def root() -> dict:
@@ -52,6 +61,8 @@ def create_app(spec: AgentSpec, *, store: Optional[Store] = None) -> Any:
     def new_session() -> dict:
         return {"session_id": harness.session().id}
 
+    # ── Non-streaming prompt ──────────────────────────────────────────────
+
     @app.post("/sessions/{sid}/prompt")
     async def prompt(sid: str, body: PromptIn) -> dict:
         sess = harness.resume(sid) or harness.session(session_id=sid)
@@ -65,8 +76,10 @@ def create_app(spec: AgentSpec, *, store: Optional[Store] = None) -> Any:
             "usage": asdict(result.usage),
         }
 
+    # ── WebSocket streaming ───────────────────────────────────────────────
+
     @app.websocket("/sessions/{sid}/stream")
-    async def stream(ws: WebSocket, sid: str) -> None:
+    async def ws_stream(ws: WebSocket, sid: str) -> None:
         await ws.accept()
         sess = harness.resume(sid) or harness.session(session_id=sid)
         await sess.start()
@@ -78,6 +91,48 @@ def create_app(spec: AgentSpec, *, store: Optional[Store] = None) -> Any:
                 await ws.send_json({"type": "done", "data": {}})
         except WebSocketDisconnect:
             await sess.close()
+
+    # ── SSE streaming ────────────────────────────────────────────────────
+
+    @app.get("/sessions/{sid}/stream")
+    async def sse_stream(sid: str, request: Request, text: str = "") -> StreamingResponse:
+        """Server-Sent Events endpoint.
+
+        Usage::
+
+            curl -N 'http://localhost:8000/sessions/sess_abc/stream?text=Hello'
+
+        Each event is a JSON-encoded StreamEvent::
+
+            data: {"type": "text_delta", "data": {"text": "Hello "}}
+            data: {"type": "turn_end", "data": {"text": "Hello world"}}
+            data: [DONE]
+        """
+        sess = harness.resume(sid) or harness.session(session_id=sid)
+
+        async def _event_generator() -> AsyncIterator[str]:
+            await sess.start()
+            try:
+                async for ev in sess.stream(text):
+                    if await request.is_disconnected():
+                        break
+                    payload = json.dumps({"type": ev.type, "data": ev.data})
+                    yield f"data: {payload}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as exc:
+                error = json.dumps({"type": "error", "data": {"message": str(exc)}})
+                yield f"data: {error}\n\n"
+                yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            _event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",  # nginx: disable response buffering
+                "Connection": "keep-alive",
+            },
+        )
 
     return app
 

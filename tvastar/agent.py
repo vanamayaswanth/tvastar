@@ -14,6 +14,7 @@ from .model.base import Model
 from .sandbox.base import Sandbox
 from .sandbox.virtual import VirtualSandbox
 from .skills.loader import Skill, SkillLibrary
+from .compaction import CompactionPolicy
 from .tools.base import Tool, ToolRegistry
 
 SandboxFactory = Callable[[], Sandbox]
@@ -30,8 +31,15 @@ class AgentSpec:
     max_steps: int = 20
     max_tokens: int = 4096
     temperature: float = 1.0
+    thinking_level: Optional[str] = None  # 'low' | 'medium' | 'high' | None
     #: failure detectors run after each run (empty list disables detection)
     detectors: list = field(default_factory=list)
+    #: optional auto-compaction policy (None = disabled)
+    compaction: Optional[CompactionPolicy] = None
+    #: optional harness-wide tool retry policy
+    tool_retry: Optional[Any] = None
+    #: named subagent profiles available for session.task(agent='name')
+    subagents: dict = field(default_factory=dict)  # name -> AgentProfile
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self) -> str:
@@ -41,6 +49,10 @@ class AgentSpec:
         if catalog:
             parts.append(catalog)
         return "\n\n".join(parts)
+
+    def get_subagent(self, name: str) -> Optional[Any]:
+        """Return a registered AgentProfile by name, or None."""
+        return self.subagents.get(name)
 
 
 def create_agent(
@@ -54,7 +66,11 @@ def create_agent(
     max_steps: int = 20,
     max_tokens: int = 4096,
     temperature: float = 1.0,
+    thinking_level: Optional[str] = None,
     detect: Union[bool, list, None] = True,
+    subagents: Optional[list] = None,
+    compaction: Optional[CompactionPolicy] = None,
+    tool_retry: Optional[Any] = None,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -67,8 +83,13 @@ def create_agent(
         skills: List of Skill objects or a SkillLibrary.
         sandbox: A Sandbox instance, a zero-arg factory, or None (VirtualSandbox).
         max_steps: Max model<->tool turns per prompt before stopping.
+        thinking_level: Reasoning effort for extended thinking models
+            ('low' | 'medium' | 'high'). None disables extended thinking.
         detect: Failure detection. ``True`` (default) uses the built-in suite,
             ``False``/``None`` disables it, or pass a custom list of detectors.
+        subagents: List of AgentProfile objects available for
+            session.task(agent='name') delegation.
+        compaction: Auto-compaction policy. None = disabled.
     """
     registry = ToolRegistry()
     for t in tools or []:
@@ -85,7 +106,6 @@ def create_agent(
     if sandbox is None:
         factory: SandboxFactory = VirtualSandbox
     elif isinstance(sandbox, Sandbox):
-        # Reuse the same instance across sessions (caller manages lifecycle).
         factory = lambda inst=sandbox: inst  # noqa: E731
     else:
         factory = sandbox
@@ -96,8 +116,12 @@ def create_agent(
         detectors = default_detectors()
     elif isinstance(detect, list):
         detectors = detect
-    else:  # False / None
+    else:
         detectors = []
+
+    subagent_map: dict[str, Any] = {}
+    for p in subagents or []:
+        subagent_map[p.name] = p
 
     return AgentSpec(
         name=name,
@@ -109,6 +133,10 @@ def create_agent(
         max_steps=max_steps,
         max_tokens=max_tokens,
         temperature=temperature,
+        thinking_level=thinking_level,
         detectors=detectors,
+        compaction=compaction,
+        tool_retry=tool_retry,
+        subagents=subagent_map,
         metadata=metadata,
     )

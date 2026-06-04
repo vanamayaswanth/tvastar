@@ -46,6 +46,12 @@ def main(argv: list[str] | None = None) -> int:
         if name in ("chat", "run"):
             p.add_argument("--trace", action="store_true", help="print trace spans")
 
+    logs_p = sub.add_parser("logs", help="inspect a workflow run by ID")
+    logs_p.add_argument("run_id", help="workflow run ID (e.g. run_abc123)")
+    logs_p.add_argument(
+        "--registry", default=".tvastar-runs", help="path to run registry directory"
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "info":
@@ -56,6 +62,10 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_run(args.agent, args.prompt, args.trace))
     if args.cmd == "chat":
         return asyncio.run(_chat(args.agent, args.trace))
+    if args.cmd == "logs":
+        from ..workflow import cli_logs
+
+        return cli_logs(args.run_id, args.registry)
     return 1
 
 

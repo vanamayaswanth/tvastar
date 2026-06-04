@@ -1,8 +1,21 @@
 """Anthropic (Claude) adapter — the default model provider.
 
-Requires the `anthropic` package: `uv add anthropic`. Translates Tvastar's
+Requires the ``anthropic`` package: ``uv add anthropic``. Translates Tvastar's
 provider-agnostic types to/from the Anthropic Messages API, including native
-tool use and streaming.
+tool use, streaming, and extended thinking.
+
+thinking_level mapping
+----------------------
+``None``     → no extended thinking (default)
+``'low'``    → ``budget_tokens=1024``
+``'medium'`` → ``budget_tokens=8000``
+``'high'``   → ``budget_tokens=16000``
+
+When extended thinking is enabled:
+  - ``temperature`` is forced to ``1.0`` (Anthropic requirement).
+  - The ``interleaved-thinking-2025-05-14`` beta header is added.
+  - ``thinking`` blocks in the response are silently stripped from public
+    blocks (they are not useful to the tool layer and inflate context).
 """
 
 from __future__ import annotations
@@ -30,6 +43,13 @@ _STOP_MAP = {
     "tool_use": StopReason.TOOL_USE,
     "max_tokens": StopReason.MAX_TOKENS,
     "stop_sequence": StopReason.STOP_SEQUENCE,
+}
+
+# budget_tokens per reasoning level
+_THINKING_BUDGET: dict[str, int] = {
+    "low": 1_024,
+    "medium": 8_000,
+    "high": 16_000,
 }
 
 
@@ -92,6 +112,7 @@ class AnthropicModel(Model):
                 blocks.append(TextBlock(text=b.text))
             elif b.type == "tool_use":
                 blocks.append(ToolUseBlock(id=b.id, name=b.name, input=dict(b.input)))
+            # thinking blocks (type="thinking") are intentionally dropped
         msg = Message("assistant", blocks)
         return ModelResponse(
             message=msg,
@@ -114,6 +135,18 @@ class AnthropicModel(Model):
             for t in (tools or [])
         ]
 
+    def _thinking_kwargs(self, thinking_level: Optional[str], temperature: float) -> dict[str, Any]:
+        """Return extra kwargs for extended thinking, or empty dict."""
+        if not thinking_level:
+            return {}
+        budget = _THINKING_BUDGET.get(thinking_level, _THINKING_BUDGET["medium"])
+        return {
+            "thinking": {"type": "enabled", "budget_tokens": budget},
+            # Anthropic requires temperature=1.0 when thinking is enabled
+            "temperature": 1.0,
+            "betas": ["interleaved-thinking-2025-05-14"],
+        }
+
     # ---- API ------------------------------------------------------------
 
     async def generate(
@@ -125,6 +158,7 @@ class AnthropicModel(Model):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         stop_sequences: Optional[list[str]] = None,
+        thinking_level: Optional[str] = None,
     ) -> ModelResponse:
         kwargs: dict[str, Any] = {
             "model": self._model,
@@ -138,8 +172,17 @@ class AnthropicModel(Model):
             kwargs["tools"] = self._tools(tools)
         if stop_sequences:
             kwargs["stop_sequences"] = stop_sequences
+
+        thinking_kw = self._thinking_kwargs(thinking_level, temperature)
+        # betas must be passed separately via the client, not as a kwarg
+        betas = thinking_kw.pop("betas", None)
+        kwargs.update(thinking_kw)
+
         try:
-            resp = await self._client.messages.create(**kwargs)
+            if betas:
+                resp = await self._client.beta.messages.create(betas=betas, **kwargs)
+            else:
+                resp = await self._client.messages.create(**kwargs)
         except Exception as e:  # pragma: no cover - network
             raise ModelError(f"Anthropic request failed: {e}") from e
         return self._from_anthropic(resp)
@@ -153,6 +196,7 @@ class AnthropicModel(Model):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         stop_sequences: Optional[list[str]] = None,
+        thinking_level: Optional[str] = None,
     ) -> AsyncIterator[StreamEvent]:
         kwargs: dict[str, Any] = {
             "model": self._model,
@@ -166,11 +210,22 @@ class AnthropicModel(Model):
             kwargs["tools"] = self._tools(tools)
         if stop_sequences:
             kwargs["stop_sequences"] = stop_sequences
+
+        thinking_kw = self._thinking_kwargs(thinking_level, temperature)
+        betas = thinking_kw.pop("betas", None)
+        kwargs.update(thinking_kw)
+
         try:
-            async with self._client.messages.stream(**kwargs) as stream:
-                async for text in stream.text_stream:
-                    yield StreamEvent("text_delta", {"text": text})
-                final = await stream.get_final_message()
+            if betas:
+                async with self._client.beta.messages.stream(betas=betas, **kwargs) as stream:
+                    async for text in stream.text_stream:
+                        yield StreamEvent("text_delta", {"text": text})
+                    final = await stream.get_final_message()
+            else:
+                async with self._client.messages.stream(**kwargs) as stream:
+                    async for text in stream.text_stream:
+                        yield StreamEvent("text_delta", {"text": text})
+                    final = await stream.get_final_message()
         except Exception as e:  # pragma: no cover - network
             yield StreamEvent("error", {"message": str(e)})
             raise ModelError(f"Anthropic stream failed: {e}") from e

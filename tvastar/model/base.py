@@ -31,8 +31,15 @@ class Model(abc.ABC):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         stop_sequences: Optional[list[str]] = None,
+        thinking_level: Optional[str] = None,
     ) -> ModelResponse:
-        """Produce a single assistant response."""
+        """Produce a single assistant response.
+
+        Args:
+            thinking_level: Reasoning effort hint — ``'low'``, ``'medium'``,
+                ``'high'``, or ``None`` (no extended thinking). Providers map
+                this to their native reasoning/thinking API.
+        """
         raise NotImplementedError
 
     async def stream(
@@ -44,12 +51,13 @@ class Model(abc.ABC):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         stop_sequences: Optional[list[str]] = None,
+        thinking_level: Optional[str] = None,
     ) -> AsyncIterator[StreamEvent]:
-        """Stream a response as events, ending with a `turn_end` carrying the
-        full ModelResponse in `data["response"]`.
+        """Stream a response as events, ending with a ``turn_end`` carrying the
+        full ModelResponse in ``data["response"]``.
 
-        Default implementation falls back to `generate` and emits the text as a
-        single delta. Providers may override for true token streaming.
+        Default implementation falls back to ``generate`` and emits the text as
+        a single delta. Providers may override for true token streaming.
         """
         resp = await self.generate(
             messages,
@@ -58,6 +66,7 @@ class Model(abc.ABC):
             max_tokens=max_tokens,
             temperature=temperature,
             stop_sequences=stop_sequences,
+            thinking_level=thinking_level,
         )
         for block in resp.message.blocks:
             if isinstance(block, TextBlock) and block.text:

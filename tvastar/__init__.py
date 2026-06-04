@@ -2,15 +2,11 @@
 
     Agent = Model + Harness
 
-Give a model instructions, tools, skills, memory, and a sandbox, and it does
-autonomous, goal-driven work — the harness architecture behind modern coding
-agents, brought to Python.
-
 Quick start::
 
     import asyncio
     from tvastar import create_agent, Harness, default_toolset
-    from tvastar.model import MockModel  # or AnthropicModel(...)
+    from tvastar.model import MockModel
 
     agent = create_agent(
         "assistant",
@@ -25,6 +21,7 @@ Quick start::
 from __future__ import annotations
 
 from .agent import AgentSpec, create_agent
+from .compaction import CompactionPolicy, compact_session, compact_messages, should_compact
 from .durable import Checkpointer
 from .errors import (
     ModelError,
@@ -61,7 +58,7 @@ from .sandbox import (
 )
 from .session import RunResult, Session
 from .skills import Skill, SkillLibrary, parse_skill
-from .tools import Tool, ToolContext, ToolRegistry, default_toolset, tool
+from .tools import Tool, ToolContext, ToolRegistry, ToolRetryPolicy, default_toolset, tool
 from .types import (
     Message,
     ModelResponse,
@@ -71,56 +68,77 @@ from .types import (
     ToolUseBlock,
     Usage,
 )
+from .workflow import (
+    Workflow,
+    WorkflowContext,
+    WorkflowHarness,
+    WorkflowRun,
+    RunEvent,
+    RunRegistry,
+    RunStatus,
+    workflow,
+    cli_logs as workflow_logs,
+)
+from .dispatch import (
+    DispatchInput,
+    DispatchEvent,
+    dispatch,
+    dispatch_and_wait,
+    observe_dispatch,
+    cancel_dispatch,
+    list_active_dispatches,
+)
+from .profiles import AgentProfile, define_agent_profile, MAX_TASK_DEPTH
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 __all__ = [
-    # core
     "create_agent",
     "AgentSpec",
     "Harness",
     "Session",
     "RunResult",
-    # model
+    "workflow",
+    "Workflow",
+    "WorkflowContext",
+    "WorkflowHarness",
+    "WorkflowRun",
+    "RunEvent",
+    "RunRegistry",
+    "RunStatus",
+    "workflow_logs",
     "Model",
     "MockModel",
-    # tools
     "tool",
     "Tool",
     "ToolContext",
     "ToolRegistry",
+    "ToolRetryPolicy",
     "default_toolset",
-    # skills
     "Skill",
     "SkillLibrary",
     "parse_skill",
-    # sandbox
     "Sandbox",
     "VirtualSandbox",
     "LocalSandbox",
     "SecurityPolicy",
     "ExecResult",
-    # memory + durable
     "Store",
     "InMemoryStore",
     "FileStore",
     "Memory",
     "Checkpointer",
-    # MCP
     "MCPClient",
     "connect_mcp_server",
-    # failure detection
     "Finding",
     "Severity",
     "RunContext",
     "default_detectors",
     "run_detectors",
-    # observability
     "Tracer",
     "ConsoleExporter",
     "JSONLExporter",
     "OTelExporter",
-    # types
     "Message",
     "ModelResponse",
     "TextBlock",
@@ -128,7 +146,6 @@ __all__ = [
     "ToolResultBlock",
     "StreamEvent",
     "Usage",
-    # errors
     "TvastarError",
     "ModelError",
     "ToolError",
@@ -136,4 +153,21 @@ __all__ = [
     "SkillError",
     "SandboxError",
     "SecurityViolation",
+    # compaction
+    "CompactionPolicy",
+    "compact_session",
+    "compact_messages",
+    "should_compact",
+    # profiles / subagents
+    "AgentProfile",
+    "define_agent_profile",
+    "MAX_TASK_DEPTH",
+    # dispatch
+    "dispatch",
+    "dispatch_and_wait",
+    "DispatchInput",
+    "DispatchEvent",
+    "observe_dispatch",
+    "cancel_dispatch",
+    "list_active_dispatches",
 ]

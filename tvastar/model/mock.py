@@ -45,6 +45,7 @@ class MockModel(Model):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         stop_sequences: Optional[list[str]] = None,
+        thinking_level: Optional[str] = None,
     ) -> ModelResponse:
         self.calls.append(list(messages))
 
@@ -56,7 +57,8 @@ class MockModel(Model):
         # No more scripted items: end the turn with a canned summary.
         last_user = next((m for m in reversed(messages) if m.role == "user"), None)
         snippet = (last_user.text[:160] if last_user else "").strip()
-        text = f"[mock] Acknowledged: {snippet}" if snippet else "[mock] Done."
+        thinking_note = f" [thinking={thinking_level}]" if thinking_level else ""
+        text = f"[mock] Acknowledged: {snippet}{thinking_note}" if snippet else "[mock] Done."
         return ModelResponse(
             message=Message("assistant", [TextBlock(text=text)]),
             stop_reason=StopReason.END_TURN,

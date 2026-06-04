@@ -48,7 +48,9 @@ GitHub Action:
 
 The framework underneath (Tvastar) is a zero-dependency "agent = model + harness"
 core: pluggable models/sandboxes, Markdown skills, MCP client, durable
-checkpoint/resume, and the silent-failure detection that powers the verify step.
+checkpoint/resume, workflows, sub-agents, structured output, extended thinking,
+auto-compaction, tool retries, and the silent-failure detection that powers the
+verify step.
 
 Repo: https://github.com/vanamayaswanth/tvastar
 PyPI: https://pypi.org/project/tvastar/
@@ -72,7 +74,8 @@ sandbox with **no Docker**, and works with free models (Groq tier / local
 Ollama) or any OpenAI-compatible endpoint.
 
 It's the first app built on Tvastar, a small zero-dependency agent framework I
-wrote (pluggable models/sandboxes, MCP, durable runs, silent-failure detection).
+wrote (pluggable models/sandboxes, MCP, workflows, sub-agents, structured
+output, durable runs, silent-failure detection).
 
 Repo + docs: https://github.com/vanamayaswanth/tvastar
 

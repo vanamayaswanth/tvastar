@@ -6,6 +6,32 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-04
+
+### Added
+
+- **Workflows** (`@workflow`, `Workflow`, `WorkflowContext`, `WorkflowHarness`,
+  `WorkflowRun`, `RunRegistry`, `RunStatus`) — code-guided agent automations with
+  a persistent run history.
+- **Dispatch** (`dispatch`, `dispatch_and_wait`, `observe_dispatch`,
+  `cancel_dispatch`, `DispatchInput`, `DispatchEvent`) — fire-and-observe agent
+  invocations for event-driven / webhook use.
+- **Sub-agent profiles** (`define_agent_profile`, `AgentProfile`,
+  `create_agent(subagents=...)`, `session.task(agent="name")`) — delegate work to
+  named specialists in isolated child sessions, capped at `MAX_TASK_DEPTH` (4).
+- **Structured output** — pass `result=` (Pydantic v2/v1, dataclass, `dict`, or
+  any callable) to `prompt`/`skill`/`task` and read the validated object from
+  `RunResult.data`.
+- **Extended thinking** — `create_agent(thinking_level="low"|"medium"|"high")`,
+  mapped per provider (Anthropic `budget_tokens`, OpenAI `reasoning_effort`).
+- **Auto-compaction** (`CompactionPolicy`, `compact_session`, `should_compact`)
+  — keep long sessions under a token/message budget automatically.
+- **Tool retries** (`ToolRetryPolicy`) — per-tool (`@tool(retry=...)`) or
+  harness-wide (`create_agent(tool_retry=...)`), with backoff + jitter.
+- **`Harness.fan_out([...])`** — run many prompts concurrently with an optional
+  concurrency cap.
+- Expanded docs and the test suite (77 tests).
+
 ## [0.2.0] — 2026-06-04
 
 ### Added
@@ -55,6 +81,7 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/vanamayaswanth/tvastar/releases/tag/v0.1.0

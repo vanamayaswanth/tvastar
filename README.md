@@ -1,379 +1,554 @@
 # Tvastar
 
-**Build code-executing AI agents that run anywhere — no Docker required.**
+**A Python agent harness framework. `Agent = Model + Harness`.**
 
-> `Agent = Model + Harness`
-
-Tvastar gives a language model everything it needs to do real, autonomous
-work — tools, skills, memory, and a safe place to run code — and gets out of
-your way. You describe the agent; Tvastar runs the loop.
-
-Here's the whole idea in ten lines:
+```bash
+pip install tvastar
+```
 
 ```python
 import asyncio
 from tvastar import create_agent, Harness, default_toolset
-from tvastar.model import MockModel  # swap for a real model when you have a key
+from tvastar.model import AnthropicModel
 
 agent = create_agent(
     "assistant",
-    model=MockModel(),                 # runs offline, no API key
+    model=AnthropicModel("claude-opus-4-6"),
     instructions="You are a helpful coding agent.",
-    tools=default_toolset(),           # bash, read/write/edit, grep, glob
+    tools=default_toolset(),           # bash, read, write, edit, grep, glob
 )
-print(asyncio.run(Harness(agent).run("Create hello.py and run it.")))
+result = asyncio.run(Harness(agent).run("Write hello.py and run it."))
+print(result.text)
 ```
 
-### Why you might like it
+No Docker. No containers. Zero core dependencies. Real code execution out of the box.
 
-- 🏖️ **Run code with no setup.** Agents can write *and run real code* in an
-  in-memory sandbox using the Python you already have — **no Docker, no
-  containers, nothing to install.** Want stronger isolation later? Switch to a
-  local, Docker, or remote sandbox by changing **one line**.
-- 🪶 **Tiny and fast.** The core has **zero third-party dependencies** and
-  installs in about a second. Model providers and the web server are optional
-  extras you add only if you want them.
-- ♻️ **It remembers.** The conversation *and* the files are saved after every
-  step, so a long-running agent can survive a crash and pick up where it left off.
-- 🔌 **Swap any piece.** Model, sandbox, storage, and tracing are all
-  pluggable — your agent code never changes.
-- 🌐 **Talks to the MCP ecosystem.** Connect to any Model Context Protocol
-  server — local or remote — and its tools just show up as your agent's tools.
-- 🕵️ **Catches silent failures.** Tvastar notices when an agent *says* it
-  succeeded but didn't (e.g. "all tests pass" over a failing run).
-- 🚀 **Deploys anywhere.** The same agent runs as a web service, an AWS Lambda,
-  a GitHub Action, a container, or any serverless function.
-- 🛠️ **Ships a real app:** [`tvastar-fix`](#-tvastar-fix--auto-fix-failing-tests),
-  a command + GitHub Action that auto-fixes your failing tests.
+---
 
-Want to see something fun? Watch an agent fix its own failing tests:
+## How it works
 
-```bash
-uv run python examples/self_healing_agent.py
+```
+create_agent(...)  →  AgentSpec          (what the agent is — immutable)
+Harness(spec)      →  Harness            (how it runs — stateful)
+harness.run(...)   →  RunResult          (one prompt, one answer)
+harness.session()  →  Session            (multi-turn conversation)
+```
+
+Inside every `run()` or `prompt()`, the agent loop looks like this:
+
+```
+User message
+    ↓
+Model generates response
+    ↓
+  ┌─ stop_reason == TOOL_USE? ──────────────────────────────────┐
+  │                                                             │
+  │   Execute all requested tools (concurrently)               │
+  │   Feed results back to model                               │
+  │   Auto-compact context if policy threshold hit             │
+  │   Checkpoint to durable store                              │
+  │   Loop ────────────────────────────────────────────────────┘
+  │
+  └─ END_TURN → RunResult(.text, .messages, .usage, .steps, .data)
 ```
 
 ---
 
-## When should I use Tvastar?
-
-Tvastar is a good fit when you want an agent that **does things** — runs code,
-edits files, calls tools — not just chats. Reach for it when you value a small,
-readable dependency-light core you can actually understand, want to run
-code-executing agents **without standing up Docker**, or need crash-safe,
-resumable runs.
-
-It's probably **not** what you want if you only need a single chat completion
-(call the model SDK directly), or if you need a large prebuilt ecosystem of
-integrations and a managed platform today.
-
-| If you want… | Tvastar's take |
-|---|---|
-| Run agent-written code with **no container/setup** | In-memory sandbox runs real Python out of the box; swap to Docker/remote with one line |
-| A **tiny, auditable** core | Zero third-party deps in the core; everything else is an optional extra |
-| **Pick any model** | Anthropic, OpenAI, or any OpenAI-compatible endpoint (Groq, Ollama, Cloudflare…) — often no new code |
-| **Long-running / unattended** agents | Transcript + filesystem checkpointed every step; resume after a crash |
-| Catch **silent failures** | Built-in detectors flag "claimed success but didn't," bad tool args, loops |
-| **Deploy the same agent anywhere** | One definition → web service, Lambda, GitHub Action, container, FaaS |
-| Use the **MCP** tool ecosystem | Built-in client for local stdio and remote HTTP MCP servers |
-
-## Why a "harness," not an SDK?
-
-Early LLM apps were a single API call wrapped around a chatbot. Modern agents
-are different: you give them a **goal**, not step-by-step instructions, and they
-figure out how to reach it using the tools and environment you provide. The
-harness is everything around the model that makes that autonomy possible:
-
-```
-┌─────────────────────────────────────────┐
-│  Harness   skills · memory · sessions    │
-│ ┌───────────────────────────────────────┤
-│ │ Model    tokens · tools · prompts      │
-│ └───────────────────────────────────────┤
-│  Sandbox   bash · security · networking  │
-│  Filesystem  read · write · grep · glob  │
-└─────────────────────────────────────────┘
-```
-
 ## Install
 
-Tvastar uses [uv](https://docs.astral.sh/uv/).
-
 ```bash
-uv venv
-uv pip install -e .            # core only, zero deps
-uv pip install -e ".[anthropic]"   # + Claude
-uv pip install -e ".[openai]"      # + OpenAI / OpenAI-compatible providers
-uv pip install -e ".[serve]"       # + HTTP/WebSocket server
-uv pip install -e ".[otel]"        # + OpenTelemetry tracing export
-uv pip install -e ".[all,dev]"     # everything + test tooling
+pip install tvastar                      # core only — zero deps
+pip install "tvastar[anthropic]"         # + Claude models
+pip install "tvastar[openai]"            # + OpenAI / Groq / Ollama / etc.
+pip install "tvastar[serve]"             # + HTTP server (FastAPI)
+pip install "tvastar[otel]"              # + OpenTelemetry tracing
+pip install "tvastar[all]"              # everything
 ```
 
-> The core has **no third-party dependencies**. Provider SDKs (`anthropic`,
-> `openai`), the web server (`serve`), and OpenTelemetry (`otel`) are optional
-> extras — imported lazily, so the import only fails if you actually use a
-> feature whose extra isn't installed. (That "import could not be resolved"
-> squiggle in your editor just means the optional package isn't in your venv.)
+---
 
-## Quick start
+## Core concepts
 
-```python
-import asyncio
-from tvastar import create_agent, Harness, default_toolset, tool
-from tvastar.model import MockModel  # swap for AnthropicModel(...) with a key
+| Thing | What it is |
+|-------|-----------|
+| `AgentSpec` | Immutable declaration: model + tools + instructions + policies |
+| `Harness` | Stateful runtime: runs an AgentSpec across sessions |
+| `Session` | One conversation thread with its own message history |
+| `Tool` | A Python function the model can call (schema auto-derived) |
+| `Skill` | A Markdown file of reusable expertise, loaded on demand |
+| `Sandbox` | Where code runs — virtual (in-memory), local, or Docker |
+| `RunResult` | What you get back: `.text`, `.data`, `.usage`, `.steps`, `.ok` |
 
-@tool
-def add(a: int, b: int) -> int:
-    "Add two numbers."
-    return a + b
+---
 
-agent = create_agent(
-    "assistant",
-    model=MockModel(),                 # offline; no API key needed
-    instructions="You are a helpful coding agent.",
-    tools=[*default_toolset(), add],   # bash/read/write/edit/grep/glob + yours
-)
+## Models
 
-harness = Harness(agent)
-result = asyncio.run(harness.run("Create hello.py that prints hi, then run it."))
-print(result.text)
-```
-
-### With a real model
+### Anthropic (Claude)
 
 ```python
 from tvastar.model import AnthropicModel
-agent = create_agent("dev", model=AnthropicModel("claude-opus-4-8"), tools=default_toolset())
+
+model = AnthropicModel("claude-opus-4-6")   # ANTHROPIC_API_KEY env var
+model = AnthropicModel("claude-sonnet-4-6", api_key="sk-ant-...")
 ```
 
-Set `ANTHROPIC_API_KEY` in your environment (or pass `api_key=`).
-
-### Other providers (Cloudflare Workers AI, Groq, Ollama, …)
-
-The `Model` interface is the single extension point. Two ways to use a provider
-that isn't built in:
-
-**1. OpenAI-compatible endpoint (easiest).** Cloudflare Workers AI, Groq,
-Together, Fireworks, OpenRouter, Ollama, and vLLM all speak the OpenAI API —
-just point the built-in `OpenAIModel` at their `base_url` (tool calling works on
-models that support it):
+### OpenAI
 
 ```python
 from tvastar.model import OpenAIModel
 
-# Cloudflare Workers AI
-model = OpenAIModel(
-    model="@cf/meta/llama-3.1-8b-instruct",
-    base_url=f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1",
-    api_key=CF_API_TOKEN,
-)
-
-# Groq / Ollama / others — same pattern, different base_url:
-OpenAIModel(model="llama-3.1-8b-instant", base_url="https://api.groq.com/openai/v1", api_key=...)
-OpenAIModel(model="llama3.2", base_url="http://localhost:11434/v1", api_key="ollama")
+model = OpenAIModel("gpt-4o")               # OPENAI_API_KEY env var
 ```
 
-**2. A custom `Model` subclass (works for *any* HTTP API).** Subclass `Model`
-and implement `generate()`. See [examples/custom_provider.py](examples/custom_provider.py)
-for a complete, zero-dependency native Cloudflare Workers AI adapter:
+### Any OpenAI-compatible provider (Groq, Ollama, Cloudflare, Together…)
+
+```python
+model = OpenAIModel(
+    model="llama-3.1-8b-instant",
+    base_url="https://api.groq.com/openai/v1",
+    api_key="gsk_...",
+)
+
+# Local Ollama — completely free, no API key
+model = OpenAIModel(model="llama3.2", base_url="http://localhost:11434/v1", api_key="ollama")
+```
+
+### Extended thinking (reasoning models)
+
+```python
+agent = create_agent(..., thinking_level="high")
+# Anthropic: budget_tokens=16000  (low=1024, medium=8000, high=16000)
+# OpenAI:    reasoning_effort='high'
+```
+
+### Mock (tests / offline dev)
+
+```python
+from tvastar.model import MockModel
+from tvastar.types import ToolUseBlock
+
+model = MockModel(["Hello!", ToolUseBlock(name="add", input={"a":1,"b":2}), "Done."])
+```
+
+### Custom provider
 
 ```python
 from tvastar.model import Model
-from tvastar import Message, ModelResponse
-from tvastar.types import StopReason, TextBlock
+from tvastar.types import Message, ModelResponse, StopReason, TextBlock
 
-class MyProvider(Model):
+class MyModel(Model):
     name = "my-provider"
     async def generate(self, messages, *, system=None, tools=None,
-                       max_tokens=4096, temperature=1.0, stop_sequences=None):
-        text = await call_my_api(messages, system)        # your HTTP call
-        return ModelResponse(Message("assistant", [TextBlock(text=text)]),
-                             stop_reason=StopReason.END_TURN)
+                       max_tokens=4096, temperature=1.0,
+                       stop_sequences=None, thinking_level=None) -> ModelResponse:
+        text = await my_api_call(messages)
+        return ModelResponse(
+            message=Message("assistant", [TextBlock(text=text)]),
+            stop_reason=StopReason.END_TURN,
+        )
 ```
 
-## Core concepts
+---
 
-| Concept       | What it is                                                        |
-|---------------|-------------------------------------------------------------------|
-| **Model**     | Provider-agnostic interface → Anthropic / OpenAI / Mock adapters. |
-| **Tool**      | A typed Python function (`@tool`); JSON schema is auto-derived.    |
-| **Skill**     | A Markdown file (frontmatter + instructions) loaded on demand.    |
-| **Sandbox**   | Where bash runs. Virtual (in-memory), Local (subprocess), or external (Docker / E2B / Daytona). |
-| **Session**   | One stateful conversation; runs the model↔tool loop.              |
-| **Harness**   | Manages models, sessions, memory, durability, tracing.            |
-| **Memory**    | Namespaced KV store (in-memory or JSON-on-disk).                  |
+## Tools
+
+```python
+from tvastar import tool, ToolRetryPolicy
+
+@tool
+def add(a: int, b: int) -> int:
+    "Add two integers."
+    return a + b
+
+# With retry (for flaky network calls)
+@tool(retry=ToolRetryPolicy(max_attempts=3, backoff_base=0.5))
+async def call_api(url: str) -> str:
+    "Fetch a URL."
+    ...
+
+# Access session context (sandbox, filesystem, memory)
+@tool
+async def save(path: str, content: str, ctx: ToolContext) -> str:
+    "Save a file."
+    ctx.filesystem.write(path, content)
+    return "saved"
+```
+
+Built-in tools via `default_toolset()`: `bash`, `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `list_files`.
+
+**Harness-wide retry** — applies to all tools that don't have their own policy:
+
+```python
+agent = create_agent(..., tool_retry=ToolRetryPolicy(max_attempts=3))
+```
+
+---
+
+## Sessions
+
+```python
+harness = Harness(agent)
+
+# One-shot
+result = await harness.run("Summarise this document.")
+
+# Multi-turn (stateful)
+sess = harness.session()
+async with sess:
+    await sess.prompt("Read report.txt")
+    await sess.prompt("Now write a 3-bullet summary")
+    result = await sess.prompt("Translate the summary to Spanish")
+
+# Named sessions (for parallel branches)
+branch_a = harness.session("review-api")
+branch_b = harness.session("review-auth")
+results = await asyncio.gather(
+    branch_a.prompt("Review the API layer"),
+    branch_b.prompt("Review the auth layer"),
+)
+```
+
+---
+
+## Structured output
+
+Get back a typed object instead of raw text:
+
+```python
+from pydantic import BaseModel
+
+class Report(BaseModel):
+    summary: str
+    issues: list[str]
+    severity: str
+
+result = await sess.prompt("Analyse this code and return a report.", result=Report)
+report: Report = result.data          # validated Pydantic instance
+print(report.severity)
+```
+
+Works with Pydantic v2, Pydantic v1, dataclasses, plain `dict`, or any callable validator.
+
+---
+
+## Delegating to specialist sub-agents
+
+Define named specialist profiles, then delegate tasks to them:
+
+```python
+from tvastar import create_agent, define_agent_profile
+
+reviewer = define_agent_profile(
+    name="reviewer",
+    description="Reviews code for security and correctness.",
+    instructions="Report only issues with a reproducible failure scenario.",
+    thinking_level="high",
+    max_steps=10,
+)
+
+agent = create_agent(
+    "coordinator",
+    model=model,
+    subagents=[reviewer],
+    tools=default_toolset(),
+)
+
+sess = harness.session()
+async with sess:
+    result = await sess.task(
+        "Review the auth package for security issues.",
+        agent="reviewer",          # runs in isolated child session
+        cancel_after=60.0,         # timeout in seconds
+        result=ReviewReport,       # structured output
+    )
+```
+
+Task delegation is capped at **4 levels deep** (`MAX_TASK_DEPTH`) to prevent runaway recursion.
+
+---
+
+## Parallel fan-out
+
+Run multiple prompts concurrently with one call:
+
+```python
+results = await harness.fan_out([
+    "Summarise chapter 1",
+    "Summarise chapter 2",
+    {
+        "prompt": "Summarise chapter 3",
+        "agent": "summariser",       # use a specialist profile
+        "cancel_after": 30.0,
+        "result": SummarySchema,
+    },
+], concurrency=4)                    # optional semaphore cap
+
+for r in results:
+    print(r.text)
+```
+
+---
+
+## Workflows — durable, inspectable operations
+
+Wrap multi-step agent work with a run ID, event log, and persistent history:
+
+```python
+from tvastar import workflow
+from tvastar.workflow import WorkflowContext
+
+@workflow
+async def summarise_document(ctx: WorkflowContext) -> dict:
+    ctx.log.info("Starting summarisation", doc=ctx.payload["path"])
+    harness = await ctx.init(agent)
+    sess = await harness.session()
+    result = await sess.prompt(f"Summarise {ctx.payload['path']}")
+    return {"summary": result.text, "steps": result.steps}
+
+# Run it
+run = await summarise_document.run({"path": "report.pdf"})
+print(run.run_id)       # 'run_a3f9b2...'
+print(run.status)       # RunStatus.COMPLETED
+print(run.output)       # {'summary': '...', 'steps': 3}
+
+# Inspect history
+for past_run in summarise_document.list_runs():
+    print(past_run.run_id, past_run.status, past_run.started_at)
+```
+
+Persist across restarts with a file-backed registry:
+
+```python
+from tvastar.workflow import RunRegistry
+registry = RunRegistry.file_backed(".tvastar-runs")
+
+@workflow(registry=registry)
+async def my_flow(ctx): ...
+```
+
+---
+
+## Event-driven / async dispatch
+
+For chat bots, webhooks, and queue processors — respond immediately, run the agent in the background:
+
+```python
+from tvastar import dispatch, dispatch_and_wait, observe_dispatch, DispatchInput
+
+# Fire and forget — returns a dispatch_id, agent runs in background
+dispatch_id = await dispatch(
+    agent,
+    id="user_123",                          # identifies the conversation thread
+    input=DispatchInput(text=message_text, type="chat.message"),
+    on_complete=lambda r: send_reply(r.text),
+    on_error=lambda e: send_error(str(e)),
+    cancel_after=30.0,
+)
+
+# Fire and await (when you need the result in the same context)
+result = await dispatch_and_wait(agent, id="job_456", text="Process this report.")
+
+# Watch all dispatches globally (for logging, metrics, etc.)
+observe_dispatch(lambda event: logger.info(event.type, extra=event.data))
+```
+
+Agents with the same `id` share a Harness — conversation history accumulates naturally across multiple dispatches.
+
+---
+
+## Context compaction
+
+Prevent context window exhaustion in long-running sessions:
+
+```python
+from tvastar import CompactionPolicy
+
+agent = create_agent(
+    "long-runner",
+    model=model,
+    compaction=CompactionPolicy(
+        max_messages=40,    # compact when history exceeds 40 messages
+        keep_last=10,       # always keep the 10 most recent messages
+        min_messages=20,    # don't compact below this floor
+    ),
+)
+# Compaction fires automatically after tool turns — the model never notices.
+```
+
+Manual compaction:
+
+```python
+from tvastar import compact_session
+await compact_session(session, force=True)
+```
+
+---
 
 ## Skills
 
-Skills are reusable expertise packages — a Markdown file with a bit of
-frontmatter that the agent loads on demand:
+Skills are reusable agent expertise defined in Markdown:
 
 ```markdown
+<!-- skills/code-reviewer.md -->
 ---
 name: code-reviewer
-description: Review a diff for bugs and style issues
+description: Review a diff for bugs and style
 tools: [read_file, grep]
 ---
 
-You are a meticulous code reviewer. Read the changed files, then report
-concrete, actionable issues grouped by severity.
+You are a meticulous code reviewer. Inspect changed files carefully.
+Report only concrete, actionable issues with file+line references.
 ```
 
 ```python
 from tvastar import SkillLibrary
-agent = create_agent("dev", model=m, skills=SkillLibrary.from_dirs("skills/"))
-# later, in a session:
-await session.skill("code-reviewer", "Review the changes in src/")
+
+agent = create_agent("dev", model=model, skills=SkillLibrary.from_dirs("skills/"))
+
+async with sess:
+    result = await sess.skill("code-reviewer", "Review changes in src/auth/")
 ```
 
-## Sandboxes are pluggable
+---
+
+## Application-level file access
+
+Stage files before the agent runs, collect outputs after — without going through the model's tool layer:
+
+```python
+async with Harness(agent) as h:
+    # Write inputs
+    await h.fs.write_file("report.pdf", pdf_bytes)
+    await h.fs.write_file("instructions.txt", "Summarise the PDF.")
+
+    # Run agent
+    result = await h.run("Follow instructions.txt")
+
+    # Read outputs
+    summary = await h.fs.read_file("summary.md")
+    files = await h.fs.list_dir()
+```
+
+---
+
+## Sandboxes
 
 ```python
 from tvastar import VirtualSandbox, LocalSandbox, SecurityPolicy
-from tvastar.sandbox import DockerSandbox, RemoteSandbox  # external providers
 
-# in-memory, near-zero overhead (default)
-create_agent("a", model=m, sandbox=VirtualSandbox)
+# Default — in-memory, zero deps, near-zero overhead
+create_agent(..., sandbox=VirtualSandbox)
 
-# real bash, jailed to a dir, with an allowlist
-policy = SecurityPolicy(allowed_commands={"python", "ls", "cat"}, network=False)
-create_agent("a", model=m, sandbox=lambda: LocalSandbox("work", policy=policy))
-
-# container isolation via the docker CLI
-create_agent("a", model=m, sandbox=lambda: DockerSandbox("python:3.12-slim"))
-
-# any external provider (E2B, Daytona, Modal, ...) via a ~20-line client shim
-create_agent("a", model=m, sandbox=lambda: RemoteSandbox(MyProviderClient()))
+# Real bash, jailed to a directory
+policy = SecurityPolicy(allowed_commands={"python", "pytest", "ls"}, network=False)
+create_agent(..., sandbox=lambda: LocalSandbox("./workspace", policy=policy))
 ```
 
-## MCP — use the whole tool ecosystem
+---
 
-Connect an agent to any [Model Context Protocol](https://modelcontextprotocol.io)
-server and its tools become native Tvastar tools — indistinguishable from ones you
-wrote yourself. Works with **local stdio servers** and **remote HTTP servers**.
+## MCP — use any published tool server
 
 ```python
-from tvastar import create_agent, connect_mcp_server, default_toolset
+from tvastar import connect_mcp_server, default_toolset
 
-# Local stdio server (Tvastar spawns it as a subprocess):
-client = await connect_mcp_server(command="python", args=["my_server.py"])
+# Spawn a local server
+client = await connect_mcp_server(command="python", args=["my_mcp_server.py"])
 
-# ...or a remote HTTP server with auth:
-client = await connect_mcp_server(url="https://example.com/mcp",
-                                  headers={"Authorization": "Bearer …"})
+# Or connect to a remote one
+client = await connect_mcp_server(
+    url="https://api.example.com/mcp",
+    headers={"Authorization": "Bearer sk-..."},
+)
 
-agent = create_agent("a", model=m, tools=[*default_toolset(), *client.tools])
-# ... run the agent ...
+agent = create_agent("a", model=model, tools=[*default_toolset(), *client.tools])
+# ...
 await client.close()
 ```
 
-Try it against a real (pure-stdlib) MCP server:
+---
 
-```bash
-uv run python examples/mcp_agent.py
-```
-
-## Deploy anywhere
-
-Write the agent once; pick an entrypoint per platform.
-
-```python
-from tvastar.deploy import asgi_app, lambda_handler, serverless_handler, run_github_action
-from my_agent import agent
-
-app = asgi_app(agent)                 # Render / Fly / Railway / Cloud Run / CF Python Workers
-handler = lambda_handler(agent)       # AWS Lambda + API Gateway
-fn = serverless_handler(agent)        # GCP/Azure/Vercel functions: fn({"prompt": "..."})
-# GitHub Actions / GitLab CI: run_github_action(agent) reads INPUT_PROMPT, writes step outputs
-```
-
-Ready-to-use [`Dockerfile`](examples/deploy/Dockerfile) and
-[GitHub Actions workflow](.github/workflows/agent.yml) are included.
-
-## 🛠️ `tvastar-fix` — auto-fix failing tests
-
-Tvastar ships a real, useful application built on itself: a command (and a
-GitHub Action) that **fixes your failing test suite**. An agent reads the
-failures, edits the source, and iterates — then Tvastar **re-runs the tests
-itself** and reports success based on the real exit code, never the model's
-word. (An agent that fixes tests is only trustworthy if it can't lie about it.)
-
-```bash
-pip install tvastar
-
-# Pick a free model: Groq free tier, or local Ollama, or any provider key
-export GROQ_API_KEY=...            # or run `ollama serve`
-
-tvastar-fix                        # fixes ./ using `pytest -q`
-tvastar-fix --test-cmd "pytest tests/ -q" --check   # CI gate
-```
-
-It auto-selects a model (Groq → OpenAI → Anthropic → local Ollama) or takes any
-OpenAI-compatible endpoint via `--model/--base-url/--api-key`. It only touches
-your code when the tests actually pass afterward.
-
-**As a GitHub Action** — open a PR that fixes the build when CI goes red:
-
-```yaml
-- uses: vanamayaswanth/tvastar/action@v0.2.0
-  with:
-    test-command: "pytest -q"
-    groq-api-key: ${{ secrets.GROQ_API_KEY }}
-```
-
-A complete PR-opening workflow is in
-[examples/deploy/fix-tests-workflow.yml](examples/deploy/fix-tests-workflow.yml).
-
-## Durable execution
-
-The harness checkpoints the full transcript (and the virtual filesystem) after
-every turn. If the process dies, resume exactly where you left off:
+## Durable execution — survive crashes
 
 ```python
 from tvastar import Harness, FileStore
-harness = Harness(agent, store=FileStore(".state"))   # survives restarts
+
+harness = Harness(agent, store=FileStore(".tvastar-state"))
+# Checkpoints transcript + filesystem after every tool turn
+
+# On restart — pick up where you left off
 sess = harness.resume("sess_abc123") or harness.session()
 ```
 
-## Observability
+---
 
-```python
-from tvastar import Harness, Tracer, ConsoleExporter, JSONLExporter
-harness = Harness(agent, tracer=Tracer([ConsoleExporter(), JSONLExporter("trace.jsonl")]))
+## Serving over HTTP
+
+```bash
+pip install "tvastar[serve]"
+tvastar serve my_agent.py:agent --port 8000
 ```
 
-An `OTelExporter` bridges to OpenTelemetry when the SDK is installed
-(`pip install tvastar[otel]`).
+Endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Agent info |
+| `POST` | `/sessions` | Create session |
+| `POST` | `/sessions/{id}/prompt` | Send a message |
+| `WS` | `/sessions/{id}/stream` | WebSocket streaming |
+| `GET` | `/sessions/{id}/stream?text=...` | SSE streaming (browser-friendly) |
+
+SSE example — stream directly in the browser or with curl:
+
+```bash
+curl -N "http://localhost:8000/sessions/sess_abc/stream?text=Hello"
+# data: {"type": "text_delta", "data": {"text": "Hello"}}
+# data: {"type": "turn_end", "data": {"text": "Hello there!"}}
+# data: [DONE]
+```
+
+---
+
+## Observability and tracing
+
+```python
+from tvastar import Tracer, ConsoleExporter, JSONLExporter
+
+harness = Harness(agent, tracer=Tracer([
+    ConsoleExporter(),                  # human-readable to stderr
+    JSONLExporter("trace.jsonl"),       # machine-readable log
+]))
+```
+
+OpenTelemetry (Braintrust, Honeycomb, Datadog, Sentry, etc.):
+
+```bash
+pip install "tvastar[otel]"
+```
+
+```python
+from tvastar import OTelExporter
+harness = Harness(agent, tracer=Tracer([OTelExporter()]))
+```
+
+---
 
 ## Silent-failure detection
 
-The hardest agent bugs are *silent*: the run raises no exception, looks
-finished — but the agent quietly did the wrong thing (claimed "tests pass" over
-a red run, called a tool with bad arguments, got stuck in a loop). Tvastar runs a
-set of cheap, in-process detectors over every finished run and attaches what it
-finds to `RunResult.findings` — **no extra infrastructure, no dependencies.**
+Agents can silently do the wrong thing — claim success over a failing run, loop forever, call a tool with bad arguments. Tvastar detects these automatically:
 
 ```python
-result = await harness.run("Make the tests pass.")
+result = await harness.run("Fix all test failures.")
 
-if not result.ok:                  # clean end_turn AND no warnings/errors
-    for f in result.warnings:
-        print(f)                   # [error] unverified_completion: claims success but last tool result shows failure
+if not result.ok:                       # end_turn AND no warnings/errors
+    for finding in result.warnings:
+        print(f"[{finding.severity}] {finding.detector}: {finding.message}")
+# → [WARNING] unverified_completion: model claimed success but last tool result shows failures
 ```
 
-Built-in detectors (taxonomy informed by prior art in agent observability;
-implementation original): `unknown_tool`, `schema_mismatch`, `thrash_loop`,
-`ignored_tool_error`, `unverified_completion`, `empty_answer`, `step_limit`.
+Built-in detectors: `unknown_tool`, `schema_mismatch`, `thrash_loop`, `ignored_tool_error`, `unverified_completion`, `empty_answer`, `step_limit`.
 
-Tune or replace them per agent — `detect=True` (default), `detect=False`, or a
-custom list:
-
-```python
-from tvastar.detect import default_detectors, thrash_loop
-create_agent("a", model=m, detect=[thrash_loop])   # only this one
-create_agent("a", model=m, detect=False)           # off (zero overhead)
-```
-
-Writing your own detector is a function from a `RunContext` to findings:
+Write your own:
 
 ```python
 from tvastar.detect import Finding, Severity
@@ -383,57 +558,106 @@ def slow_run(ctx):
         return [Finding("slow_run", Severity.WARNING, "hit the step ceiling")]
     return []
 
-create_agent("a", model=m, detect=[*default_detectors(), slow_run])
+create_agent(..., detect=[*default_detectors(), slow_run])
 ```
 
-See it catch a lie:
+---
+
+## CLI
 
 ```bash
-uv run python examples/detect_silent_failure.py
+tvastar run   my_agent.py:agent "Write hello.py and run it"
+tvastar chat  my_agent.py:agent          # interactive REPL
+tvastar serve my_agent.py:agent          # HTTP + WebSocket server
+tvastar info  my_agent.py:agent          # print config
+tvastar logs  run_abc123                 # inspect a workflow run
 ```
 
-## Serving
+---
 
-Expose an agent over HTTP + WebSocket (needs `[serve]`):
+## `tvastar-fix` — auto-fix failing tests
+
+A real product built on Tvastar. An agent reads your test failures, edits the code, and iterates — then Tvastar **re-runs the suite itself** and only reports success on the real exit code. The agent can't lie.
 
 ```bash
-tvastar serve examples/coding_agent.py:agent --port 8000
+pip install tvastar
+export GROQ_API_KEY=...       # free tier works; or use local Ollama
+
+tvastar-fix                   # auto-detects test framework, fixes, verifies
+tvastar-fix --check           # CI mode — exit 1 if still failing
 ```
 
-Or the REPL:
+**GitHub Action:**
 
-```bash
-tvastar chat examples/coding_agent.py:agent
+```yaml
+- uses: vanamayaswanth/tvastar/action@v0.2.0
+  with:
+    test-command: "pytest -q"
+    groq-api-key: ${{ secrets.GROQ_API_KEY }}
 ```
+
+---
+
+## Deploy anywhere
+
+```python
+from tvastar.deploy import asgi_app, lambda_handler, serverless_handler
+from my_agent import agent
+
+app     = asgi_app(agent)           # FastAPI / Starlette — Fly, Render, Cloud Run
+handler = lambda_handler(agent)     # AWS Lambda + API Gateway
+fn      = serverless_handler(agent) # GCP / Azure / Vercel
+```
+
+---
 
 ## Project layout
 
 ```
 tvastar/
-  types.py          core dataclasses (Message, ToolUse, ...)
-  model/            Model interface + Anthropic/OpenAI/Mock adapters
-  tools/            @tool decorator, registry, schema gen, builtin tools
-  filesystem/       read/write/grep/glob (local + virtual)
-  sandbox/          base + virtual + local + external provider adapters
+  types.py          Core dataclasses — Message, ToolUse, ModelResponse, ...
+  agent.py          AgentSpec + create_agent()
+  harness.py        Harness + HarnessFS + fan_out()
+  session.py        Session + RunResult + the agent loop
+  model/            Model ABC + Anthropic / OpenAI / Mock adapters
+  tools/            @tool, ToolRegistry, ToolRetryPolicy, default_toolset()
   skills/           Markdown skill loader
-  memory/           KV stores + scoped Memory
-  mcp/              Model Context Protocol client (stdio + HTTP transports)
-  detect/           silent-failure detectors + mini JSON-schema validator
-  durable.py        checkpoint/resume
-  observability.py  tracing + exporters
-  session.py        the agent loop
-  harness.py        the top-level handle
-  agent.py          create_agent / AgentSpec
-  serving/          HTTP/WebSocket server + CLI
-  deploy/           ASGI / Lambda / GitHub Actions / FaaS adapters
+  sandbox/          VirtualSandbox / LocalSandbox / external adapters
+  memory/           InMemoryStore / FileStore / Memory (scoped KV)
+  profiles.py       AgentProfile, define_agent_profile(), MAX_TASK_DEPTH
+  workflow.py       @workflow, WorkflowContext, WorkflowRun, RunRegistry
+  dispatch.py       dispatch(), dispatch_and_wait(), observe_dispatch()
+  compaction.py     CompactionPolicy, compact_session()
+  durable.py        Checkpointer (checkpoint / resume)
+  observability.py  Tracer, Span, exporters
+  detect/           Silent-failure detectors
+  mcp/              MCP client (stdio + HTTP transports)
+  serving/          HTTP/WebSocket/SSE server + CLI
+  deploy/           ASGI / Lambda / GitHub Actions adapters
+  fix/              tvastar-fix application
 ```
+
+---
+
+## Full API reference
+
+See [docs/API.md](docs/API.md) for every public function, class, and field with full type signatures.
+
+See [docs/PATTERNS.md](docs/PATTERNS.md) for copy-paste recipes.
+
+See [CLAUDE.md](CLAUDE.md) for the AI-optimised codebase map (module contracts, data flow, dependency graph).
+
+---
 
 ## Testing
 
 ```bash
-uv run pytest
+pip install "tvastar[dev]"
+pytest
 ```
+
+---
 
 ## License
 
-MIT
+MIT — [vanamayaswanth/tvastar](https://github.com/vanamayaswanth/tvastar)

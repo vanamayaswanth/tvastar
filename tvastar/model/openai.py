@@ -1,7 +1,17 @@
 """OpenAI adapter — pluggable alternative provider.
 
-Requires the `openai` package: `uv add openai`. Maps Tvastar types to the
+Requires the ``openai`` package: ``uv add openai``. Maps Tvastar types to the
 Chat Completions API with tool calling.
+
+thinking_level mapping
+----------------------
+``None``     → no reasoning effort override (default behaviour)
+``'low'``    → ``reasoning_effort='low'``
+``'medium'`` → ``reasoning_effort='medium'``
+``'high'``   → ``reasoning_effort='high'``
+
+``reasoning_effort`` is an o-series model parameter. For non-reasoning models
+it is silently ignored by the API.
 """
 
 from __future__ import annotations
@@ -123,6 +133,7 @@ class OpenAIModel(Model):
         max_tokens: int = 4096,
         temperature: float = 1.0,
         stop_sequences: Optional[list[str]] = None,
+        thinking_level: Optional[str] = None,
     ) -> ModelResponse:
         kwargs: dict[str, Any] = {
             "model": self._model,
@@ -135,6 +146,9 @@ class OpenAIModel(Model):
             kwargs["tools"] = oa_tools
         if stop_sequences:
             kwargs["stop"] = stop_sequences
+        if thinking_level:
+            kwargs["reasoning_effort"] = thinking_level  # 'low' | 'medium' | 'high'
+
         try:
             resp = await self._client.chat.completions.create(**kwargs)
         except Exception as e:  # pragma: no cover - network
