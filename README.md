@@ -16,7 +16,7 @@ Tvastar's differentiator is production-safety infrastructure, not orchestration 
 
 **Not another SDK. A lightweight Python harness with just enough framework to be useful — and knows when to stay out of the way.**
 
-Define your agent once. Run it safely anywhere. Tvastar handles safe code execution, crash recovery, silent failure detection, and deploy-anywhere portability — without making you learn a new way to think about agents.
+Define your agent once. Run it safely anywhere. Tvastar handles safe code execution, crash recovery, silent failure detection, tool masking, prompt-injection detection, and deploy-anywhere portability — without making you learn a new way to think about agents.
 
 ```bash
 pip install tvastar
