@@ -89,8 +89,31 @@ from .dispatch import (
     list_active_dispatches,
 )
 from .profiles import AgentProfile, define_agent_profile, MAX_TASK_DEPTH
+from .eval import (
+    EvalSuite,
+    Case,
+    CaseResult,
+    EvalReport,
+    assert_contains,
+    assert_not_contains,
+    assert_ok,
+    assert_steps_under,
+    assert_json,
+    assert_pydantic,
+    assert_cost_under,
+    assert_custom,
+)
+from .cost import Cost, BudgetPolicy, BudgetExceeded, cost_for_model, COST_TABLE
+from .approval import (
+    ApprovalGate,
+    ApprovalRequest,
+    ApprovalDenied,
+    ApprovalTimeout,
+    require_approval,
+    set_default_gate,
+)
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"
 
 __all__ = [
     "create_agent",
@@ -170,4 +193,30 @@ __all__ = [
     "observe_dispatch",
     "cancel_dispatch",
     "list_active_dispatches",
+    # eval
+    "EvalSuite",
+    "Case",
+    "CaseResult",
+    "EvalReport",
+    "assert_contains",
+    "assert_not_contains",
+    "assert_ok",
+    "assert_steps_under",
+    "assert_json",
+    "assert_pydantic",
+    "assert_cost_under",
+    "assert_custom",
+    # cost tracking
+    "Cost",
+    "BudgetPolicy",
+    "BudgetExceeded",
+    "cost_for_model",
+    "COST_TABLE",
+    # approval gate
+    "ApprovalGate",
+    "ApprovalRequest",
+    "ApprovalDenied",
+    "ApprovalTimeout",
+    "require_approval",
+    "set_default_gate",
 ]

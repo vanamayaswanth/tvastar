@@ -6,6 +6,27 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-06-04
+
+### Added
+
+- **Cost tracking** — every `RunResult` now carries a `.cost` (model-priced from
+  token usage; see `COST_TABLE`).
+- **Budgets** — `create_agent(budget=BudgetPolicy(max_usd=...))` enforces a cost
+  ceiling during the run: `on_exceed="raise"` raises `BudgetExceeded`,
+  `on_exceed="stop"` ends the run cleanly with `stopped="budget"`.
+- **Human-in-the-loop approval** — `create_agent(approval_gate=ApprovalGate(...))`
+  is now exposed to tools via `ToolContext`; `require_approval(..., ctx=ctx)`
+  uses the agent's gate (CLI / webhook / event backends).
+- **Eval harness** — `EvalSuite` / `Case` with built-in checks; `Harness.run`
+  and `Session.prompt` now accept `cancel_after` (fixes eval timeouts).
+
+### Removed
+
+- **Semantic memory** (`tvastar.memory.semantic`) — dropped to keep the library
+  focused; it was unintegrated and TF-IDF "semantic" oversold what it did.
+  Bring your own vector store and wire it via a tool if you need retrieval.
+
 ## [0.3.2] — 2026-06-04
 
 ### Changed
@@ -95,7 +116,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.2.0...v0.3.0

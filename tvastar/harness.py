@@ -188,11 +188,25 @@ class Harness:
 
     # ---- convenience --------------------------------------------------------
 
-    async def run(self, prompt: str, *, session_id: Optional[str] = None) -> RunResult:
-        """One-shot: open a session, run a prompt, close it."""
+    async def run(
+        self,
+        prompt: str,
+        *,
+        session_id: Optional[str] = None,
+        result: Optional[Any] = None,
+        cancel_after: Optional[float] = None,
+    ) -> RunResult:
+        """One-shot: open a session, run a prompt, close it.
+
+        Args:
+            prompt: The user prompt.
+            session_id: Reuse/resume a specific session id.
+            result: Optional schema for structured output (see Session.prompt).
+            cancel_after: Optional timeout in seconds.
+        """
         s = self.session(session_id=session_id)
         async with s:
-            return await s.prompt(prompt)
+            return await s.prompt(prompt, result=result, cancel_after=cancel_after)
 
     async def fan_out(
         self,

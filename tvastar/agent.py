@@ -40,6 +40,10 @@ class AgentSpec:
     tool_retry: Optional[Any] = None
     #: named subagent profiles available for session.task(agent='name')
     subagents: dict = field(default_factory=dict)  # name -> AgentProfile
+    #: optional cost ceiling enforced during the run (None = unlimited)
+    budget: Optional[Any] = None  # BudgetPolicy
+    #: optional human-in-the-loop approval gate, exposed to tools via ctx
+    approval_gate: Optional[Any] = None  # ApprovalGate
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self) -> str:
@@ -71,6 +75,8 @@ def create_agent(
     subagents: Optional[list] = None,
     compaction: Optional[CompactionPolicy] = None,
     tool_retry: Optional[Any] = None,
+    budget: Optional[Any] = None,
+    approval_gate: Optional[Any] = None,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -138,5 +144,7 @@ def create_agent(
         compaction=compaction,
         tool_retry=tool_retry,
         subagents=subagent_map,
+        budget=budget,
+        approval_gate=approval_gate,
         metadata=metadata,
     )

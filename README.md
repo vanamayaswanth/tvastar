@@ -586,6 +586,122 @@ class MyModel(Model):
 
 ---
 
+## Evals — measure agent quality
+
+Know when your agent gets better or worse. Define test cases, run them, get a score.
+
+```python
+import asyncio
+from tvastar import EvalSuite, Case
+from tvastar.eval import assert_contains, assert_ok, assert_steps_under, assert_not_contains
+
+suite = EvalSuite(agent, concurrency=8)
+
+suite.add(Case(
+    name="writes valid Python",
+    prompt="Write a function that reverses a string",
+    checks=[
+        assert_contains("def"),
+        assert_contains("return"),
+        assert_ok(),
+        assert_steps_under(5),
+    ],
+))
+
+suite.add(Case(
+    name="does not hallucinate imports",
+    prompt="Write hello world in Python",
+    checks=[
+        assert_contains("print"),
+        assert_not_contains("import nonexistent"),
+    ],
+))
+
+report = asyncio.run(suite.run())
+report.print()
+# ============================================================
+# Eval Report  —  2/2 passed  (100%)
+# Duration: 3.2s
+# ============================================================
+#   ✓  writes valid Python  (2.1s)
+#   ✓  does not hallucinate imports  (1.1s)
+# ============================================================
+
+print(report.score)   # 1.0
+print(report.passed)  # 2
+```
+
+Run on every PR to catch regressions before they ship.
+
+---
+
+## Human-in-the-loop — require approval before dangerous actions
+
+Pause an agent run and wait for a human to approve before taking an irreversible action.
+
+```python
+from tvastar import tool
+from tvastar.approval import require_approval
+
+@tool
+async def deploy_to_production(environment: str, ctx) -> str:
+    """Deploy the current build to an environment."""
+    await require_approval(
+        f"Deploy to {environment!r}? This will affect live users.",
+        timeout=120,   # seconds to wait for a human response
+    )
+    return do_deploy(environment)
+```
+
+Three backends — pick the one that fits your stack:
+
+```python
+from tvastar.approval import ApprovalGate, set_default_gate
+
+# CLI — prints to terminal, reads stdin (default, good for development)
+set_default_gate(ApprovalGate(backend="cli"))
+
+# Webhook — POST to your app, resolve via HTTP callback
+gate = ApprovalGate(backend="webhook", webhook_url="https://myapp.com/approvals")
+set_default_gate(gate)
+
+# Event — you control resolution from outside the agent loop
+pending_requests = []
+gate = ApprovalGate(
+    backend="event",
+    on_request=lambda req: pending_requests.append(req),
+)
+# Later: pending_requests[0].approve() or .deny()
+```
+
+---
+
+## Cost tracking — know what every run costs
+
+```python
+from tvastar.cost import cost_for_model, BudgetPolicy, BudgetExceeded
+
+# Check cost for a model + token counts
+cost = cost_for_model("claude-opus-4-6", input_tokens=1000, output_tokens=500)
+print(f"${cost.usd:.4f}")   # $0.0525
+
+# Enforce a budget — raises BudgetExceeded if the run exceeds it
+agent = create_agent(
+    "assistant",
+    model=AnthropicModel("claude-opus-4-6"),
+    budget=BudgetPolicy(max_usd=0.50, on_exceed="stop"),
+)
+
+# Or check manually after a run
+result = await harness.run("Analyse this codebase")
+if hasattr(result, "cost"):
+    print(f"Run cost: ${result.cost.usd:.4f}")
+```
+
+Supported models with automatic pricing: Claude (all tiers), GPT-4o, GPT-4o-mini, o1, o3-mini, Llama via Groq, and more. Add custom rates to `COST_TABLE`.
+
+---
+
 ## Further reading
 
 - [API Reference](docs/API.md) — every public symbol, fully typed

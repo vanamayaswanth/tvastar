@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
+from .cost import Cost
 from .errors import ToolError, ToolNotFound
 from .memory.store import Memory
 from .observability import Tracer
@@ -55,9 +56,10 @@ class RunResult:
     messages: list[Message]
     usage: Usage
     steps: int
-    stopped: str = "end_turn"  # end_turn | max_steps | error
+    stopped: str = "end_turn"  # end_turn | max_steps | budget | error
     findings: list["Finding"] = field(default_factory=list)
     data: Optional[Any] = None  # populated when result= schema is used
+    cost: Optional[Cost] = None  # token cost for this run (model-priced)
 
     def __str__(self) -> str:
         return self.text
@@ -122,6 +124,7 @@ class Session:
             filesystem=self.sandbox.fs if self.sandbox else None,
             memory=self.memory,
             session=self,
+            approval_gate=getattr(self.spec, "approval_gate", None),
         )
 
     def _active_tools(self) -> ToolRegistry:
@@ -150,6 +153,7 @@ class Session:
         text: str,
         *,
         result: Optional[Any] = None,
+        cancel_after: Optional[float] = None,
     ) -> RunResult:
         """Send a user message and run the loop to completion.
 
@@ -158,6 +162,8 @@ class Session:
             result: Optional schema for structured output. Pass a callable
                     validator (e.g. a Pydantic model class) to validate and
                     parse the model's JSON response into ``RunResult.data``.
+            cancel_after: Optional timeout in seconds; raises asyncio.TimeoutError
+                    if the run exceeds it.
         """
         if not self._started:
             await self.start()
@@ -166,7 +172,10 @@ class Session:
             prompt_text = _inject_schema_instruction(text, result)
         self.messages.append(Message("user", prompt_text))
         with self.tracer.span("session.prompt", session=self.id, agent=self.spec.name):
-            run_result = await self._run_loop()
+            if cancel_after is not None:
+                run_result = await asyncio.wait_for(self._run_loop(), timeout=cancel_after)
+            else:
+                run_result = await self._run_loop()
         if result is not None:
             run_result.data = _parse_structured(run_result.text, result)
         return run_result
@@ -377,6 +386,15 @@ class Session:
             total = total + resp.usage
             self.messages.append(resp.message)
 
+            # enforce the cost budget against realized usage
+            budget = getattr(spec, "budget", None)
+            if budget is not None:
+                running = Cost(total.input_tokens, total.output_tokens, spec.model.name)
+                budget.check(running)  # raises BudgetExceeded when on_exceed='raise'
+                if budget.on_exceed == "stop" and running.usd >= budget.max_usd:
+                    stopped = "budget"
+                    break
+
             if resp.stop_reason != StopReason.TOOL_USE and not resp.tool_uses:
                 stopped = "end_turn"
                 break
@@ -397,6 +415,7 @@ class Session:
             usage=total,
             steps=steps,
             stopped=stopped,
+            cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
         )
         result.findings = self._detect(result)
         return result

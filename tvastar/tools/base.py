@@ -86,6 +86,7 @@ class ToolContext:
     filesystem: Optional["FileSystem"] = None
     memory: Any = None
     session: Any = None
+    approval_gate: Any = None  # the agent's ApprovalGate, if configured
     extra: dict[str, Any] = field(default_factory=dict)
 
 
