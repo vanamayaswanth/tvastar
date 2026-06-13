@@ -61,7 +61,7 @@ from .sandbox import (
 )
 from .session import RunResult, Session
 from .skills import Skill, SkillLibrary, parse_skill
-from .tools import Tool, ToolContext, ToolRegistry, ToolRetryPolicy, default_toolset, tool
+from .tools import Tool, ToolContext, ToolRegistry, ToolRetryPolicy, default_toolset, web_toolset, web_browse, web_search, tool
 from .types import (
     Message,
     ModelResponse,
@@ -119,7 +119,7 @@ from .bench import BenchSuite, BenchTask, BenchResult, BenchReport, swe_bench_ta
 from .ui import create_ui_app, run_ui
 from .graph import TaskGraph, GraphResult
 
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 __all__ = [
     "create_agent",
@@ -144,6 +144,9 @@ __all__ = [
     "ToolRegistry",
     "ToolRetryPolicy",
     "default_toolset",
+    "web_toolset",
+    "web_browse",
+    "web_search",
     "Skill",
     "SkillLibrary",
     "parse_skill",

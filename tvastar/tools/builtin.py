@@ -6,10 +6,15 @@ sandbox/filesystem the session is running with — virtual, local, or a remote
 container — without changing the tool code.
 
 Use :func:`default_toolset` to get them all as a list.
+Use :func:`web_toolset` to get the internet-access tools (browse + search).
 """
 
 from __future__ import annotations
 
+import asyncio
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Optional
 
 from .base import Tool, ToolContext, tool
@@ -127,3 +132,67 @@ def _fs(ctx: ToolContext):
 def default_toolset() -> list[Tool]:
     """All built-in tools as a list, ready to register."""
     return [bash, read_file, write_file, edit_file, list_files, glob_files, grep]
+
+
+# ---------------------------------------------------------------------------
+# Web tools — require internet access, no extra dependencies (stdlib urllib)
+# ---------------------------------------------------------------------------
+
+_JINA_READER = "https://r.jina.ai/"
+_JINA_SEARCH = "https://s.jina.ai/"
+_TIMEOUT = 20
+
+
+def _http_get(url: str, headers: dict) -> str:
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        return f"[http {e.code}] {e.reason}"
+    except Exception as e:
+        return f"[error] {e}"
+
+
+@tool
+async def web_browse(url: str, max_chars: int = 8000) -> str:
+    """Fetch a web page and return its content as clean markdown.
+
+    Uses Jina AI Reader (r.jina.ai) — no API key required.
+
+    Args:
+        url: Full URL to fetch (include https://).
+        max_chars: Truncate response to this many characters (default 8000).
+    """
+    target = _JINA_READER + url
+    headers = {
+        "Accept": "text/markdown",
+        "X-Retain-Images": "none",
+        "X-Timeout": str(_TIMEOUT - 2),
+    }
+    text = await asyncio.to_thread(_http_get, target, headers)
+    return text[:max_chars] if len(text) > max_chars else text
+
+
+@tool
+async def web_search(query: str, max_chars: int = 8000) -> str:
+    """Search the web and return top results as clean text.
+
+    Uses Jina AI Search (s.jina.ai) — no API key required.
+
+    Args:
+        query: Search query in plain English.
+        max_chars: Truncate response to this many characters (default 8000).
+    """
+    target = _JINA_SEARCH + urllib.parse.quote(query, safe="")
+    headers = {
+        "Accept": "text/markdown",
+        "X-Retain-Images": "none",
+    }
+    text = await asyncio.to_thread(_http_get, target, headers)
+    return text[:max_chars] if len(text) > max_chars else text
+
+
+def web_toolset() -> list[Tool]:
+    """Internet-access tools: web_browse + web_search (no API key, no extra deps)."""
+    return [web_browse, web_search]

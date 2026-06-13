@@ -6,6 +6,20 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-06-14
+
+### Added
+
+- **Web tools** (`web_browse`, `web_search`) — zero-dependency internet access for
+  agents using Jina AI Reader (`r.jina.ai`) and Jina AI Search (`s.jina.ai`). No
+  API key required. Both use stdlib `urllib` + `asyncio.to_thread`; no new package
+  dependencies.
+- **`web_toolset()`** — returns `[web_browse, web_search]`, composable with
+  `default_toolset()`: `tools=[*default_toolset(), *web_toolset()]`.
+- HTTP errors and network failures return a `[http N]` / `[error]` string instead
+  of raising, so the agent can handle failures gracefully.
+- `max_chars` parameter on both tools truncates long pages before they fill context.
+
 ## [0.8.0] — 2026-06-14
 
 ### Added

@@ -223,6 +223,32 @@ async def save(path: str, content: str, ctx: ToolContext) -> str:
 
 Built-in tools via `default_toolset()`: `bash`, `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `list_files`.
 
+Add internet access with `web_toolset()` — no API key, no extra dependencies:
+
+```python
+from tvastar import default_toolset, web_toolset
+
+agent = create_agent(
+    "researcher",
+    model=model,
+    tools=[*default_toolset(), *web_toolset()],
+)
+# Agent can now browse any URL and search the web
+```
+
+```python
+# Or use individually
+from tvastar import web_browse, web_search
+
+@tool
+async def my_tool(url: str) -> str:
+    return await web_browse.fn(url)
+```
+
+`web_browse(url)` fetches any page as clean markdown via [Jina AI Reader](https://r.jina.ai).
+`web_search(query)` returns top search results via [Jina AI Search](https://s.jina.ai).
+Both handle HTTP errors gracefully and accept a `max_chars` limit to protect context.
+
 Harness-wide retry — applies to all tools that do not have their own policy:
 
 ```python
