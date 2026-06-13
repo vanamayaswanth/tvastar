@@ -134,6 +134,7 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 | Agent loops on the same tool | Built-in loop detection |
 | Context grows past model limit | Automatic compaction and summarisation |
 | Audit what the agent actually did | Full transcript stored every run |
+| Inspect runs visually | Built-in trace viewer UI (`tvastar ui`) |
 | Flaky network tools fail mid-run | Per-tool retry with exponential backoff |
 | Run 100 prompts at once | Built-in parallel fan-out |
 | Stream tokens to the browser | SSE endpoint out of the box |
