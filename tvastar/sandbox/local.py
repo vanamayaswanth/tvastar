@@ -11,11 +11,16 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
 from ..filesystem.local import LocalFileSystem
-from .base import ExecResult, Sandbox, SecurityPolicy, _truncate
+from .base import AuditEntry, ExecResult, ResourcePolicy, Sandbox, SecurityPolicy, _truncate
+
+
+def _supports_ulimit() -> bool:
+    return sys.platform != "win32"
 
 
 class LocalSandbox(Sandbox):
@@ -24,13 +29,15 @@ class LocalSandbox(Sandbox):
         root: str | Path = ".tvastar-workspace",
         *,
         policy: Optional[SecurityPolicy] = None,
+        resources: Optional[ResourcePolicy] = None,
         shell: Optional[str] = None,
     ):
         self.fs = LocalFileSystem(root)
         self.root = self.fs.root
         self.policy = policy or SecurityPolicy()
-        # Use bash where available, else the platform default shell.
+        self.resources = resources or ResourcePolicy()
         self._shell = shell
+        self.audit: list[AuditEntry] = []
 
     async def exec(
         self,
@@ -40,19 +47,33 @@ class LocalSandbox(Sandbox):
         cwd: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> ExecResult:
-        self.policy.check(cmd)
-        timeout = timeout or self.policy.timeout_seconds
+        # Security check first — log blocked commands
+        try:
+            self.policy.check(cmd)
+        except Exception as exc:
+            self.audit.append(AuditEntry.blocked(cmd, str(exc)))
+            raise
+
+        # Resource limits: caller timeout wins if tighter than resource policy
+        cpu_limit = self.resources.max_cpu_seconds
+        effective_timeout = min(t for t in [timeout, self.policy.timeout_seconds, cpu_limit] if t)
         workdir = self.root if not cwd else (self.root / cwd).resolve()
 
         run_env = dict(os.environ)
         if not self.policy.network:
-            # Best-effort: many tools honor these to avoid egress.
             run_env.update({"http_proxy": "", "https_proxy": "", "no_proxy": "*"})
         if env:
             run_env.update(env)
 
+        # Memory limit via ulimit on Linux/macOS (silent no-op on Windows)
+        actual_cmd = cmd
+        if self.resources.max_memory_mb is not None and _supports_ulimit():
+            kb = self.resources.max_memory_mb * 1024
+            actual_cmd = f"ulimit -v {kb} 2>/dev/null; {cmd}"
+
+        t0 = time.monotonic()
         proc = await asyncio.create_subprocess_shell(
-            cmd,
+            actual_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(workdir),
@@ -60,18 +81,24 @@ class LocalSandbox(Sandbox):
             executable=self._shell,
         )
         try:
-            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=effective_timeout)
         except asyncio.TimeoutError:
             try:
                 proc.kill()
             except ProcessLookupError:  # pragma: no cover
                 pass
             await proc.wait()
-            return ExecResult(124, "", f"timed out after {timeout}s", timed_out=True)
+            elapsed = round((time.monotonic() - t0) * 1000, 1)
+            self.audit.append(AuditEntry.executed(cmd, exit_code=124, duration_ms=elapsed))
+            return ExecResult(124, "", f"timed out after {effective_timeout}s", timed_out=True)
 
-        limit = self.policy.max_output_bytes
+        elapsed = round((time.monotonic() - t0) * 1000, 1)
+        exit_code = proc.returncode or 0
+        self.audit.append(AuditEntry.executed(cmd, exit_code=exit_code, duration_ms=elapsed))
+
+        limit = self.resources.max_output_chars
         return ExecResult(
-            exit_code=proc.returncode or 0,
+            exit_code=exit_code,
             stdout=_truncate(out.decode("utf-8", "replace"), limit),
             stderr=_truncate(err.decode("utf-8", "replace"), limit),
         )

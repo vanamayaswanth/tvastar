@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import abc
 import shlex
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Optional
@@ -49,6 +50,49 @@ class ExecResult:
         if self.exit_code != 0:
             parts.append(f"[exit {self.exit_code}]")
         return "\n".join(parts) if parts else "[no output]"
+
+
+@dataclass
+class ResourcePolicy:
+    """Hard resource limits applied per command execution.
+
+    Works cross-platform for ``max_cpu_seconds`` and ``max_output_chars``.
+    ``max_memory_mb`` is enforced via ``ulimit -v`` on Linux/macOS and
+    silently ignored on Windows.
+    ``allowed_domains`` documents intent; wire a proxy or firewall rule
+    for real network enforcement.
+    """
+
+    max_cpu_seconds: float = 30.0
+    max_memory_mb: int | None = None
+    max_output_chars: int = 50_000
+    allowed_domains: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AuditEntry:
+    """One record in a sandbox audit log."""
+
+    command: str
+    timestamp: float
+    allowed: bool
+    violation: str | None = None
+    exit_code: int | None = None
+    duration_ms: float | None = None
+
+    @classmethod
+    def blocked(cls, command: str, reason: str) -> "AuditEntry":
+        return cls(command=command, timestamp=time.time(), allowed=False, violation=reason)
+
+    @classmethod
+    def executed(cls, command: str, exit_code: int, duration_ms: float) -> "AuditEntry":
+        return cls(
+            command=command,
+            timestamp=time.time(),
+            allowed=True,
+            exit_code=exit_code,
+            duration_ms=duration_ms,
+        )
 
 
 @dataclass

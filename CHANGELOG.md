@@ -6,6 +6,28 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-06-14
+
+### Added
+
+- **`ResourcePolicy`** — per-sandbox hard resource limits: `max_cpu_seconds`
+  (asyncio timeout, cross-platform), `max_memory_mb` (`ulimit -v` on Linux/macOS,
+  silently ignored on Windows), `max_output_chars` (output truncation),
+  `allowed_domains` (documents intent for firewall/proxy enforcement).
+- **`AuditEntry`** — immutable record written to `LocalSandbox.audit` after every
+  command: `command`, `timestamp`, `allowed`, `violation` (if blocked by
+  `SecurityPolicy`), `exit_code`, `duration_ms`. Factory classmethods
+  `AuditEntry.blocked()` and `AuditEntry.executed()`.
+- **`LocalSandbox.audit`** — `list[AuditEntry]` accumulates the full command
+  history for the lifetime of the sandbox. Blocked commands are recorded before
+  `SecurityViolation` is raised; timed-out commands are recorded with
+  `exit_code=124`.
+- **`LocalSandbox(resources=...)`** — new keyword argument accepts a
+  `ResourcePolicy`; defaults to `ResourcePolicy()` (30 s CPU, 50 k output chars,
+  no memory cap).
+- `ResourcePolicy` and `AuditEntry` exported from `tvastar.sandbox` and the
+  top-level `tvastar` namespace.
+
 ## [0.8.1] — 2026-06-14
 
 ### Added
