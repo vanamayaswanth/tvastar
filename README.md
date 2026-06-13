@@ -511,6 +511,46 @@ conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) —
 
 ---
 
+## Trace viewer UI — inspect every run locally
+
+Write a trace file with `JSONLExporter`, then open the viewer:
+
+```bash
+pip install "tvastar[serve]"
+tvastar ui                          # reads tvastar-trace.jsonl in cwd
+tvastar ui --trace my-run.jsonl     # custom path
+tvastar ui --port 7878 --no-open    # headless / CI
+```
+
+Or programmatically after a run:
+
+```python
+from tvastar import Tracer, JSONLExporter, Harness, run_ui
+
+harness = Harness(agent, tracer=Tracer([JSONLExporter("trace.jsonl")]))
+result  = await harness.run("Write and test auth.py")
+
+# inspect in browser
+run_ui("trace.jsonl", port=7878)
+```
+
+The viewer is a self-contained FastAPI + vanilla-JS SPA (no build step, no Node):
+
+- **Left panel** — runs listed newest-first, with a green/yellow/red status dot,
+  step count, tool-call count, and total duration
+- **Right panel** — per-run token counts, detected findings (warnings / errors),
+  and an expandable timeline: every `model.generate`, `tool.invoke`, and lifecycle
+  event in order with inputs, result previews, and stop reasons
+- **Auto-refreshes every 5 s** — watch a long run fill in live
+
+Try it with the bundled demo (no agent run required):
+
+```bash
+python run_ui_demo.py   # generates a sample trace and opens the viewer
+```
+
+---
+
 ## Tool masking — show the model only the tools it needs now
 
 Exposing every tool on every turn burns context and tempts the model to reach
@@ -601,6 +641,8 @@ tvastar chat  my_agent.py:agent
 tvastar serve my_agent.py:agent
 tvastar info  my_agent.py:agent
 tvastar logs  run_abc123
+tvastar ui    --trace tvastar-trace.jsonl   # local trace viewer
+tvastar bench my_agent.py:agent --suite swe-lite --max-tasks 10
 ```
 
 ---

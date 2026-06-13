@@ -57,6 +57,8 @@ See `CLAUDE.md` for the full map. Quick pointers:
 | Injection scan / content boundary | `tvastar/boundary.py` |
 | Failure detectors | `tvastar/detect/` |
 | Observability (OTel GenAI) | `tvastar/observability.py`, `session._genai_*` |
+| Trace viewer UI | `tvastar/ui/server.py`, `tvastar/ui/index.html` |
+| Benchmark runner | `tvastar/bench/core.py`, `tvastar/bench/swebench.py` |
 
 ## Release flow
 
