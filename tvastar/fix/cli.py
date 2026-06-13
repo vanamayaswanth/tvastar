@@ -45,6 +45,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=float, default=180.0, help="per-test-run timeout (s)")
     p.add_argument("--no-network", action="store_true", help="block network in the sandbox")
     p.add_argument(
+        "--max-cpu",
+        type=float,
+        default=None,
+        metavar="SECS",
+        help="max CPU seconds per sandbox command (default: --timeout value)",
+    )
+    p.add_argument(
+        "--max-memory",
+        type=int,
+        default=None,
+        metavar="MB",
+        help="max memory per sandbox command in MB (Linux/macOS only)",
+    )
+    p.add_argument(
         "--check",
         action="store_true",
         help="exit non-zero if the suite still fails (for CI gating)",
@@ -75,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
                 max_steps=args.max_steps,
                 timeout=args.timeout,
                 network=not args.no_network,
+                max_cpu_seconds=args.max_cpu,
+                max_memory_mb=args.max_memory,
             )
         )
     except ModelError as e:

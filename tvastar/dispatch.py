@@ -40,10 +40,15 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from typing import TYPE_CHECKING
+
 from .agent import AgentSpec
 from .harness import Harness
 from .memory.store import InMemoryStore, Store
 from .session import RunResult
+
+if TYPE_CHECKING:
+    from .observability import Tracer
 
 
 # ── Input types ──────────────────────────────────────────────────────────────
@@ -136,6 +141,7 @@ async def dispatch(
     on_complete: Optional[Callable[[RunResult], Any]] = None,
     on_error: Optional[Callable[[Exception], Any]] = None,
     cancel_after: Optional[float] = None,
+    tracer: Optional["Tracer"] = None,
 ) -> str:
     """Deliver input to an agent session asynchronously (fire-and-observe).
 
@@ -169,7 +175,7 @@ async def dispatch(
     # Reuse or create a harness per agent instance id
     shared_store = store or _default_store
     if id not in _default_harnesses:
-        _default_harnesses[id] = Harness(spec, store=shared_store, durable=True)
+        _default_harnesses[id] = Harness(spec, store=shared_store, durable=True, tracer=tracer)
     harness = _default_harnesses[id]
 
     _emit(
@@ -247,6 +253,7 @@ async def dispatch_and_wait(
     text: Optional[str] = None,
     store: Optional[Store] = None,
     cancel_after: Optional[float] = None,
+    tracer: Optional["Tracer"] = None,
 ) -> RunResult:
     """Like dispatch() but awaits completion and returns RunResult.
 
@@ -274,5 +281,6 @@ async def dispatch_and_wait(
         on_complete=on_complete,
         on_error=on_error,
         cancel_after=cancel_after,
+        tracer=tracer,
     )
     return await future

@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from .detect import Finding
     from .harness import Harness
     from .session import RunResult
 
@@ -58,6 +59,7 @@ class GraphResult:
     """All results from a TaskGraph.run() call, keyed by task name."""
 
     results: dict[str, "RunResult"]
+    findings: dict[str, list["Finding"]] = field(default_factory=dict)
 
     def __getitem__(self, name: str) -> "RunResult":
         return self.results[name]
@@ -71,12 +73,22 @@ class GraphResult:
     @property
     def ok(self) -> bool:
         """True when every task finished cleanly with no warnings."""
-        return all(r.ok for r in self.results.values())
+        return all(r.ok for r in self.results.values()) and not any(
+            v for v in self.findings.values()
+        )
 
     @property
     def text(self) -> dict[str, str]:
         """Final text output from every task, keyed by name."""
         return {name: r.text for name, r in self.results.items()}
+
+    @property
+    def all_findings(self) -> list["Finding"]:
+        """Flat list of all findings across every task."""
+        out: list[Any] = []
+        for fs in self.findings.values():
+            out.extend(fs)
+        return out
 
 
 class TaskGraph:
@@ -188,7 +200,8 @@ class TaskGraph:
             done_events[name].set()
 
         await asyncio.gather(*[_run_one(n) for n in self._nodes])
-        return GraphResult(completed)
+        all_findings = {name: r.findings for name, r in completed.items() if r.findings}
+        return GraphResult(completed, findings=all_findings)
 
     # ------------------------------------------------------------------
     # Validation (cycle detection + unknown dep check)

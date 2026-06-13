@@ -6,6 +6,39 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.8.3] — 2026-06-14
+
+### Added
+
+- **`dispatch()` / `dispatch_and_wait()` tracer hookup** — both now accept a
+  `tracer: Tracer | None` parameter that is forwarded to the internal `Harness`.
+  Dispatched runs now emit full observability spans into any attached exporter
+  (JSONL, OTel, console).
+
+- **`GraphResult.findings`** — `TaskGraph.run()` now collects `RunResult.findings`
+  from every task and surfaces them on `GraphResult.findings: dict[str, list[Finding]]`.
+  `GraphResult.ok` returns `False` when any task has warnings. New
+  `GraphResult.all_findings` property returns a flat list across all tasks.
+
+- **`Workflow.run(tracer=...)` hookup** — `@workflow` now accepts a `tracer`
+  keyword argument that is threaded through `WorkflowContext` into every
+  `ctx.init()` call, so all harnesses created inside a workflow share the same
+  tracer and emit spans to the same exporter.
+
+- **`VirtualSandbox.audit`** — `VirtualSandbox` now maintains `audit: list[AuditEntry]`
+  just like `LocalSandbox`. Every `exec()` call appends an entry (blocked
+  commands via `AuditEntry.blocked()`, completed commands via
+  `AuditEntry.executed()`), giving the two sandboxes a consistent API.
+
+- **`tvastar-fix` resource limits** — `fix_tests()` now accepts
+  `max_cpu_seconds` and `max_memory_mb` keyword arguments, forwarded to a
+  `ResourcePolicy` on the `LocalSandbox`. The CLI gains `--max-cpu SECS` and
+  `--max-memory MB` flags.
+
+- **`assert_no_findings(min_severity="warning")`** — new eval check that fails
+  a `Case` when the run produced any `Finding` at or above the given severity
+  threshold. Exported from `tvastar.eval` and the top-level `tvastar` namespace.
+
 ## [0.8.2] — 2026-06-14
 
 ### Added

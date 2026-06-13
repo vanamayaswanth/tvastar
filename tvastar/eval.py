@@ -37,6 +37,7 @@ __all__ = [
     "assert_pydantic",
     "assert_cost_under",
     "assert_custom",
+    "assert_no_findings",
 ]
 
 # ---------------------------------------------------------------------------
@@ -351,6 +352,33 @@ def assert_cost_under(max_usd: float) -> Check:
         return f"Run cost ${usd:.4f}, expected under ${max_usd:.4f}"
 
     check.__name__ = f"assert_cost_under({max_usd})"
+    return check
+
+
+def assert_no_findings(min_severity: str = "warning") -> Check:
+    """Pass if the run produced no findings at or above `min_severity`.
+
+    Severity levels (lowest to highest): ``info``, ``warning``, ``error``.
+    """
+    _order = {"info": 0, "warning": 1, "error": 2}
+    threshold = _order.get(min_severity.lower(), 1)
+
+    def check(result: Any) -> bool | str:
+        if result is None:
+            return "Run failed with an exception"
+        findings = getattr(result, "findings", [])
+        violations = [
+            f
+            for f in findings
+            if _order.get(getattr(getattr(f, "severity", None), "value", "warning").lower(), 1)
+            >= threshold
+        ]
+        if not violations:
+            return True
+        msgs = "; ".join(getattr(f, "message", str(f)) for f in violations)
+        return f"Run had {len(violations)} finding(s) at {min_severity}+: {msgs}"
+
+    check.__name__ = f"assert_no_findings(min_severity={min_severity!r})"
     return check
 
 

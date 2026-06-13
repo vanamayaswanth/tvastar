@@ -20,11 +20,13 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
 from ..filesystem.virtual import VirtualFileSystem
-from .base import ExecResult, Sandbox, SecurityPolicy, _truncate
+from ..errors import SecurityViolation
+from .base import AuditEntry, ExecResult, Sandbox, SecurityPolicy, _truncate
 
 
 class VirtualSandbox(Sandbox):
@@ -47,6 +49,7 @@ class VirtualSandbox(Sandbox):
         self.policy = policy or SecurityPolicy(network=False)
         self.cwd = ""
         self.allow_python = allow_python
+        self.audit: list[AuditEntry] = []
 
     async def exec(
         self,
@@ -56,10 +59,18 @@ class VirtualSandbox(Sandbox):
         cwd: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> ExecResult:
-        self.policy.check(cmd)
+        try:
+            self.policy.check(cmd)
+        except SecurityViolation as exc:
+            self.audit.append(AuditEntry.blocked(cmd, str(exc)))
+            raise
+        t0 = time.monotonic()
         # The chain may spawn a (blocking) subprocess for `python`; run the
         # whole thing off the event loop so the harness stays responsive.
-        return await asyncio.to_thread(self._exec_sync, cmd, timeout)
+        result = await asyncio.to_thread(self._exec_sync, cmd, timeout)
+        elapsed = round((time.monotonic() - t0) * 1000, 1)
+        self.audit.append(AuditEntry.executed(cmd, exit_code=result.exit_code, duration_ms=elapsed))
+        return result
 
     def _exec_sync(self, cmd: str, timeout: Optional[float]) -> ExecResult:
         out_parts: list[str] = []

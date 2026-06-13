@@ -34,9 +34,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Coroutine, Optional
 
+from typing import TYPE_CHECKING
+
 from .agent import AgentSpec
 from .harness import Harness
 from .memory.store import FileStore, InMemoryStore, Store
+
+if TYPE_CHECKING:
+    from .observability import Tracer
 
 
 # ── Run status ──────────────────────────────────────────────────────────────
@@ -178,6 +183,7 @@ class WorkflowContext:
     payload: Any
     _run: WorkflowRun
     _registry: RunRegistry
+    _tracer: Optional["Tracer"] = None
     _harnesses: list[Harness] = field(default_factory=list)
 
     # ---- logging -----------------------------------------------------------
@@ -216,7 +222,7 @@ class WorkflowContext:
 
         Returns a WorkflowHarness that exposes .session(), .fs, and .shell().
         """
-        harness = Harness(spec, store=store, durable=durable)
+        harness = Harness(spec, store=store, durable=durable, tracer=self._tracer)
         wh = WorkflowHarness(harness, run=self._run, registry=self._registry)
         self._harnesses.append(harness)
         return wh
@@ -323,6 +329,7 @@ class Workflow:
         payload: Any = None,
         *,
         run_id: Optional[str] = None,
+        tracer: Optional["Tracer"] = None,
     ) -> WorkflowRun:
         """Invoke the workflow and return the completed WorkflowRun."""
         rid = run_id or f"run_{uuid.uuid4().hex[:16]}"
@@ -335,7 +342,9 @@ class Workflow:
         wrun.add_event("run_start", workflow=self.name, run_id=rid)
         self.registry.save(wrun)
 
-        ctx = WorkflowContext(run_id=rid, payload=payload, _run=wrun, _registry=self.registry)
+        ctx = WorkflowContext(
+            run_id=rid, payload=payload, _run=wrun, _registry=self.registry, _tracer=tracer
+        )
 
         try:
             output = await self.fn(ctx)

@@ -19,7 +19,7 @@ from pathlib import Path
 from ..agent import create_agent
 from ..harness import Harness
 from ..model.base import Model
-from ..sandbox.base import SecurityPolicy
+from ..sandbox.base import ResourcePolicy, SecurityPolicy
 from ..sandbox.local import LocalSandbox
 from ..tools import default_toolset
 
@@ -65,6 +65,8 @@ async def fix_tests(
     max_steps: int = 15,
     timeout: float = 180.0,
     network: bool = True,
+    max_cpu_seconds: float | None = None,
+    max_memory_mb: int | None = None,
 ) -> FixResult:
     """Run the self-heal-and-verify loop against a project's test suite.
 
@@ -73,9 +75,11 @@ async def fix_tests(
     """
     root = Path(project_dir).resolve()
     policy = SecurityPolicy(network=network, timeout_seconds=timeout)
-    # Use the platform's default shell (cmd.exe on Windows, /bin/sh elsewhere)
-    # for maximum portability across dev machines and CI runners.
-    sandbox = LocalSandbox(root, policy=policy)
+    resources = ResourcePolicy(
+        max_cpu_seconds=max_cpu_seconds or timeout,
+        max_memory_mb=max_memory_mb,
+    )
+    sandbox = LocalSandbox(root, policy=policy, resources=resources)
     # Don't let cached .pyc bytecode mask an edit: a fix written in the same
     # second as the baseline run can otherwise be ignored by Python's mtime
     # check, making a real fix look like a failure.

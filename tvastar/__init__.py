@@ -117,6 +117,7 @@ from .eval import (
     assert_pydantic,
     assert_cost_under,
     assert_custom,
+    assert_no_findings,
 )
 from .cost import Cost, BudgetPolicy, BudgetExceeded, cost_for_model, COST_TABLE
 from .approval import (
@@ -131,7 +132,7 @@ from .bench import BenchSuite, BenchTask, BenchResult, BenchReport, swe_bench_ta
 from .ui import create_ui_app, run_ui
 from .graph import TaskGraph, GraphResult
 
-__version__ = "0.8.2"
+__version__ = "0.8.3"
 
 __all__ = [
     "create_agent",
@@ -240,6 +241,7 @@ __all__ = [
     "assert_pydantic",
     "assert_cost_under",
     "assert_custom",
+    "assert_no_findings",
     # cost tracking
     "Cost",
     "BudgetPolicy",
