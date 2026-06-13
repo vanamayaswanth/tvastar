@@ -49,8 +49,9 @@ def main(argv: list[str] | None = None) -> int:
 
     ui_p = sub.add_parser("ui", help="open the local trace viewer UI")
     ui_p.add_argument(
-        "--trace", default="tvastar-trace.jsonl",
-        help="JSONL trace file to read (default: tvastar-trace.jsonl)"
+        "--trace",
+        default="tvastar-trace.jsonl",
+        help="JSONL trace file to read (default: tvastar-trace.jsonl)",
     )
     ui_p.add_argument("--port", type=int, default=7878, help="port (default: 7878)")
     ui_p.add_argument("--no-open", action="store_true", help="don't auto-open browser")
@@ -76,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "ui":
         from tvastar.ui import run_ui
+
         run_ui(args.trace, port=args.port, auto_open=not args.no_open)
         return 0
     if args.cmd == "info":
