@@ -116,8 +116,9 @@ from .approval import (
     set_default_gate,
 )
 from .bench import BenchSuite, BenchTask, BenchResult, BenchReport, swe_bench_tasks
+from .ui import create_ui_app, run_ui
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "create_agent",
@@ -240,4 +241,7 @@ __all__ = [
     "BenchResult",
     "BenchReport",
     "swe_bench_tasks",
+    # trace viewer UI
+    "create_ui_app",
+    "run_ui",
 ]

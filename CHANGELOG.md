@@ -6,6 +6,30 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-06-14
+
+### Added
+
+- **Local trace viewer UI** (`tvastar.ui`) — a self-contained FastAPI + vanilla-JS
+  single-page app that reads any `JSONLExporter` trace file and renders runs as an
+  interactive timeline. Left panel lists runs with status dots, step/tool counts, and
+  duration. Right panel shows per-run token counts, findings cards, and an expandable
+  step-by-step timeline (model generate / tool invoke / events). Reads the OTel GenAI
+  semantic-convention attributes emitted since 0.5.0.
+- **`tvastar ui` CLI command** — `tvastar ui --trace my-run.jsonl --port 7878`
+  starts the viewer and auto-opens it in the browser. Defaults to
+  `tvastar-trace.jsonl` in the current directory. Auto-refreshes every 5 s.
+- **`run_ui` / `create_ui_app`** exported from `tvastar` top-level for programmatic
+  use: `from tvastar import run_ui; run_ui("trace.jsonl")`.
+- `run_ui_demo.py` — generates a 3-run demo trace (coding agent / devops agent /
+  research agent) and opens the UI; useful for evaluating the viewer without a live
+  agent run.
+
+### Fixed
+
+- `tvastar/ui/server.py`: HTML served with explicit `encoding="utf-8"` to avoid
+  `UnicodeDecodeError` on Windows systems using cp1252 as the default locale.
+
 ## [0.6.0] — 2026-06-04
 
 ### Added

@@ -47,6 +47,14 @@ def main(argv: list[str] | None = None) -> int:
         if name in ("chat", "run"):
             p.add_argument("--trace", action="store_true", help="print trace spans")
 
+    ui_p = sub.add_parser("ui", help="open the local trace viewer UI")
+    ui_p.add_argument(
+        "--trace", default="tvastar-trace.jsonl",
+        help="JSONL trace file to read (default: tvastar-trace.jsonl)"
+    )
+    ui_p.add_argument("--port", type=int, default=7878, help="port (default: 7878)")
+    ui_p.add_argument("--no-open", action="store_true", help="don't auto-open browser")
+
     logs_p = sub.add_parser("logs", help="inspect a workflow run by ID")
     logs_p.add_argument("run_id", help="workflow run ID (e.g. run_abc123)")
     logs_p.add_argument(
@@ -66,6 +74,10 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    if args.cmd == "ui":
+        from tvastar.ui import run_ui
+        run_ui(args.trace, port=args.port, auto_open=not args.no_open)
+        return 0
     if args.cmd == "info":
         return _info(args.agent)
     if args.cmd == "serve":
