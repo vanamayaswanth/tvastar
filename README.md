@@ -973,6 +973,59 @@ tvastar-outbound --leads leads.csv --model claude-sonnet-4-6 --limit 50
 
 ---
 
+### 🔒 tvastar-comply — PII / PFI / PHI compliance layer
+*Enterprise-grade data protection baked into the agent loop.*
+
+Healthcare, finance, and legal companies cannot use AI agents on real customer
+data without a compliance layer. `tvastar-comply` solves this at the harness
+level — not as a bolt-on service, but as a first-class part of every agent run.
+
+**What it handles:**
+
+| Type | Examples | Regulation |
+|---|---|---|
+| **PII** | Name, email, phone, address, SSN | GDPR, CCPA |
+| **PFI** | Credit cards, bank accounts, tax records | PCI-DSS, GLBA |
+| **PHI** | Medical records, diagnoses, prescriptions | HIPAA |
+
+**How it works — redact before LLM, rehydrate after:**
+
+```python
+from tvastar.comply import ComplyPolicy
+
+agent = create_agent(
+    "support",
+    model=AnthropicModel(),
+    comply=ComplyPolicy(
+        scan=["pii", "phi", "pfi"],  # what to detect
+        action="redact",              # redact | block | audit
+        vault="local",               # token vault stays on your machine
+    ),
+)
+
+# Input:  "John Smith, DOB 1990-01-01, diagnosis: diabetes"
+# → LLM sees: "[NAME_1], DOB [DATE_1], diagnosis: [CONDITION_1]"
+# → LLM responds: "I've updated [NAME_1]'s care plan"
+# → Output: "I've updated John Smith's care plan"
+```
+
+**Compliance audit trail built in:**
+
+```python
+result = await harness.run("Process patient intake form")
+result.comply_report  # what was found, redacted, timestamp, hash — per run
+```
+
+**Why this matters for every other Tvastar product:**
+- `tvastar-outbound` processes lead PII → GDPR requires it
+- `tvastar-support` handles customer data → CCPA requires it
+- `tvastar-devops` reads logs that may contain secrets → security requires it
+
+One `comply=ComplyPolicy(...)` line makes any agent enterprise-ready.
+The token vault is local — **no PII ever leaves your infrastructure.**
+
+---
+
 ### 📋 tvastar-review — GitHub PR review bot
 *Coming after tvastar-outbound.*
 
@@ -1025,14 +1078,16 @@ Products ship first. Framework features get added only when a product needs them
 | **Web tools** | `web_browse` + `web_search` — Jina AI, zero deps | ✅ v0.8.1 |
 | **DAG execution** | `TaskGraph` — parallel tasks, critical path only | ✅ v0.8.0 |
 | **tvastar-outbound** | Outbound sales agent — research → score → email → send | 🔨 Next |
-| **Platform gateway** | Telegram + cron — added when outbound needs notifications | 📋 v0.9.0 |
-| **Skill learning loop** | Agent writes Skills from successful runs; FTS memory | 📋 v1.0.0 |
-| **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.1.0 |
-| **tvastar-devops** | Auto-heal production incidents | 📋 v1.2.0 |
-| **tvastar-support** | Multi-platform customer support agent | 📋 v1.3.0 |
+| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.9.0 |
+| **Platform gateway** | Telegram + cron — added when outbound needs notifications | 📋 v1.0.0 |
+| **Skill learning loop** | Agent writes Skills from successful runs; FTS memory | 📋 v1.1.0 |
+| **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.2.0 |
+| **tvastar-devops** | Auto-heal production incidents | 📋 v1.3.0 |
+| **tvastar-support** | Multi-platform customer support agent | 📋 v1.4.0 |
 | **Hosted platform** | Cloud-hosted harness, product dashboard, skill marketplace | 📋 v2.0.0 |
 
 > Framework features are only added when a product needs them — not to match a checklist.
+> `tvastar-comply` unlocks healthcare, finance, and legal — the highest-value enterprise markets.
 
 ---
 
