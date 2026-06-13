@@ -326,6 +326,59 @@ results = await harness.fan_out([
 
 ---
 
+## DAG task execution — maximum parallelism
+
+`TaskGraph` models work as a directed acyclic graph. Independent tasks run
+concurrently; a task starts the moment every dependency completes.
+Wall-clock time equals the critical path, not the sum of all tasks.
+
+```python
+from tvastar import TaskGraph
+
+graph = TaskGraph(harness)
+
+# These three have no deps — start immediately in parallel
+graph.task("leads",   "Fetch the lead list from CRM")
+graph.task("pricing", "Scrape competitor pricing pages")
+graph.task("news",    "Find recent news about the prospect")
+
+# Waits for all three; their results are auto-injected into its prompt
+graph.task("analyse", "Score and prioritise leads",
+           depends_on=["leads", "pricing", "news"])
+
+# These two depend on analyse but not each other — run in parallel
+graph.task("emails",  "Write personalised cold emails",
+           depends_on=["analyse"])
+graph.task("report",  "Write executive summary",
+           depends_on=["analyse"])
+
+results = await graph.run()
+print(results["emails"].text)
+print(results.ok)          # True when every task finished cleanly
+print(results.text)        # dict of all task outputs
+```
+
+Fluent chaining:
+
+```python
+results = await (
+    TaskGraph(harness)
+    .task("fetch", "Fetch data")
+    .task("analyse", "Analyse it", depends_on=["fetch"])
+    .task("report",  "Write report", depends_on=["analyse"])
+    .run()
+)
+```
+
+Structured output per task:
+
+```python
+graph.task("score", "Score each lead", result=LeadScores, depends_on=["fetch"])
+results["score"].data  # LeadScores instance
+```
+
+---
+
 ## Extended thinking
 
 ```python
@@ -894,11 +947,11 @@ nothing gets added to the framework until a real application needs it.
 
 | Version | What ships | Goal |
 |---|---|---|
-| **v0.8.0** | Platform gateway — Telegram, Slack, Discord adapters + cron scheduler | Every agent needs a front door |
-| **v0.9.0** | Skill learning loop — auto-generate Skills from successful runs; full-text memory search | The agent that gets smarter the more you use it |
-| **v1.0.0** | GitHub PR review bot — flagship application built on Tvastar | Prove the platform on a real product |
-| **v1.1.0** | DevOps automation agent — log watcher, auto-heal, prod-incident dispatch | Extend `tvastar-fix` to production |
-| **v1.2.0** | Multi-tenant core — per-user session isolation, API key management, usage tracking | Foundation for B2B SaaS |
+| **v0.8.0** ✅ | `TaskGraph` — DAG-based parallel task execution | Wall-clock = critical path only; independent tasks run concurrently |
+| **v0.9.0** | Platform gateway — Telegram, Slack, Discord adapters + cron scheduler | Every agent needs a front door |
+| **v1.0.0** | Skill learning loop — auto-generate Skills from successful runs; full-text memory search | The agent that gets smarter the more you use it |
+| **v1.1.0** | GitHub PR review bot — flagship application built on Tvastar | Prove the platform on a real product |
+| **v1.2.0** | DevOps automation agent — log watcher, auto-heal, prod-incident dispatch | Extend `tvastar-fix` to production |
 | **v2.0.0** | Hosted platform — cloud-hosted harness, skill marketplace, managed dashboard | Tvastar as a service |
 
 The application comes first. Infrastructure follows only when the application needs it.

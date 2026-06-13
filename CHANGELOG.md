@@ -6,6 +6,25 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-06-14
+
+### Added
+
+- **DAG-based parallel task execution** (`tvastar.graph`) — `TaskGraph` lets you
+  define tasks with explicit dependencies and executes them at maximum parallelism.
+  Independent tasks run concurrently via `asyncio.gather`; a task starts the moment
+  every dependency completes. Wall-clock time equals the critical path, not the sum
+  of all tasks.
+- **Automatic result injection** — by default, each dependency's output is prepended
+  to the downstream task's prompt so the model has full context without extra wiring.
+  Pass `inject_results=False` to disable.
+- **`GraphResult`** — returned by `TaskGraph.run()`; supports `result["task_name"]`,
+  `.text` (dict of all outputs), `.ok` (True when every task finished cleanly).
+- **Cycle detection and validation** — raises `ValueError` on duplicate task names,
+  unknown dependencies, or dependency cycles before any tasks are started.
+- **Fluent API** — `TaskGraph.task()` returns `self` for chaining:
+  `TaskGraph(harness).task("a", "…").task("b", "…", depends_on=["a"]).run()`
+
 ## [0.7.0] — 2026-06-14
 
 ### Added

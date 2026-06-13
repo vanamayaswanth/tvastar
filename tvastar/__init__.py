@@ -117,8 +117,9 @@ from .approval import (
 )
 from .bench import BenchSuite, BenchTask, BenchResult, BenchReport, swe_bench_tasks
 from .ui import create_ui_app, run_ui
+from .graph import TaskGraph, GraphResult
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "create_agent",
@@ -244,4 +245,7 @@ __all__ = [
     # trace viewer UI
     "create_ui_app",
     "run_ui",
+    # DAG-based parallel task execution
+    "TaskGraph",
+    "GraphResult",
 ]
