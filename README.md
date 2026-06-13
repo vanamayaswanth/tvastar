@@ -927,60 +927,112 @@ Supported models with automatic pricing: Claude (all tiers), GPT-4o, GPT-4o-mini
 
 ---
 
-## What you can build with Tvastar
+## What we're building
 
-Tvastar is the engine. These are the products you can ship on top of it.
+Tvastar is the engine. Every product below is built on top of it — same harness,
+same tools, same deploy model. Framework features get added only when a product
+needs them.
 
-### GitHub PR Review Bot
-Agent reads a PR diff, posts inline comments, flags shallow reviews using the
-built-in silent-failure detectors. Ships as a GitHub Action — one YAML file,
-zero infra.
+---
 
-```python
-agent = create_agent("reviewer", model=..., tools=[*default_toolset(), github_tool])
-await dispatch(agent, id=pr_number, text=diff, on_complete=post_inline_comments)
+### ✅ tvastar-fix — Auto-repair failing tests
+*Shipped. The reference implementation.*
+
+Your CI fails. `tvastar-fix` runs the agent, edits the source, re-runs the suite
+itself, and pushes the fix — without you touching a line. Verification is a real
+exit code, never the model's claim.
+
+```bash
+pip install "tvastar[fix]"
+tvastar-fix --test-cmd "pytest tests/" --model claude-opus-4-6
 ```
 
-### Outbound Sales Agent
-Research a prospect (company site, LinkedIn, news), personalise a cold email,
-send it, follow up automatically. `fan_out()` across your entire lead list in one
-call. Human-in-the-loop approval gate before anything goes out.
+---
 
-### Customer Support Agent
-One session per user, persistent memory across conversations, multi-platform
-(Slack / Telegram / email). `dispatch()` per inbound message; `on_complete`
-sends the reply.
+### 🔨 tvastar-outbound — AI outbound sales agent
+*Next up. Biggest commercial opportunity.*
 
-### DevOps Auto-Heal Agent
-Log watcher detects anomaly → agent diagnoses → runs bash fix → verifies exit
-code → pages you only if it can't fix it. Same "verify with real signals"
-principle as `tvastar-fix`, extended to production.
+Give it a CSV of leads. It researches each one in parallel (company site, news,
+LinkedIn via `web_browse` + `web_search`), scores and prioritises them with
+`TaskGraph`, writes a personalised cold email for each, waits for your approval
+via `ApprovalGate`, then sends. Follow-ups scheduled automatically. Full audit
+trail in the trace viewer.
 
-### Codebase Onboarding Agent
-New engineer asks questions → agent reads files with `grep` / `glob` / `read_file`
-and answers in context. Reduces senior-engineer interruptions to zero.
+```bash
+pip install "tvastar[outbound]"
+tvastar-outbound --leads leads.csv --model claude-sonnet-4-6 --limit 50
+```
 
-### Research & Competitive Intel Agent
-`fan_out()` across 10+ sources in parallel → structured `RunResult.data` →
-report. Marketing teams, VCs, analysts.
+**Why Tvastar is the right engine:**
+- `TaskGraph` researches all leads in parallel — 50 leads in wall-clock time of 1
+- `web_browse` + `web_search` — no external scraping service needed
+- `ApprovalGate` — human reviews before anything goes out
+- `BudgetPolicy` — hard cost ceiling per campaign
+- `dispatch()` — one session per lead, isolated, resumable
+- `JSONLExporter` + `tvastar ui` — see every email and every research step
+
+---
+
+### 📋 tvastar-review — GitHub PR review bot
+*Coming after tvastar-outbound.*
+
+Webhook fires on PR open → agent reads the diff → posts inline comments → flags
+shallow or unverified completions using the built-in detectors. Ships as a
+zero-config GitHub Action.
+
+```yaml
+- uses: vanamayaswanth/tvastar-review@v1
+  with:
+    model: claude-sonnet-4-6
+```
+
+---
+
+### 🛠 tvastar-devops — Production auto-heal agent
+*Extending `tvastar-fix` to live systems.*
+
+Log watcher detects anomaly → agent diagnoses root cause → runs bash fix →
+verifies with a real exit code → pages you only if it cannot fix it. Same
+"verify with real signals" principle as `tvastar-fix`, extended to production
+incidents.
+
+---
+
+### 💬 tvastar-support — Customer support agent
+*Multi-platform, persistent, production-ready.*
+
+One session per user, memory across conversations, simultaneous Telegram / Slack /
+email. `dispatch()` per inbound message, `on_complete` sends the reply.
+Human escalation via `ApprovalGate` when confidence is low.
+
+---
+
+### 🔍 tvastar-research — Competitive intel agent
+*Parallel web research → structured report.*
+
+Describe what you want to know. Agent fans out across sources with `fan_out()`,
+synthesises with structured output (`result=`), delivers a report. VCs, analysts,
+marketing teams.
 
 ---
 
 ## Roadmap
 
-Capabilities planned in release order. Each ships when it earns its place —
-nothing gets added to the framework until a real application needs it.
+Products ship first. Framework features get added only when a product needs them.
 
-| Version | What ships | Goal |
+| Milestone | What ships | Status |
 |---|---|---|
-| **v0.8.0** ✅ | `TaskGraph` — DAG-based parallel task execution | Wall-clock = critical path only; independent tasks run concurrently |
-| **v0.9.0** | Platform gateway — Telegram, Slack, Discord adapters + cron scheduler | Every agent needs a front door |
-| **v1.0.0** | Skill learning loop — auto-generate Skills from successful runs; full-text memory search | The agent that gets smarter the more you use it |
-| **v1.1.0** | GitHub PR review bot — flagship application built on Tvastar | Prove the platform on a real product |
-| **v1.2.0** | DevOps automation agent — log watcher, auto-heal, prod-incident dispatch | Extend `tvastar-fix` to production |
-| **v2.0.0** | Hosted platform — cloud-hosted harness, skill marketplace, managed dashboard | Tvastar as a service |
+| **Web tools** | `web_browse` + `web_search` — Jina AI, zero deps | ✅ v0.8.1 |
+| **DAG execution** | `TaskGraph` — parallel tasks, critical path only | ✅ v0.8.0 |
+| **tvastar-outbound** | Outbound sales agent — research → score → email → send | 🔨 Next |
+| **Platform gateway** | Telegram + cron — added when outbound needs notifications | 📋 v0.9.0 |
+| **Skill learning loop** | Agent writes Skills from successful runs; FTS memory | 📋 v1.0.0 |
+| **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.1.0 |
+| **tvastar-devops** | Auto-heal production incidents | 📋 v1.2.0 |
+| **tvastar-support** | Multi-platform customer support agent | 📋 v1.3.0 |
+| **Hosted platform** | Cloud-hosted harness, product dashboard, skill marketplace | 📋 v2.0.0 |
 
-The application comes first. Infrastructure follows only when the application needs it.
+> Framework features are only added when a product needs them — not to match a checklist.
 
 ---
 
