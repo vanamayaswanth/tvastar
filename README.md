@@ -848,6 +848,63 @@ Supported models with automatic pricing: Claude (all tiers), GPT-4o, GPT-4o-mini
 
 ---
 
+## What you can build with Tvastar
+
+Tvastar is the engine. These are the products you can ship on top of it.
+
+### GitHub PR Review Bot
+Agent reads a PR diff, posts inline comments, flags shallow reviews using the
+built-in silent-failure detectors. Ships as a GitHub Action — one YAML file,
+zero infra.
+
+```python
+agent = create_agent("reviewer", model=..., tools=[*default_toolset(), github_tool])
+await dispatch(agent, id=pr_number, text=diff, on_complete=post_inline_comments)
+```
+
+### Outbound Sales Agent
+Research a prospect (company site, LinkedIn, news), personalise a cold email,
+send it, follow up automatically. `fan_out()` across your entire lead list in one
+call. Human-in-the-loop approval gate before anything goes out.
+
+### Customer Support Agent
+One session per user, persistent memory across conversations, multi-platform
+(Slack / Telegram / email). `dispatch()` per inbound message; `on_complete`
+sends the reply.
+
+### DevOps Auto-Heal Agent
+Log watcher detects anomaly → agent diagnoses → runs bash fix → verifies exit
+code → pages you only if it can't fix it. Same "verify with real signals"
+principle as `tvastar-fix`, extended to production.
+
+### Codebase Onboarding Agent
+New engineer asks questions → agent reads files with `grep` / `glob` / `read_file`
+and answers in context. Reduces senior-engineer interruptions to zero.
+
+### Research & Competitive Intel Agent
+`fan_out()` across 10+ sources in parallel → structured `RunResult.data` →
+report. Marketing teams, VCs, analysts.
+
+---
+
+## Roadmap
+
+Capabilities planned in release order. Each ships when it earns its place —
+nothing gets added to the framework until a real application needs it.
+
+| Version | What ships | Goal |
+|---|---|---|
+| **v0.8.0** | Platform gateway — Telegram, Slack, Discord adapters + cron scheduler | Every agent needs a front door |
+| **v0.9.0** | Skill learning loop — auto-generate Skills from successful runs; full-text memory search | The agent that gets smarter the more you use it |
+| **v1.0.0** | GitHub PR review bot — flagship application built on Tvastar | Prove the platform on a real product |
+| **v1.1.0** | DevOps automation agent — log watcher, auto-heal, prod-incident dispatch | Extend `tvastar-fix` to production |
+| **v1.2.0** | Multi-tenant core — per-user session isolation, API key management, usage tracking | Foundation for B2B SaaS |
+| **v2.0.0** | Hosted platform — cloud-hosted harness, skill marketplace, managed dashboard | Tvastar as a service |
+
+The application comes first. Infrastructure follows only when the application needs it.
+
+---
+
 ## Further reading
 
 - [API Reference](docs/API.md) — every public symbol, fully typed
