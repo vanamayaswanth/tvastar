@@ -6,6 +6,26 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.8.4] — 2026-06-14
+
+### Added
+
+- **`CredentialFilter`** — strips secret-looking env vars from the subprocess
+  environment before any command runs. Any var matching a glob pattern
+  (case-insensitive) is removed so the agent cannot read or leak it.
+  Default patterns cover `*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`,
+  `*_PASS`, `*_CREDENTIAL`, `*_CREDENTIALS`. Pass `patterns=[]` to disable.
+  Available on both `LocalSandbox` and `VirtualSandbox` via the new
+  `credential_filter=` constructor argument. Exported from `tvastar.sandbox`
+  and the top-level `tvastar` namespace.
+
+- **`BudgetPolicy(on_exceed="approve")`** — a third budget-exceeded mode that
+  pauses the run and routes to the agent's `ApprovalGate` for human sign-off,
+  rather than raising or stopping silently. The gate is presented with the
+  current spend and limit; if approved the run continues (and is not prompted
+  again); if denied or timed-out the run stops with `stopped="budget"`. If no
+  `approval_gate` is configured, falls back to raising `BudgetExceeded`.
+
 ## [0.8.3] — 2026-06-14
 
 ### Added

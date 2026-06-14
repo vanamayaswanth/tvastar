@@ -17,6 +17,7 @@ and recommended for adapters.
 from __future__ import annotations
 
 import abc
+import fnmatch
 import shlex
 import time
 from collections.abc import Iterable
@@ -50,6 +51,39 @@ class ExecResult:
         if self.exit_code != 0:
             parts.append(f"[exit {self.exit_code}]")
         return "\n".join(parts) if parts else "[no output]"
+
+
+@dataclass
+class CredentialFilter:
+    """Strips secret-looking env vars from the subprocess environment before exec.
+
+    Any env var whose name matches one of the glob patterns (case-insensitive)
+    is removed so the agent cannot read or leak it.
+
+    Default patterns cover the most common secret naming conventions.
+    Pass ``patterns=[]`` to disable all filtering.
+    """
+
+    patterns: list[str] = field(
+        default_factory=lambda: [
+            "*_KEY",
+            "*_TOKEN",
+            "*_SECRET",
+            "*_PASSWORD",
+            "*_PASS",
+            "*_CREDENTIAL",
+            "*_CREDENTIALS",
+        ]
+    )
+
+    def filter_env(self, env: dict[str, str]) -> dict[str, str]:
+        """Return a copy of *env* with matching keys removed."""
+        upper_pats = [p.upper() for p in self.patterns]
+        return {
+            k: v
+            for k, v in env.items()
+            if not any(fnmatch.fnmatch(k.upper(), pat) for pat in upper_pats)
+        }
 
 
 @dataclass

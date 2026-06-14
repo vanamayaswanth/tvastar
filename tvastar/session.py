@@ -21,7 +21,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
-from .cost import Cost
+from .approval import ApprovalDenied, ApprovalTimeout
+from .cost import BudgetExceeded, Cost
 from .errors import ToolError, ToolNotFound
 from .memory.store import Memory
 from .observability import Tracer
@@ -398,6 +399,7 @@ class Session:
         steps = 0
         stopped = "end_turn"
         spec = self.spec
+        _budget_approved = False
 
         while steps < spec.max_steps:
             steps += 1
@@ -420,12 +422,27 @@ class Session:
 
             # enforce the cost budget against realized usage
             budget = getattr(spec, "budget", None)
-            if budget is not None:
+            if budget is not None and not _budget_approved:
                 running = Cost(total.input_tokens, total.output_tokens, spec.model.name)
-                budget.check(running)  # raises BudgetExceeded when on_exceed='raise'
-                if budget.on_exceed == "stop" and running.usd >= budget.max_usd:
-                    stopped = "budget"
-                    break
+                if running.usd >= budget.max_usd:
+                    if budget.on_exceed == "raise":
+                        raise BudgetExceeded(spent=running.usd, limit=budget.max_usd)
+                    elif budget.on_exceed == "stop":
+                        stopped = "budget"
+                        break
+                    elif budget.on_exceed == "approve":
+                        gate = getattr(spec, "approval_gate", None)
+                        if gate is None:
+                            raise BudgetExceeded(spent=running.usd, limit=budget.max_usd)
+                        try:
+                            await gate.request(
+                                f"Budget limit ${budget.max_usd:.2f} reached"
+                                f" (spent ${running.usd:.4f}). Continue?",
+                            )
+                            _budget_approved = True  # don't prompt again this session
+                        except (ApprovalDenied, ApprovalTimeout):
+                            stopped = "budget"
+                            break
 
             if resp.stop_reason != StopReason.TOOL_USE and not resp.tool_uses:
                 stopped = "end_turn"

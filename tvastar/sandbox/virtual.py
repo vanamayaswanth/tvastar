@@ -26,7 +26,7 @@ from typing import Optional
 
 from ..filesystem.virtual import VirtualFileSystem
 from ..errors import SecurityViolation
-from .base import AuditEntry, ExecResult, Sandbox, SecurityPolicy, _truncate
+from .base import AuditEntry, CredentialFilter, ExecResult, Sandbox, SecurityPolicy, _truncate
 
 
 class VirtualSandbox(Sandbox):
@@ -44,11 +44,13 @@ class VirtualSandbox(Sandbox):
         *,
         policy: Optional[SecurityPolicy] = None,
         allow_python: bool = True,
+        credential_filter: Optional[CredentialFilter] = None,
     ):
         self.fs = VirtualFileSystem(files)
         self.policy = policy or SecurityPolicy(network=False)
         self.cwd = ""
         self.allow_python = allow_python
+        self.credential_filter = credential_filter
         self.audit: list[AuditEntry] = []
 
     async def exec(
@@ -158,6 +160,8 @@ class VirtualSandbox(Sandbox):
             run_env = dict(os.environ)
             if not self.policy.network:
                 run_env.update({"http_proxy": "", "https_proxy": "", "no_proxy": "*"})
+            if self.credential_filter is not None:
+                run_env = self.credential_filter.filter_env(run_env)
             run_env["PYTHONDONTWRITEBYTECODE"] = "1"
 
             try:

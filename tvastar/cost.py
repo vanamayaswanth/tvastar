@@ -130,7 +130,7 @@ class BudgetPolicy:
     """
 
     max_usd: float
-    on_exceed: Literal["raise", "stop"] = "raise"
+    on_exceed: Literal["raise", "stop", "approve"] = "raise"
     warn_at: float | None = 0.8
 
     def check(self, cost: Cost) -> None:

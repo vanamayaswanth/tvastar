@@ -54,6 +54,7 @@ from .observability import (
 )
 from .sandbox import (
     AuditEntry,
+    CredentialFilter,
     ExecResult,
     LocalSandbox,
     ResourcePolicy,
@@ -132,7 +133,7 @@ from .bench import BenchSuite, BenchTask, BenchResult, BenchReport, swe_bench_ta
 from .ui import create_ui_app, run_ui
 from .graph import TaskGraph, GraphResult
 
-__version__ = "0.8.3"
+__version__ = "0.8.4"
 
 __all__ = [
     "create_agent",
@@ -169,6 +170,7 @@ __all__ = [
     "SecurityPolicy",
     "ResourcePolicy",
     "AuditEntry",
+    "CredentialFilter",
     "ExecResult",
     "Store",
     "InMemoryStore",

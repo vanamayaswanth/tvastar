@@ -6,7 +6,7 @@ Built-ins are imported eagerly (zero deps). External provider adapters
 
 from __future__ import annotations
 
-from .base import AuditEntry, ExecResult, ResourcePolicy, Sandbox, SecurityPolicy
+from .base import AuditEntry, CredentialFilter, ExecResult, ResourcePolicy, Sandbox, SecurityPolicy
 from .local import LocalSandbox, default_local_shell
 from .virtual import VirtualSandbox
 
@@ -16,6 +16,7 @@ __all__ = [
     "SecurityPolicy",
     "ResourcePolicy",
     "AuditEntry",
+    "CredentialFilter",
     "VirtualSandbox",
     "LocalSandbox",
     "default_local_shell",

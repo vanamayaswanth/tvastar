@@ -16,7 +16,15 @@ from pathlib import Path
 from typing import Optional
 
 from ..filesystem.local import LocalFileSystem
-from .base import AuditEntry, ExecResult, ResourcePolicy, Sandbox, SecurityPolicy, _truncate
+from .base import (
+    AuditEntry,
+    CredentialFilter,
+    ExecResult,
+    ResourcePolicy,
+    Sandbox,
+    SecurityPolicy,
+    _truncate,
+)
 
 
 def _supports_ulimit() -> bool:
@@ -30,12 +38,14 @@ class LocalSandbox(Sandbox):
         *,
         policy: Optional[SecurityPolicy] = None,
         resources: Optional[ResourcePolicy] = None,
+        credential_filter: Optional[CredentialFilter] = None,
         shell: Optional[str] = None,
     ):
         self.fs = LocalFileSystem(root)
         self.root = self.fs.root
         self.policy = policy or SecurityPolicy()
         self.resources = resources or ResourcePolicy()
+        self.credential_filter = credential_filter
         self._shell = shell
         self.audit: list[AuditEntry] = []
 
@@ -64,6 +74,8 @@ class LocalSandbox(Sandbox):
             run_env.update({"http_proxy": "", "https_proxy": "", "no_proxy": "*"})
         if env:
             run_env.update(env)
+        if self.credential_filter is not None:
+            run_env = self.credential_filter.filter_env(run_env)
 
         # Memory limit via ulimit on Linux/macOS (silent no-op on Windows)
         actual_cmd = cmd
