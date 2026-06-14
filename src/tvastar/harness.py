@@ -14,8 +14,8 @@ New in 0.2.0:
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from .agent import AgentSpec

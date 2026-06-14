@@ -2,7 +2,7 @@
 
 import pytest
 
-from tvastar import Harness, TaskGraph, GraphResult, create_agent
+from tvastar import GraphResult, Harness, TaskGraph, create_agent
 from tvastar.model import MockModel
 
 
@@ -236,6 +236,6 @@ async def test_fluent_chaining():
 
 
 def test_top_level_exports():
-    from tvastar import TaskGraph, GraphResult  # noqa: F401
+    from tvastar import GraphResult, TaskGraph  # noqa: F401
 
     assert callable(TaskGraph)

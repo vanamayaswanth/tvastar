@@ -29,7 +29,6 @@ from tvastar import Harness, Message, ModelResponse, create_agent, default_tools
 from tvastar.model import Model
 from tvastar.types import StopReason, TextBlock, Usage
 
-
 # ---------------------------------------------------------------------------
 # ROUTE A — Cloudflare via the OpenAI-compatible endpoint (one-liner)
 # ---------------------------------------------------------------------------

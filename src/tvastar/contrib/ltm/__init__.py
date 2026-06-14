@@ -159,8 +159,8 @@ def _semantic_retrieve(
     re-instantiated (and re-loaded from disk) on every retrieval call.
     """
     try:
-        from sentence_transformers import SentenceTransformer  # type: ignore[import]
         import numpy as np  # type: ignore[import]
+        from sentence_transformers import SentenceTransformer  # type: ignore[import]
     except ImportError:
         return _keyword_retrieve(query, nodes, k)
 

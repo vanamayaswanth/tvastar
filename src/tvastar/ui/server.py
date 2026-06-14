@@ -158,8 +158,8 @@ def create_ui_app(trace_path: str = "tvastar-trace.jsonl") -> Any:
     """Create the FastAPI UI application."""
     try:
         from fastapi import FastAPI
-        from fastapi.responses import HTMLResponse, JSONResponse
         from fastapi.middleware.cors import CORSMiddleware
+        from fastapi.responses import HTMLResponse, JSONResponse
     except ImportError:
         raise ImportError(
             "tvastar[serve] is required for the UI. Run: pip install 'tvastar[serve]'"

@@ -71,7 +71,8 @@ async def research_lead(lead: Lead, harness: "Harness") -> ResearchResult:
         f"**Company** — what they do, target market, size/stage\n"
         f"**Recent signals** — funding, launches, hiring, challenges\n"
         f"**Contact** — {lead.name}'s role, focus, background\n"
-        f"**Opportunity** — key pain points or triggers that make this a good moment to reach out\n\n"
+        f"**Opportunity** — key pain points or triggers that make this a good moment"
+        f" to reach out\n\n"
         f"Be concise. Prioritise specifics over generalities.",
         depends_on=depends,
     )

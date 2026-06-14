@@ -24,8 +24,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from ..filesystem.virtual import VirtualFileSystem
 from ..errors import SecurityViolation
+from ..filesystem.virtual import VirtualFileSystem
 from .base import AuditEntry, CredentialFilter, ExecResult, Sandbox, SecurityPolicy, _truncate
 
 

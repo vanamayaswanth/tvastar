@@ -38,9 +38,7 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .agent import AgentSpec
 from .harness import Harness

@@ -174,8 +174,8 @@ class EvalSuite:
 
     async def run(self) -> EvalReport:
         """Run all cases concurrently and return an EvalReport."""
-        from tvastar.harness import Harness
         from tvastar.agent import AgentSpec
+        from tvastar.harness import Harness
 
         if isinstance(self._agent_or_harness, AgentSpec):
             harness = Harness(self._agent_or_harness)

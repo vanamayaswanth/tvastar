@@ -17,9 +17,8 @@ Dry-run (no API key needed — uses MockModel):
 
 from __future__ import annotations
 
-import asyncio
 import argparse
-
+import asyncio
 
 # ── Sample leads (swap for parse_csv("leads.csv")) ────────────────────────
 SAMPLE_LEADS = [
@@ -54,9 +53,9 @@ SENDER = dict(
 async def run(mock: bool = False) -> None:
     if mock:
         # Zero-dependency demo — MockModel, no API key, no web calls
-        from tvastar.model import MockModel
         from tvastar.approval import ApprovalGate
-        from tvastar.outbound import run_campaign, StdoutSender
+        from tvastar.model import MockModel
+        from tvastar.outbound import StdoutSender, run_campaign
 
         model = MockModel()
         gate = ApprovalGate(backend="event", on_request=lambda req: req.approve())

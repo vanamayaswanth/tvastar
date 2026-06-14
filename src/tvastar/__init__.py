@@ -21,7 +21,35 @@ Quick start::
 from __future__ import annotations
 
 from .agent import AgentSpec, create_agent
-from .compaction import CompactionPolicy, compact_session, compact_messages, should_compact
+from .approval import (
+    ApprovalDenied,
+    ApprovalGate,
+    ApprovalRequest,
+    ApprovalTimeout,
+    require_approval,
+    set_default_gate,
+)
+from .bench import BenchReport, BenchResult, BenchSuite, BenchTask, swe_bench_tasks
+from .boundary import looks_like_injection, scan_for_injection, wrap_untrusted
+from .compaction import CompactionPolicy, compact_messages, compact_session, should_compact
+from .cost import COST_TABLE, BudgetExceeded, BudgetPolicy, Cost, cost_for_model
+from .detect import (
+    Finding,
+    RunContext,
+    Severity,
+    default_detectors,
+    prompt_injection,
+    run_detectors,
+)
+from .dispatch import (
+    DispatchEvent,
+    DispatchInput,
+    cancel_dispatch,
+    dispatch,
+    dispatch_and_wait,
+    list_active_dispatches,
+    observe_dispatch,
+)
 from .durable import Checkpointer
 from .errors import (
     ModelError,
@@ -32,26 +60,50 @@ from .errors import (
     ToolNotFound,
     TvastarError,
 )
-from .detect import (
-    Finding,
-    RunContext,
-    Severity,
-    default_detectors,
-    prompt_injection,
-    run_detectors,
+from .eval import (
+    Case,
+    CaseResult,
+    EvalReport,
+    EvalSuite,
+    assert_contains,
+    assert_cost_under,
+    assert_custom,
+    assert_json,
+    assert_no_findings,
+    assert_not_contains,
+    assert_ok,
+    assert_pydantic,
+    assert_steps_under,
 )
-from .boundary import looks_like_injection, scan_for_injection, wrap_untrusted
-from .masking import GovernancePolicy, MaskContext, ToolPolicy, allow_only, deny, phases
+from .graph import GraphResult, TaskGraph
 from .harness import Harness
+from .masking import GovernancePolicy, MaskContext, ToolPolicy, allow_only, deny, phases
 from .mcp import MCPClient, connect_mcp_server
 from .memory import FileStore, InMemoryStore, Memory, Store
-from .model import Model, MockModel, ModelRetryPolicy
+from .model import MockModel, Model, ModelRetryPolicy
 from .observability import (
     ConsoleExporter,
     JSONLExporter,
     OTelExporter,
     Tracer,
 )
+from .outbound import (
+    CampaignResult,
+    EmailDraft,
+    EmailSender,
+    Lead,
+    ResearchResult,
+    ScoredLead,
+    SendResult,
+    StdoutSender,
+    parse_csv,
+    parse_leads,
+    research_lead,
+    run_campaign,
+    score_lead,
+    write_draft,
+)
+from .profiles import MAX_TASK_DEPTH, AgentProfile, define_agent_profile
 from .sandbox import (
     AuditEntry,
     CredentialFilter,
@@ -70,10 +122,10 @@ from .tools import (
     ToolRegistry,
     ToolRetryPolicy,
     default_toolset,
-    web_toolset,
+    tool,
     web_browse,
     web_search,
-    tool,
+    web_toolset,
 )
 from .types import (
     ImageBlock,
@@ -85,69 +137,19 @@ from .types import (
     ToolUseBlock,
     Usage,
 )
+from .ui import create_ui_app, run_ui
 from .workflow import (
+    RunEvent,
+    RunRegistry,
+    RunStatus,
     Workflow,
     WorkflowContext,
     WorkflowHarness,
     WorkflowRun,
-    RunEvent,
-    RunRegistry,
-    RunStatus,
     workflow,
+)
+from .workflow import (
     cli_logs as workflow_logs,
-)
-from .dispatch import (
-    DispatchInput,
-    DispatchEvent,
-    dispatch,
-    dispatch_and_wait,
-    observe_dispatch,
-    cancel_dispatch,
-    list_active_dispatches,
-)
-from .profiles import AgentProfile, define_agent_profile, MAX_TASK_DEPTH
-from .eval import (
-    EvalSuite,
-    Case,
-    CaseResult,
-    EvalReport,
-    assert_contains,
-    assert_not_contains,
-    assert_ok,
-    assert_steps_under,
-    assert_json,
-    assert_pydantic,
-    assert_cost_under,
-    assert_custom,
-    assert_no_findings,
-)
-from .cost import Cost, BudgetPolicy, BudgetExceeded, cost_for_model, COST_TABLE
-from .approval import (
-    ApprovalGate,
-    ApprovalRequest,
-    ApprovalDenied,
-    ApprovalTimeout,
-    require_approval,
-    set_default_gate,
-)
-from .bench import BenchSuite, BenchTask, BenchResult, BenchReport, swe_bench_tasks
-from .ui import create_ui_app, run_ui
-from .graph import TaskGraph, GraphResult
-from .outbound import (
-    CampaignResult,
-    EmailDraft,
-    EmailSender,
-    Lead,
-    ResearchResult,
-    ScoredLead,
-    SendResult,
-    StdoutSender,
-    parse_csv,
-    parse_leads,
-    research_lead,
-    run_campaign,
-    score_lead,
-    write_draft,
 )
 
 __version__ = "0.10.0"

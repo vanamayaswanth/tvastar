@@ -27,7 +27,7 @@ import asyncio
 import inspect
 import random
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ..errors import ToolError, ToolNotFound
 from ..types import ToolSpec

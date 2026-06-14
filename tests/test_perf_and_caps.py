@@ -18,7 +18,6 @@ import pytest
 from tvastar import Harness, create_agent
 from tvastar.model.mock import MockModel
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -50,6 +49,7 @@ def test_local_sandbox_snapshot_perf_under_500ms():
     """LocalSandbox.snapshot() on ~500 KB of files must complete in < 500 ms."""
     import tempfile
     from pathlib import Path as _P
+
     from tvastar.sandbox.local import LocalSandbox
 
     content = b"x" * 5_000

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from tvastar.approval import ApprovalGate
+from tvastar.cost import BudgetExceeded, BudgetPolicy
 from tvastar.sandbox.base import CredentialFilter
 from tvastar.sandbox.local import LocalSandbox
 from tvastar.sandbox.virtual import VirtualSandbox
-from tvastar.cost import BudgetPolicy, BudgetExceeded
-from tvastar.approval import ApprovalGate
-
 
 # ---------------------------------------------------------------------------
 # CredentialFilter unit tests
@@ -147,7 +146,7 @@ def test_budget_policy_accepts_approve():
 @pytest.mark.asyncio
 async def test_budget_approve_calls_gate_and_continues():
     """When gate approves, the session continues (stopped != budget)."""
-    from tvastar import create_agent, Harness
+    from tvastar import Harness, create_agent
     from tvastar.model import MockModel
 
     gate_called = []
@@ -172,7 +171,7 @@ async def test_budget_approve_calls_gate_and_continues():
 @pytest.mark.asyncio
 async def test_budget_approve_stops_on_denial():
     """When gate denies, stopped='budget'."""
-    from tvastar import create_agent, Harness
+    from tvastar import Harness, create_agent
     from tvastar.model import MockModel
 
     gate = ApprovalGate(backend="event", on_request=lambda req: req.deny())
@@ -190,7 +189,7 @@ async def test_budget_approve_stops_on_denial():
 @pytest.mark.asyncio
 async def test_budget_approve_raises_if_no_gate():
     """If on_exceed='approve' but no approval_gate, raises BudgetExceeded."""
-    from tvastar import create_agent, Harness
+    from tvastar import Harness, create_agent
     from tvastar.model import MockModel
 
     agent = create_agent(
@@ -206,7 +205,7 @@ async def test_budget_approve_raises_if_no_gate():
 @pytest.mark.asyncio
 async def test_budget_approve_only_prompts_once():
     """Gate is only invoked once even across multiple steps."""
-    from tvastar import create_agent, Harness
+    from tvastar import Harness, create_agent
     from tvastar.model import MockModel
     from tvastar.tools import tool
     from tvastar.types import ToolUseBlock

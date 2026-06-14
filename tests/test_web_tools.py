@@ -64,6 +64,7 @@ async def test_web_browse_truncates_at_max_chars():
 @pytest.mark.asyncio
 async def test_web_browse_handles_http_error():
     import urllib.error
+
     from tvastar.tools.builtin import web_browse
 
     with patch(

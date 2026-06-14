@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 
-from tvastar import Harness, Tracer, ConsoleExporter, create_agent, default_toolset, tool
+from tvastar import ConsoleExporter, Harness, Tracer, create_agent, default_toolset, tool
 from tvastar.model import MockModel
 from tvastar.types import ToolUseBlock
 

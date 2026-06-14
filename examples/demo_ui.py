@@ -4,10 +4,10 @@ Run: python run_ui_demo.py
 """
 
 import json
-import time
-import uuid
 import os
 import sys
+import time
+import uuid
 
 
 def mk_span(

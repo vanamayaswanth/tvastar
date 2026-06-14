@@ -7,11 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from tvastar.outbound.leads import Lead, parse_csv, parse_leads
-from tvastar.outbound.email import EmailDraft
-from tvastar.outbound.send import StdoutSender
 from tvastar.outbound.campaign import CampaignResult
-
+from tvastar.outbound.email import EmailDraft
+from tvastar.outbound.leads import Lead, parse_csv, parse_leads
+from tvastar.outbound.send import StdoutSender
 
 # ---------------------------------------------------------------------------
 # Lead / parse_leads
@@ -202,8 +201,8 @@ def test_campaign_result_not_ok_when_zero_sent():
 @pytest.mark.asyncio
 async def test_run_campaign_full_pipeline(capsys):
     """End-to-end campaign with MockModel — no real HTTP calls."""
-    from tvastar.model import MockModel
     from tvastar.approval import ApprovalGate
+    from tvastar.model import MockModel
     from tvastar.outbound import run_campaign
 
     # MockModel falls back to the echo response when script is exhausted,
@@ -242,8 +241,8 @@ async def test_run_campaign_full_pipeline(capsys):
 @pytest.mark.asyncio
 async def test_run_campaign_no_qualified_leads(capsys):
     """If no leads score above min_score, campaign exits early without sending."""
-    from tvastar.model import MockModel
     from tvastar.approval import ApprovalGate
+    from tvastar.model import MockModel
     from tvastar.outbound import run_campaign
 
     model = MockModel()  # all echo responses — no numeric score → 0.0
@@ -271,8 +270,8 @@ async def test_run_campaign_no_qualified_leads(capsys):
 @pytest.mark.asyncio
 async def test_run_campaign_denial_stops_sending():
     """ApprovalGate denial → approved=False, sent=0."""
-    from tvastar.model import MockModel
     from tvastar.approval import ApprovalGate
+    from tvastar.model import MockModel
     from tvastar.outbound import run_campaign
 
     model = MockModel()
@@ -298,8 +297,8 @@ async def test_run_campaign_denial_stops_sending():
 @pytest.mark.asyncio
 async def test_run_campaign_from_dict_list():
     """Accept list[dict] as the leads argument."""
-    from tvastar.model import MockModel
     from tvastar.approval import ApprovalGate
+    from tvastar.model import MockModel
     from tvastar.outbound import run_campaign
 
     model = MockModel()
@@ -323,8 +322,8 @@ async def test_run_campaign_from_dict_list():
 @pytest.mark.asyncio
 async def test_run_campaign_from_csv(tmp_path: Path):
     """Accept a CSV path as the leads argument."""
-    from tvastar.model import MockModel
     from tvastar.approval import ApprovalGate
+    from tvastar.model import MockModel
     from tvastar.outbound import run_campaign
 
     csv_file = tmp_path / "leads.csv"

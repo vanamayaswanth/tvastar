@@ -14,7 +14,6 @@ from tvastar.model import MockModel
 from tvastar.tools.base import ToolRegistry
 from tvastar.types import Message, TextBlock, ToolResultBlock, ToolUseBlock
 
-
 # ---- the mini JSON-schema validator ------------------------------------
 
 

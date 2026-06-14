@@ -10,11 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Union
 
+from .compaction import CompactionPolicy
 from .model.base import Model
 from .sandbox.base import Sandbox
 from .sandbox.virtual import VirtualSandbox
 from .skills.loader import Skill, SkillLibrary
-from .compaction import CompactionPolicy
 from .tools.base import Tool, ToolRegistry
 
 SandboxFactory = Callable[[], Sandbox]

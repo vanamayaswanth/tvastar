@@ -6,7 +6,6 @@ from tvastar.model.mock import MockModel
 from tvastar.session import RunResult
 from tvastar.types import Message, Usage
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -14,7 +13,10 @@ from tvastar.types import Message, Usage
 def _ok_result(text: str = "done", messages: list | None = None) -> RunResult:
     msgs = messages or [
         Message("user", "Fix the auth bug"),
-        Message("assistant", "I found the bug in auth.py line 42 and fixed it by adding token validation."),
+        Message(
+            "assistant",
+            "I found the bug in auth.py line 42 and fixed it by adding token validation.",
+        ),
     ]
     return RunResult(text=text, messages=msgs, usage=Usage(), steps=1, stopped="end_turn")
 
@@ -45,7 +47,10 @@ async def test_consolidate_skips_failed_runs():
 async def test_consolidate_extracts_factual_and_procedural():
     """consolidate() parses JSON from the model and persists nodes."""
     ltm = LTMStore(InMemoryStore())
-    extraction_json = '{"factual": ["auth.py line 42 has token validation"], "procedural": ["add token validation to fix auth bug"]}'
+    extraction_json = (
+        '{"factual": ["auth.py line 42 has token validation"],'
+        ' "procedural": ["add token validation to fix auth bug"]}'
+    )
     model = MockModel([extraction_json])
 
     nodes = await ltm.consolidate(_ok_result(), model=model, session_id="sess_1")
@@ -116,9 +121,21 @@ async def test_redact_leaves_normal_text_intact():
 def _store_with_nodes() -> LTMStore:
     store = InMemoryStore()
     ltm = LTMStore(store)
-    ltm._save(LTMNode(id="n1", type="factual", content="auth bug is in token validation", tags=["auth", "bug", "token", "validation"]))
-    ltm._save(LTMNode(id="n2", type="procedural", content="run pytest tests before merging", tags=["pytest", "tests", "merging"]))
-    ltm._save(LTMNode(id="n3", type="factual", content="database config is in settings.py", tags=["database", "config", "settings"]))
+    ltm._save(LTMNode(
+        id="n1", type="factual",
+        content="auth bug is in token validation",
+        tags=["auth", "bug", "token", "validation"],
+    ))
+    ltm._save(LTMNode(
+        id="n2", type="procedural",
+        content="run pytest tests before merging",
+        tags=["pytest", "tests", "merging"],
+    ))
+    ltm._save(LTMNode(
+        id="n3", type="factual",
+        content="database config is in settings.py",
+        tags=["database", "config", "settings"],
+    ))
     return ltm
 
 
@@ -143,7 +160,11 @@ def test_retrieve_uses_max_inject_default():
     store = InMemoryStore()
     ltm = LTMStore(store, max_inject=2)
     for i in range(10):
-        ltm._save(LTMNode(id=f"n{i}", type="factual", content=f"fact about topic number {i}", tags=["topic", "fact", "number"]))
+        ltm._save(LTMNode(
+            id=f"n{i}", type="factual",
+            content=f"fact about topic number {i}",
+            tags=["topic", "fact", "number"],
+        ))
     results = ltm.retrieve("topic fact")
     assert len(results) <= 2
 
@@ -210,8 +231,16 @@ def test_sanitize_for_extraction_blocks_injection():
 def test_hook_uses_last_user_text_for_query():
     """as_hook() keys retrieval on last_user_text when provided."""
     ltm = LTMStore(InMemoryStore())
-    ltm._save(LTMNode(id="n1", type="factual", content="user prefers dark mode UI", tags=["ui", "dark", "preference"]))
-    ltm._save(LTMNode(id="n2", type="factual", content="unrelated compiler optimisation flag", tags=["compiler"]))
+    ltm._save(LTMNode(
+        id="n1", type="factual",
+        content="user prefers dark mode UI",
+        tags=["ui", "dark", "preference"],
+    ))
+    ltm._save(LTMNode(
+        id="n2", type="factual",
+        content="unrelated compiler optimisation flag",
+        tags=["compiler"],
+    ))
 
     hook = ltm.as_hook()
     # Pass last_user_text matching n1 — n1 should appear in the injected prompt
@@ -223,12 +252,17 @@ def test_nodes_survive_store_round_trip():
     """Nodes written to FileStore can be reloaded by a new LTMStore instance."""
     import tempfile
     from pathlib import Path
+
     from tvastar.memory.store import FileStore
 
     with tempfile.TemporaryDirectory() as tmp:
         store = FileStore(Path(tmp) / "ltm")
         ltm1 = LTMStore(store)
-        ltm1._save(LTMNode(id="abc", type="factual", content="hello world", tags=["hello", "world"]))
+        ltm1._save(LTMNode(
+            id="abc", type="factual",
+            content="hello world",
+            tags=["hello", "world"],
+        ))
 
         ltm2 = LTMStore(store)
         nodes = ltm2.all_nodes()

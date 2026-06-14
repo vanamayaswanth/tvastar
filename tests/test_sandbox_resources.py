@@ -11,7 +11,6 @@ from tvastar import AuditEntry, ResourcePolicy
 from tvastar.errors import SecurityViolation
 from tvastar.sandbox import LocalSandbox, SecurityPolicy
 
-
 # ---------------------------------------------------------------------------
 # ResourcePolicy dataclass
 # ---------------------------------------------------------------------------

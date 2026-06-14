@@ -15,26 +15,26 @@ Covers:
 """
 
 import asyncio
+
 import pytest
 
 from tvastar import (
+    MAX_TASK_DEPTH,
     CompactionPolicy,
+    DispatchInput,
     Harness,
+    compact_session,
     create_agent,
     define_agent_profile,
     dispatch,
     dispatch_and_wait,
-    DispatchInput,
     observe_dispatch,
-    workflow,
-    MAX_TASK_DEPTH,
-    compact_session,
     should_compact,
+    workflow,
 )
 from tvastar.model import MockModel
 from tvastar.types import Message, TextBlock, ToolUseBlock
-from tvastar.workflow import WorkflowContext, RunStatus
-
+from tvastar.workflow import RunStatus, WorkflowContext
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 

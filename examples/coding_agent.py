@@ -35,7 +35,11 @@ def _model():
                 name="write_file",
                 input={
                     "path": "fib.py",
-                    "content": "def fib(n):\n    return n if n < 2 else fib(n-1)+fib(n-2)\n\nprint([fib(i) for i in range(10)])\n",
+                    "content": (
+                        "def fib(n):\n"
+                        "    return n if n < 2 else fib(n-1)+fib(n-2)\n\n"
+                        "print([fib(i) for i in range(10)])\n"
+                    ),
                 },
             ),
             ToolUseBlock(name="bash", input={"command": "python fib.py"}),

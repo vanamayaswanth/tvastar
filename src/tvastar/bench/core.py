@@ -172,8 +172,8 @@ class BenchSuite:
     async def run(self) -> BenchReport:
         from tvastar.agent import AgentSpec, create_agent
         from tvastar.harness import Harness
-        from tvastar.sandbox.local import LocalSandbox
         from tvastar.sandbox.base import SecurityPolicy
+        from tvastar.sandbox.local import LocalSandbox
         from tvastar.tools import default_toolset
 
         if isinstance(self._agent_or_harness, AgentSpec):

@@ -22,11 +22,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 from .approval import ApprovalDenied, ApprovalTimeout
+from .compaction import compact_session
 from .cost import BudgetExceeded, Cost
 from .errors import ToolError, ToolNotFound
 from .memory.store import Memory
 from .observability import Tracer
-from .compaction import compact_session
 from .profiles import MAX_TASK_DEPTH, AgentProfile
 from .sandbox.base import Sandbox
 from .sandbox.virtual import VirtualSandbox
