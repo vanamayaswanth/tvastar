@@ -6,6 +6,28 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-06-14
+
+### Added
+
+- **`tvastar-outbound`** — AI-powered outbound email campaign agent (new product).
+  Give it a CSV of leads; it researches each one in parallel using a `TaskGraph`
+  (company site via `web_browse`, news + contact via `web_search`), scores every
+  lead against your Ideal Customer Profile, writes a personalised cold email for
+  each qualified lead, waits for human approval via `ApprovalGate`, then sends.
+
+  Key types and entry points:
+  - `run_campaign(leads, *, model, icp, sender_name, ...) → CampaignResult`
+  - `Lead`, `parse_csv()`, `parse_leads()` — flexible CSV / dict ingestion
+  - `ResearchResult`, `research_lead()` — parallel TaskGraph research per lead
+  - `ScoredLead`, `score_lead()` — ICP fit scoring (0.0–1.0), Pydantic-structured
+  - `EmailDraft`, `write_draft()` — personalised cold email generation
+  - `StdoutSender` (dev/demo) and `EmailSender` base class for SMTP/SendGrid
+  - `CampaignResult` — full audit trail (researched, qualified, drafted, sent)
+  - All types exported from `tvastar.outbound` and the top-level `tvastar` namespace
+  - `tvastar-outbound` CLI: `--csv`, `--icp`, `--sender-*`, `--min-score`,
+    `--dry-run`, `--max-leads`, `--concurrency`
+
 ## [0.8.4] — 2026-06-14
 
 ### Added

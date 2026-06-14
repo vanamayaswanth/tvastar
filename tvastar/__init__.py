@@ -132,8 +132,24 @@ from .approval import (
 from .bench import BenchSuite, BenchTask, BenchResult, BenchReport, swe_bench_tasks
 from .ui import create_ui_app, run_ui
 from .graph import TaskGraph, GraphResult
+from .outbound import (
+    CampaignResult,
+    EmailDraft,
+    EmailSender,
+    Lead,
+    ResearchResult,
+    ScoredLead,
+    SendResult,
+    StdoutSender,
+    parse_csv,
+    parse_leads,
+    research_lead,
+    run_campaign,
+    score_lead,
+    write_draft,
+)
 
-__version__ = "0.8.4"
+__version__ = "0.9.0"
 
 __all__ = [
     "create_agent",
@@ -269,4 +285,19 @@ __all__ = [
     # DAG-based parallel task execution
     "TaskGraph",
     "GraphResult",
+    # outbound sales agent
+    "run_campaign",
+    "CampaignResult",
+    "Lead",
+    "parse_csv",
+    "parse_leads",
+    "ResearchResult",
+    "research_lead",
+    "ScoredLead",
+    "score_lead",
+    "EmailDraft",
+    "write_draft",
+    "EmailSender",
+    "SendResult",
+    "StdoutSender",
 ]
