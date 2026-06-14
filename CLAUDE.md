@@ -85,6 +85,14 @@ tvastar/
 │   └── cli.py        ← tvastar chat|serve|run|info|logs
 ├── deploy/           ← ASGI / Lambda / serverless / GitHub Action adapters
 ├── fix/              ← tvastar-fix: auto-repair failing test suites
+├── outbound/         ← tvastar-outbound: AI outbound email campaign agent
+│   ├── leads.py      ← Lead dataclass, parse_csv(), parse_leads()
+│   ├── research.py   ← research_lead() — parallel TaskGraph per lead
+│   ├── score.py      ← score_lead() — ICP fit scoring (0.0–1.0)
+│   ├── email.py      ← write_draft() — personalised cold email generation
+│   ├── send.py       ← StdoutSender + EmailSender base class
+│   ├── campaign.py   ← run_campaign() — full pipeline orchestrator
+│   └── cli.py        ← tvastar-outbound CLI entry point
 └── __init__.py       ← re-exports everything public (see __all__)
 ```
 

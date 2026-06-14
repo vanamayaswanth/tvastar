@@ -949,26 +949,44 @@ tvastar-fix --test-cmd "pytest tests/" --model claude-opus-4-6
 
 ---
 
-### 🔨 tvastar-outbound — AI outbound sales agent
-*Next up. Biggest commercial opportunity.*
+### ✅ tvastar-outbound — AI outbound sales agent
+*Shipped v0.9.0.*
 
 Give it a CSV of leads. It researches each one in parallel (company site, news,
 LinkedIn via `web_browse` + `web_search`), scores and prioritises them with
 `TaskGraph`, writes a personalised cold email for each, waits for your approval
-via `ApprovalGate`, then sends. Follow-ups scheduled automatically. Full audit
-trail in the trace viewer.
+via `ApprovalGate`, then sends. Full audit trail in the trace viewer.
 
 ```bash
-pip install "tvastar[outbound]"
-tvastar-outbound --leads leads.csv --model claude-sonnet-4-6 --limit 50
+pip install tvastar
+tvastar-outbound --csv leads.csv --icp "B2B SaaS, 50+ employees" \
+    --sender-name "Jane" --sender-company "Acme" --sender-email jane@acme.com \
+    --min-score 0.6 --dry-run
+```
+
+Or programmatically:
+
+```python
+from tvastar.outbound import run_campaign
+from tvastar.model import AnthropicModel
+
+result = await run_campaign(
+    "leads.csv",
+    model=AnthropicModel("claude-sonnet-4-5"),
+    icp="B2B SaaS companies with 50+ employees struggling with developer productivity",
+    sender_name="Jane Smith",
+    sender_company="Acme",
+    sender_email="jane@acme.com",
+    min_score=0.6,
+)
+print(f"Sent {result.sent}/{result.leads_qualified} emails.")
 ```
 
 **Why Tvastar is the right engine:**
 - `TaskGraph` researches all leads in parallel — 50 leads in wall-clock time of 1
 - `web_browse` + `web_search` — no external scraping service needed
-- `ApprovalGate` — human reviews before anything goes out
+- `ApprovalGate` — human reviews every draft before anything goes out
 - `BudgetPolicy` — hard cost ceiling per campaign
-- `dispatch()` — one session per lead, isolated, resumable
 - `JSONLExporter` + `tvastar ui` — see every email and every research step
 
 ---
@@ -1077,8 +1095,8 @@ Products ship first. Framework features get added only when a product needs them
 |---|---|---|
 | **Web tools** | `web_browse` + `web_search` — Jina AI, zero deps | ✅ v0.8.1 |
 | **DAG execution** | `TaskGraph` — parallel tasks, critical path only | ✅ v0.8.0 |
-| **tvastar-outbound** | Outbound sales agent — research → score → email → send | 🔨 Next |
-| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.9.0 |
+| **tvastar-outbound** | Outbound sales agent — research → score → email → send | ✅ v0.9.0 |
+| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.9.1 |
 | **Platform gateway** | Telegram + cron — added when outbound needs notifications | 📋 v1.0.0 |
 | **Skill learning loop** | Agent writes Skills from successful runs; FTS memory | 📋 v1.1.0 |
 | **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.2.0 |

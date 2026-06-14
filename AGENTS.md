@@ -60,6 +60,7 @@ See `CLAUDE.md` for the full map. Quick pointers:
 | Trace viewer UI | `tvastar/ui/server.py`, `tvastar/ui/index.html` |
 | Benchmark runner | `tvastar/bench/core.py`, `tvastar/bench/swebench.py` |
 | DAG task execution | `tvastar/graph.py` |
+| Outbound email agent | `tvastar/outbound/` — `run_campaign()`, `Lead`, `research_lead()`, `score_lead()`, `write_draft()` |
 
 ## Release flow
 

@@ -90,6 +90,42 @@ Feedback welcome — particularly failure cases on real-world test suites.
 
 ---
 
+---
+
+## tvastar-outbound — launch copy (v0.9.0)
+
+### Show HN
+
+**Title:**
+Show HN: AI outbound sales agent that researches leads in parallel and can't lie about sending
+
+**Body:**
+`tvastar-outbound` is a CLI + Python library that turns a CSV of leads into personalised cold emails with zero manual research.
+
+The part that's different: it uses a DAG executor (`TaskGraph`) to research each lead in parallel — company website, recent news, and LinkedIn contact info all run concurrently. 50 leads take roughly the same wall-clock time as 1. Then it scores each lead against your Ideal Customer Profile, writes a draft email per qualified lead, shows you all the drafts, waits for you to approve, and sends.
+
+It can't fake approvals. Nothing goes out until a human sees every draft and clicks yes. (`ApprovalGate`, which powers the same flow in tvastar-fix for dangerous code edits.)
+
+```bash
+pip install tvastar
+tvastar-outbound --csv leads.csv \
+  --icp "B2B SaaS, 50+ employees, struggling with CI/CD" \
+  --sender-name "Jane" --sender-company "Acme" --sender-email jane@acme.com \
+  --dry-run
+```
+
+No external scraping service — uses Jina AI Reader for web content (free). No API key for that either.
+
+Built on Tvastar (the framework underneath): https://github.com/vanamayaswanth/tvastar
+
+---
+
+### One-liner / social
+
+> `tvastar-outbound --csv leads.csv --icp "..."` — AI researches each lead in parallel, writes a personalised email, waits for your approval, then sends. No scrapers, no black boxes.
+
+---
+
 ## r/LocalLLaMA angle (lean into local + free)
 
 Same as above, but lead with: works fully **local and free** via Ollama — point
