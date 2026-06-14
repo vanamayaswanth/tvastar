@@ -138,6 +138,10 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 | Flaky network tools fail mid-run | Per-tool retry with exponential backoff |
 | Run 100 prompts at once | Built-in parallel fan-out |
 | Stream tokens to the browser | SSE endpoint out of the box |
+| Tool called in wrong execution phase | `GovernancePolicy` — tamper-proof phase enforcement |
+| Filesystem changes need atomic rollback | `harness.transaction()` + sandbox snapshot/restore |
+| Agent needs memory across sessions | `tvastar.contrib.ltm` — post-session LTM consolidation |
+| Session messages balloon past 50 MB | `memory_cap_mb` — hard cap with auto-compaction |
 
 ---
 
@@ -713,6 +717,84 @@ for f in result.warnings:
 
 ---
 
+## Dynamic Capability Governance — lock dangerous tools to specific phases
+
+`GovernancePolicy` enforces **least privilege at invocation time** — after the
+model has already decided to call a tool. Unlike masking (which is advisory),
+governance runs in Python code and cannot be bypassed by prompt injection.
+
+```python
+from tvastar import create_agent, GovernancePolicy
+from tvastar.approval import ApprovalGate
+
+gov = GovernancePolicy(
+    phases={
+        "read":  {"grep", "read_file", "glob"},
+        "write": {"grep", "read_file", "glob", "write_file", "bash"},
+    },
+    current_phase="read",
+    # Optional — route blocked calls to a human instead of hard-blocking:
+    approval_gate=ApprovalGate(backend="cli"),
+)
+agent = create_agent("assistant", model=..., governance=gov)
+
+# Elevate at runtime (per-session — concurrent sessions are isolated):
+gov.set_phase("write")
+
+# Wire masking and governance together from one object:
+create_agent(..., governance=gov, tool_policy=gov.as_tool_policy())
+```
+
+---
+
+## Transactional Sandbox — atomic rollback on failure
+
+Wrap any session step in a `harness.transaction()` to guarantee that filesystem
+changes are rolled back if the step raises an exception.
+
+```python
+async with harness.transaction(session) as sess:
+    await sess.prompt("Refactor the auth module and run tests")
+    # → if tests fail or an exception fires, the workspace rolls back atomically
+```
+
+Works with `VirtualSandbox` (< 150 ms on 1 MB) and `LocalSandbox` (< 500 ms on
+500 KB). Both expose `snapshot()` / `restore()` for manual control too:
+
+```python
+snap = sandbox.snapshot()
+# ... do risky things ...
+sandbox.restore(snap)   # reset to exactly the pre-snapshot state
+```
+
+---
+
+## Long-Term Memory — remember facts across sessions
+
+`tvastar.contrib.ltm` consolidates conversation knowledge into a persistent
+`LTMStore` after each session and injects recalled context into the system
+prompt on subsequent runs. No extra dependencies needed (BM25 retrieval by
+default; `sentence-transformers` optional for semantic search).
+
+```python
+from tvastar.contrib.ltm import LTMStore
+from tvastar.memory.store import FileStore
+
+ltm = LTMStore(FileStore(".ltm"))
+
+# Wire retrieval into the system prompt — recalled per turn, keyed on user intent
+agent = create_agent("assistant", model=..., system_prompt_hook=ltm.as_hook())
+
+# After the session completes, persist what the agent learned
+result = await Harness(agent).run("Fix the flaky auth test")
+await ltm.consolidate(result, model, session_id="fix-auth-001")
+
+# Next session — the agent automatically recalls relevant past knowledge
+result2 = await Harness(agent).run("The auth test is flaky again")
+```
+
+---
+
 ## CLI
 
 ```bash
@@ -1096,7 +1178,8 @@ Products ship first. Framework features get added only when a product needs them
 | **Web tools** | `web_browse` + `web_search` — Jina AI, zero deps | ✅ v0.8.1 |
 | **DAG execution** | `TaskGraph` — parallel tasks, critical path only | ✅ v0.8.0 |
 | **tvastar-outbound** | Outbound sales agent — research → score → email → send | ✅ v0.9.0 |
-| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.9.1 |
+| **SOTA safety** | Governance, transactions, LTM, memory cap, OpenAI retry | ✅ v0.10.0 |
+| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.10.1 |
 | **Platform gateway** | Telegram + cron — added when outbound needs notifications | 📋 v1.0.0 |
 | **Skill learning loop** | Agent writes Skills from successful runs; FTS memory | 📋 v1.1.0 |
 | **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.2.0 |

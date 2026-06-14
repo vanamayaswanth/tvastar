@@ -150,7 +150,7 @@ from .outbound import (
     write_draft,
 )
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 __all__ = [
     "create_agent",

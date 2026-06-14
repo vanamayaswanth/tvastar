@@ -933,22 +933,207 @@ if __name__ == "__main__":
 
 ---
 
+## 21. Dynamic Capability Governance
+
+Enforce least-privilege at invocation time — after the model has already decided to
+call a tool. Tamper-proof against prompt injection because it runs in Python, not
+as a prompt instruction.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness, GovernancePolicy, default_toolset
+from tvastar.model import AnthropicModel
+
+gov = GovernancePolicy(
+    phases={
+        "read":  {"grep", "read_file", "glob"},
+        "write": {"grep", "read_file", "glob", "write_file", "bash"},
+    },
+    current_phase="read",
+)
+
+# Wire both masking and governance from the same object:
+agent = create_agent(
+    "secure-agent",
+    model=AnthropicModel(),
+    tools=default_toolset(),
+    governance=gov,
+    tool_policy=gov.as_tool_policy(),   # masking mirrors the current phase live
+)
+
+harness = Harness(agent)
+sess = harness.session()
+
+async def run():
+    # Phase "read" — write_file and bash are both masked and governance-blocked
+    r1 = await sess.prompt("List all Python files")
+    print(r1.text)
+
+    # Elevate to write — all concurrent sessions are isolated (each has a copy)
+    sess.spec.governance.set_phase("write")
+    r2 = await sess.prompt("Add a type hint to utils.py")
+    print(r2.text)
+
+asyncio.run(run())
+```
+
+---
+
+## 22. Transactional Sandbox
+
+Wrap any session step in `harness.transaction()` to guarantee atomic rollback
+if the step raises an exception.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness, default_toolset
+from tvastar.model import AnthropicModel
+
+agent = create_agent("coder", model=AnthropicModel(), tools=default_toolset())
+harness = Harness(agent)
+
+async def run():
+    sess = harness.session()
+
+    try:
+        async with harness.transaction(sess) as s:
+            # Snapshot taken before entering
+            result = await s.prompt("Refactor auth.py and make sure tests pass")
+            if not result.ok:
+                raise RuntimeError("agent reported failure")
+            # Clean exit → snapshot discarded, workspace keeps the changes
+    except RuntimeError:
+        # Exception escaped → sandbox automatically restored to pre-prompt state
+        print("Refactor failed — workspace rolled back")
+
+asyncio.run(run())
+```
+
+Manual snapshot / restore without the context manager:
+
+```python
+from tvastar.sandbox.virtual import VirtualSandbox
+
+sb = VirtualSandbox({"main.py": "print('hello')"})
+snap = sb.snapshot()   # dict[str, str]
+
+sb.fs.write("main.py", "CORRUPTED")
+sb.restore(snap)
+
+assert sb.fs.read("main.py") == "print('hello')"
+```
+
+---
+
+## 23. Long-Term Memory (LTM)
+
+Consolidate knowledge from each session into a persistent store and inject it
+back into the system prompt on subsequent sessions.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.contrib.ltm import LTMStore
+from tvastar.memory.store import FileStore
+from tvastar.model import AnthropicModel
+
+ltm = LTMStore(FileStore(".ltm"))
+model = AnthropicModel()
+
+agent = create_agent(
+    "assistant",
+    model=model,
+    instructions="You are an expert Python engineer.",
+    system_prompt_hook=ltm.as_hook(),   # retrieved memories injected per turn
+)
+harness = Harness(agent)
+
+async def run_and_consolidate(prompt: str, session_id: str):
+    result = await harness.run(prompt, session_id=session_id)
+    # After session completes, extract and persist facts
+    nodes = await ltm.consolidate(result, model, session_id=session_id)
+    print(f"Consolidated {len(nodes)} memory nodes")
+    return result
+
+async def main():
+    # First session — agent learns about the codebase
+    await run_and_consolidate("Explore the auth module and fix the flaky test", "s1")
+
+    # Second session — agent recalls relevant facts without re-reading the code
+    result = await harness.run("The auth test broke again — what did we learn last time?")
+    print(result.text)
+
+asyncio.run(main())
+```
+
+Semantic retrieval (optional — install `sentence-transformers`):
+
+```python
+ltm = LTMStore(FileStore(".ltm"), semantic=True)   # cosine similarity, model cached on first load
+```
+
+---
+
+## 24. System Prompt Hook
+
+Augment the system prompt dynamically before each model call — inject retrieved
+context, tenant configuration, or any per-call data without subclassing.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.model import AnthropicModel
+
+# Basic hook — no access to the current user message
+def add_date(system_prompt: str) -> str:
+    from datetime import date
+    return f"{system_prompt}\n\nToday's date: {date.today()}"
+
+# Extended hook — receives the most-recent user message for context-aware retrieval
+def retrieval_hook(system_prompt: str, *, last_user_text: str = "") -> str:
+    query = last_user_text or system_prompt
+    docs = my_vector_search(query, k=3)   # your retrieval logic
+    if not docs:
+        return system_prompt
+    block = "\n".join(f"- {d}" for d in docs)
+    return f"{system_prompt}\n\n## Retrieved Context\n{block}"
+
+agent = create_agent(
+    "rag-agent",
+    model=AnthropicModel(),
+    instructions="You are a helpful assistant.",
+    system_prompt_hook=retrieval_hook,
+)
+
+asyncio.run(Harness(agent).run("What are our SLA commitments?"))
+```
+
+Hook failures emit a `UserWarning` and fall back to the original prompt —
+they cannot crash a live session.
+
+---
+
 ## Pattern Quick-Reference
 
 | Goal | Key API |
 |---|---|
-| One-shot answer | `agent.run(prompt)` |
-| Multi-turn chat | `session = agent.session(); session.run(...)` |
-| Typed output | `AgentSpec(result_type=MyModel)` |
-| Parallel runs | `harness.fan_out(prompts, concurrency=N)` |
-| Child agent | `session.task(prompt, agent="profile_name")` |
-| Persistent pipeline | `@workflow; ctx.step("name", fn, ...)` |
-| Async fire-and-forget | `dispatch(agent, prompt)` |
-| Long sessions | `AgentSpec(compaction=CompactionPolicy(...))` |
+| One-shot answer | `harness.run(prompt)` |
+| Multi-turn chat | `sess = harness.session(); sess.prompt(...)` |
+| Typed output | `sess.prompt(..., result=MyModel)` |
+| Parallel runs | `harness.fan_out(prompts, concurrency=8)` |
+| Child agent | `sess.task(prompt, agent="profile_name")` |
+| Persistent pipeline | `@workflow; ctx.init(spec); sess.prompt(...)` |
+| Async fire-and-forget | `dispatch(agent, id=user_id, text=msg)` |
+| Long sessions | `create_agent(..., compaction=CompactionPolicy(...))` |
 | Flaky tools | `@tool(retry=ToolRetryPolicy(...))` |
-| Deep reasoning | `AgentSpec(thinking_level="high")` |
-| External tools | `Harness(mcp_servers=[MCPServer(...)])` |
+| Deep reasoning | `create_agent(..., thinking_level="high")` |
+| External tools (MCP) | `connect_mcp_server(command="python", args=["server.py"])` |
 | Token streaming | `GET /sessions/{id}/stream` (SSE) |
-| Audit trail | `AgentSpec(tracer=MyTracer())` |
-| Quality guard | `AgentSpec(detectors=[MyDetector()])` |
-| Crash recovery | `durable_session(agent, store, session_id=...)` |
+| Audit trail | `Harness(agent, tracer=JSONLExporter("trace.jsonl"))` |
+| Quality guard | `create_agent(..., detect=[*default_detectors(), my_detector])` |
+| Crash recovery | `Harness(agent, store=FileStore(".state")); harness.resume(sid)` |
+| Phase-based governance | `create_agent(..., governance=GovernancePolicy(...))` |
+| Atomic rollback | `async with harness.transaction(session) as sess: ...` |
+| Cross-session memory | `LTMStore(FileStore(".ltm")); ltm.as_hook()` |
+| Dynamic system prompt | `create_agent(..., system_prompt_hook=my_hook)` |
+| Session memory limit | `create_agent(..., memory_cap_mb=50)` |

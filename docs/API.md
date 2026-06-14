@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.2.0. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.10.0. Every public symbol, field, and signature.
 
 ---
 
@@ -25,6 +25,12 @@ def create_agent(
     subagents: list[AgentProfile] | None = None,
     compaction: CompactionPolicy | None = None,
     tool_retry: ToolRetryPolicy | None = None,
+    budget: BudgetPolicy | None = None,
+    approval_gate: ApprovalGate | None = None,
+    tool_policy: ToolPolicy | None = None,
+    governance: GovernancePolicy | None = None,
+    system_prompt_hook: Callable[..., str] | None = None,
+    memory_cap_mb: float | None = None,   # session memory ceiling in MB
     **metadata,                           # arbitrary key=value stored on spec
 ) -> AgentSpec
 ```
@@ -50,9 +56,18 @@ class AgentSpec:
     compaction: CompactionPolicy | None
     tool_retry: ToolRetryPolicy | None
     subagents: dict[str, AgentProfile]
+    budget: BudgetPolicy | None            # cost ceiling (None=unlimited)
+    approval_gate: ApprovalGate | None     # human-in-the-loop gate
+    tool_policy: ToolPolicy | None         # per-turn masking (advisory)
+    governance: GovernancePolicy | None    # invocation-layer enforcement (tamper-proof)
+    system_prompt_hook: Callable[..., str] | None  # augments system prompt before each call
+    memory_cap_mb: float | None            # session memory ceiling in MB (None=unlimited)
     metadata: dict[str, Any]
 
-    def build_system_prompt(self) -> str
+    def build_system_prompt(self, *, last_user_text: str = "") -> str
+    # Applies system_prompt_hook if set; hook failure warns and falls back gracefully.
+    # Extended hooks that declare last_user_text receive the most-recent user message.
+
     def get_subagent(self, name: str) -> AgentProfile | None
 ```
 
@@ -89,9 +104,16 @@ class Harness:
         self,
         prompts: list[str | dict],
         *,
-        concurrency: int | None = None,   # None = all at once
+        concurrency: int = 8,   # None = all at once (thundering-herd risk)
     ) -> list[RunResult]
     # dict form keys: prompt, agent, result, cancel_after, thinking_level, max_steps
+
+    # Transactional sandbox — atomic rollback on exception
+    @asynccontextmanager
+    async def transaction(self, session: Session) -> AsyncIterator[Session]
+    # Takes a sandbox snapshot before yielding, restores it if the body raises.
+    # Emits workspace_rollback / workspace_rollback_failed tracer spans.
+    # Silently skips snapshotting for sandboxes that don't support it.
 
     # Sessions
     def session(
@@ -577,6 +599,155 @@ async def dispatch_and_wait(
 def observe_dispatch(callback: Callable[[DispatchEvent], Any]) -> None
 def cancel_dispatch(dispatch_id: str) -> bool
 def list_active_dispatches() -> list[str]
+```
+
+---
+
+## Governance (`tvastar/masking.py`)
+
+```python
+@dataclass
+class GovernancePolicy:
+    """Phase-based capability enforcement at tool invocation time.
+
+    Unlike masking (advisory, shapes what the model *sees*), governance
+    intercepts inside Session._execute_tools and is tamper-proof against
+    prompt injection.
+    """
+    phases: dict[str, set[str]]      # phase_name → set of allowed tool names; "*" = all
+    current_phase: str = "default"
+    approval_gate: ApprovalGate | None = None
+
+    # Raises ValueError if phases={} — empty policies are rejected at construction.
+
+    def set_phase(self, name: str) -> None
+    # Raises ValueError for unknown names.
+
+    def is_allowed(self, tool_name: str) -> bool
+    # Fails closed: returns False for an unknown or uninitialised current_phase.
+
+    def as_tool_policy(self) -> ToolPolicy
+    # Returns a live ToolPolicy that mirrors current_phase on every call.
+    # Wire as: create_agent(..., governance=gov, tool_policy=gov.as_tool_policy())
+
+    def copy(self) -> GovernancePolicy
+    # Shallow copy with independent current_phase — Harness.session() calls this
+    # automatically so concurrent sessions cannot race on set_phase().
+```
+
+```python
+# Masking helpers (ToolPolicy factories)
+ToolPolicy = Callable[[MaskContext], Iterable[str]]
+
+def allow_only(*names: str) -> ToolPolicy
+def deny(*names: str) -> ToolPolicy
+def phases(by_step: dict[int, Iterable[str]], *, default=None) -> ToolPolicy
+
+@dataclass
+class MaskContext:
+    step: int
+    available: list[str]
+    messages: list[Message]
+    active_skill: str | None
+    @property last_tool_used: str | None
+```
+
+---
+
+## Sandboxes (`tvastar/sandbox/`)
+
+```python
+class Sandbox(ABC):
+    async def exec(self, cmd: str, *, env=None, cwd=None, timeout=None) -> ExecResult
+    @property fs: FileSystem
+    async def start(self) -> None
+    async def stop(self) -> None
+
+    # Snapshot / restore (v0.10.0)
+    def snapshot(self) -> Any
+    # Returns sandbox state; raises NotImplementedError if unsupported.
+
+    def restore(self, snap: Any) -> None
+    # Restores to a previous snapshot; raises NotImplementedError if unsupported.
+
+class VirtualSandbox(Sandbox):
+    # In-memory. snapshot() → dict[str, str]; restore() replaces fs contents.
+    # < 150 ms on ~1 MB. Supports exec() via VirtualPython (no real subprocess).
+
+class LocalSandbox(Sandbox):
+    def __init__(
+        self,
+        root: str | Path = ".tvastar-workspace",
+        *,
+        policy: SecurityPolicy | None = None,
+        resources: ResourcePolicy | None = None,
+        credential_filter: CredentialFilter | None = None,
+        shell: str | None = None,
+    )
+    # snapshot() → dict[str, bytes] — recursive walk of root, relative POSIX paths.
+    # restore(snap) — deletes extra files, recreates snapshotted ones.
+    # < 500 ms on ~500 KB.
+    audit: list[AuditEntry]   # append-only log of every exec call
+
+@dataclass
+class ExecResult:
+    exit_code: int
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+```
+
+---
+
+## Long-Term Memory (`tvastar/contrib/ltm/`)
+
+Optional contrib module — no extra dependencies for BM25 retrieval.
+Install `sentence-transformers` and `numpy` for semantic cosine retrieval.
+
+```python
+from tvastar.contrib.ltm import LTMStore, LTMNode
+
+@dataclass
+class LTMNode:
+    id: str
+    type: str             # "factual" | "procedural"
+    content: str
+    tags: list[str] = []
+    session_id: str = ""
+    created_at: float = 0.0
+
+class LTMStore:
+    def __init__(
+        self,
+        store: Store,
+        max_inject: int = 5,      # nodes injected per system prompt call
+        semantic: bool = False,   # True → cosine similarity via sentence-transformers
+    )
+
+    async def consolidate(
+        self,
+        result: RunResult,
+        model: Model,
+        *,
+        session_id: str = "",
+    ) -> list[LTMNode]
+    # Extracts factual/procedural nodes from result.messages via LLM.
+    # Gates on result.stopped == "end_turn" (not result.ok).
+    # Redacts credentials; sanitizes user messages against injection patterns.
+    # Returns [] if the run did not complete or no nodes were extracted.
+
+    def retrieve(self, query: str, *, k: int | None = None) -> list[LTMNode]
+    # BM25-style keyword overlap by default; cosine similarity if semantic=True.
+
+    def as_hook(self) -> Callable[..., str]
+    # Returns a system_prompt_hook. Extended signature (auto-detected):
+    #   hook(system_prompt: str, *, last_user_text: str = "") -> str
+    # Retrieval is keyed on last_user_text when available (per-turn intent),
+    # falling back to the system prompt for the first turn.
+
+    def all_nodes(self) -> list[LTMNode]
+    def clear(self) -> None
+    def _save(self, node: LTMNode) -> None   # direct insert (test helper)
 ```
 
 ---

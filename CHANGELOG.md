@@ -6,6 +6,79 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-06-15
+
+### Added
+
+- **Dynamic Capability Governance** (`GovernancePolicy`) — phase-based tool enforcement
+  at invocation time, after the model requests a tool call. Tamper-proof against prompt
+  injection because it runs in Python code, not as a prompt instruction.
+
+  ```python
+  from tvastar import create_agent, GovernancePolicy
+
+  gov = GovernancePolicy(
+      phases={"read": {"grep", "read_file"}, "write": {"grep", "read_file", "bash"}},
+      current_phase="read",
+  )
+  agent = create_agent("assistant", model=..., governance=gov)
+  gov.set_phase("write")   # elevate at runtime
+  ```
+
+  - `is_allowed()` fails **closed** — unknown/uninitialised phase denies all calls.
+  - `GovernancePolicy(phases={})` raises `ValueError` — empty policies rejected at construction.
+  - `as_tool_policy()` returns a live `ToolPolicy` mirroring the current phase so masking
+    and governance stay in sync from a single object.
+  - `copy()` gives each `Harness.session()` an independent phase state — concurrent
+    sessions cannot race on `set_phase()`.
+  - Optional `approval_gate=` routes blocked calls to a human for real-time elevation.
+
+- **Transactional Sandbox** (`harness.transaction()`) — atomic rollback of filesystem
+  changes on exception.
+
+  ```python
+  async with harness.transaction(session) as sess:
+      await sess.prompt("refactor this module")
+      # If anything raises, the sandbox workspace rolls back to pre-prompt state
+  ```
+
+  - `VirtualSandbox.snapshot()` / `restore()` — in-memory, < 150 ms on ~1 MB.
+  - `LocalSandbox.snapshot()` / `restore()` — real filesystem walk, < 500 ms on ~500 KB.
+  - `workspace_rollback` and `workspace_rollback_failed` tracer spans for full observability.
+
+- **`system_prompt_hook`** on `AgentSpec` — `Callable` applied to the system prompt
+  before each model call. Supports basic `(prompt) -> str` and extended
+  `(prompt, *, last_user_text="") -> str` signatures. Hook failures warn and fall back
+  gracefully — they cannot crash a live session.
+
+- **`tvastar.contrib.ltm`** — Long-Term Memory consolidation (no extra deps by default).
+  Extracts factual and procedural nodes after successful sessions; injects retrieved
+  context via `system_prompt_hook`. BM25 retrieval by default; optional cosine
+  similarity with `sentence-transformers`. Includes injection sanitization, credential
+  redaction, and model caching. Consolidation gates on `result.stopped == "end_turn"`.
+
+- **`memory_cap_mb`** on `AgentSpec` — session memory ceiling in MB. Over limit →
+  force-compact first, then stop with `stopped="memory_cap"`.
+
+- **`ModelRetryPolicy` on `OpenAIModel`** — exponential backoff retry matching
+  `AnthropicModel`. Pass `retry=ModelRetryPolicy(max_attempts=3)` to `OpenAIModel`.
+
+- **`TaskGraph.run(concurrency=8)`** — semaphore-bounded concurrency (default 8, `0`
+  = unlimited). Uses typed `_UpstreamSkipError` for clean skip propagation.
+
+- **`fan_out` default concurrency = 8** (was `None`).
+
+### Changed
+
+- **`AnthropicModel` backoff** → full-jitter (`uniform(0, cap)`) to decorrelate retries.
+- **`FileStore` encoding** — `/` → `%2F`, `\` → `%5C` (was `__` for both); PID-unique
+  temp files; cross-process advisory lock (`msvcrt` / `fcntl`).
+- **Overflow compaction** — now requires a `CompactionPolicy` and enforces 30 s cooldown.
+
+### Fixed
+
+- `GovernancePolicy.is_allowed()` returned `True` for unknown phase. Now fails closed.
+
 ## [0.9.0] — 2026-06-14
 
 ### Added
