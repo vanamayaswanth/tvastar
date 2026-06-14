@@ -33,10 +33,12 @@ from .sandbox.virtual import VirtualSandbox
 from .skills.loader import Skill
 from .tools.base import ToolContext, ToolRegistry
 from .types import (
+    ImageBlock,
     Message,
     ModelResponse,
     StopReason,
     StreamEvent,
+    TextBlock,
     ToolResultBlock,
     ToolSpec,
     ToolUseBlock,
@@ -195,6 +197,7 @@ class Session:
         self,
         text: str,
         *,
+        images: Optional[list[ImageBlock]] = None,
         result: Optional[Any] = None,
         cancel_after: Optional[float] = None,
     ) -> RunResult:
@@ -202,22 +205,21 @@ class Session:
 
         Args:
             text: The user prompt.
-            result: Optional schema for structured output. Pass a callable
-                    validator (e.g. a Pydantic model class) to validate and
-                    parse the model's JSON response into ``RunResult.data``.
-                    If the first attempt produces invalid JSON, the model is
-                    given the schema error and retried up to
-                    ``_STRUCTURED_RETRIES`` times before falling back to raw
-                    text.
-            cancel_after: Optional timeout in seconds; raises asyncio.TimeoutError
-                    if the run exceeds it.
+            images: Optional images to attach to this turn (vision models only).
+            result: Optional schema for structured output. Parse failures are
+                    retried up to ``_STRUCTURED_RETRIES`` times before falling
+                    back to raw text.
+            cancel_after: Optional timeout in seconds.
         """
         if not self._started:
             await self.start()
         prompt_text = text
         if result is not None:
             prompt_text = _inject_schema_instruction(text, result)
-        self.messages.append(Message("user", prompt_text))
+        if images:
+            self.messages.append(Message("user", [TextBlock(text=prompt_text), *images]))
+        else:
+            self.messages.append(Message("user", prompt_text))
         with self.tracer.span("session.prompt", session=self.id, agent=self.spec.name):
             if cancel_after is not None:
                 return await asyncio.wait_for(self._run_with_schema(result), timeout=cancel_after)
@@ -228,6 +230,7 @@ class Session:
         name: str,
         text: str,
         *,
+        images: Optional[list[ImageBlock]] = None,
         result: Optional[Any] = None,
     ) -> RunResult:
         """Invoke a named skill for one prompt, then deactivate it."""
@@ -242,7 +245,10 @@ class Session:
                 prompt_text = text
                 if result is not None:
                     prompt_text = _inject_schema_instruction(text, result)
-                self.messages.append(Message("user", prompt_text))
+                if images:
+                    self.messages.append(Message("user", [TextBlock(text=prompt_text), *images]))
+                else:
+                    self.messages.append(Message("user", prompt_text))
                 return await self._run_with_schema(result)
         finally:
             self._active_skill = prev

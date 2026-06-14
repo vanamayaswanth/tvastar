@@ -18,7 +18,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
 
 
 @dataclass
@@ -97,8 +97,13 @@ class OTelExporter:  # pragma: no cover - optional dep
 
 
 class Tracer:
-    def __init__(self, exporters: Optional[list[Exporter]] = None):
+    def __init__(
+        self,
+        exporters: Optional[list[Exporter]] = None,
+        content_filter: Optional[Callable[[Span], Span]] = None,
+    ):
         self.exporters: list[Exporter] = exporters or [NullExporter()]
+        self.content_filter = content_filter
         self._stack: list[str] = []
 
     @contextmanager
@@ -123,6 +128,11 @@ class Tracer:
         span.events.append({"name": name, "at": time.time(), **data})
 
     def _emit(self, span: Span) -> None:
+        if self.content_filter is not None:
+            try:
+                span = self.content_filter(span)
+            except Exception:
+                pass  # filter failures must never break a run
         for ex in self.exporters:
             try:
                 ex.export(span)

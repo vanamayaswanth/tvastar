@@ -48,7 +48,24 @@ class ToolResultBlock:
     type: Literal["tool_result"] = "tool_result"
 
 
-ContentBlock = Union[TextBlock, ToolUseBlock, ToolResultBlock]
+@dataclass
+class ImageBlock:
+    """An image in a user message, forwarded to vision-capable models.
+
+    Args:
+        data: Base64-encoded image bytes, or a URL when ``source_type="url"``.
+        media_type: MIME type — ``image/jpeg``, ``image/png``, ``image/gif``,
+                    or ``image/webp``.
+        source_type: ``"base64"`` (default) or ``"url"``.
+    """
+
+    data: str
+    media_type: str = "image/jpeg"
+    source_type: str = "base64"
+    type: Literal["image"] = "image"
+
+
+ContentBlock = Union[TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock]
 
 
 @dataclass

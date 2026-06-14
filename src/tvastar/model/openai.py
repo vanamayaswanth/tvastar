@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 from ..errors import ModelError
 from ..types import (
+    ImageBlock,
     Message,
     ModelResponse,
     StopReason,
@@ -77,10 +78,16 @@ class OpenAIModel(Model):
                 continue
             tool_calls = []
             text_parts = []
+            image_parts: list[dict] = []
             tool_results = []
             for b in m.blocks:
                 if isinstance(b, TextBlock):
                     text_parts.append(b.text)
+                elif isinstance(b, ImageBlock):
+                    url = (
+                        b.data if b.source_type == "url" else f"data:{b.media_type};base64,{b.data}"
+                    )
+                    image_parts.append({"type": "image_url", "image_url": {"url": url}})
                 elif isinstance(b, ToolUseBlock):
                     tool_calls.append(
                         {
@@ -104,7 +111,14 @@ class OpenAIModel(Model):
                         }
                     )
                 continue
-            msg: dict[str, Any] = {"role": m.role, "content": "".join(text_parts) or None}
+            if image_parts:
+                content_parts: list[Any] = []
+                if text_parts:
+                    content_parts.append({"type": "text", "text": "".join(text_parts)})
+                content_parts.extend(image_parts)
+                msg: dict[str, Any] = {"role": m.role, "content": content_parts}
+            else:
+                msg = {"role": m.role, "content": "".join(text_parts) or None}
             if tool_calls:
                 msg["tool_calls"] = tool_calls
             out.append(msg)
@@ -149,7 +163,9 @@ class OpenAIModel(Model):
         if stop_sequences:
             kwargs["stop"] = stop_sequences
         if thinking_level:
-            kwargs["reasoning_effort"] = thinking_level  # 'low' | 'medium' | 'high'
+            # OpenAI only supports low/medium/high; cap xhigh at high
+            effort = "high" if thinking_level == "xhigh" else thinking_level
+            kwargs["reasoning_effort"] = effort
 
         try:
             resp = await self._client.chat.completions.create(**kwargs)

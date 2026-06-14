@@ -76,6 +76,7 @@ from .tools import (
     tool,
 )
 from .types import (
+    ImageBlock,
     Message,
     ModelResponse,
     StreamEvent,
@@ -215,6 +216,7 @@ __all__ = [
     "ConsoleExporter",
     "JSONLExporter",
     "OTelExporter",
+    "ImageBlock",
     "Message",
     "ModelResponse",
     "TextBlock",

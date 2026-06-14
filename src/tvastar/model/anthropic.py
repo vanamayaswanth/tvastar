@@ -26,6 +26,7 @@ from typing import Any, Optional
 
 from ..errors import ModelError
 from ..types import (
+    ImageBlock,
     Message,
     ModelResponse,
     StopReason,
@@ -50,6 +51,7 @@ _THINKING_BUDGET: dict[str, int] = {
     "low": 1_024,
     "medium": 8_000,
     "high": 16_000,
+    "xhigh": 32_000,
 }
 
 
@@ -85,6 +87,20 @@ class AnthropicModel(Model):
             for b in m.blocks:
                 if isinstance(b, TextBlock):
                     content.append({"type": "text", "text": b.text})
+                elif isinstance(b, ImageBlock):
+                    if b.source_type == "url":
+                        content.append({"type": "image", "source": {"type": "url", "url": b.data}})
+                    else:
+                        content.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": b.media_type,
+                                    "data": b.data,
+                                },
+                            }
+                        )
                 elif isinstance(b, ToolUseBlock):
                     content.append(
                         {
@@ -137,15 +153,14 @@ class AnthropicModel(Model):
             for t in (tools or [])
         ]
 
-    def _thinking_kwargs(self, thinking_level: Optional[str], temperature: float) -> dict[str, Any]:
+    def _thinking_kwargs(self, thinking_level: Optional[str]) -> dict[str, Any]:
         """Return extra kwargs for extended thinking, or empty dict."""
         if not thinking_level:
             return {}
         budget = _THINKING_BUDGET.get(thinking_level, _THINKING_BUDGET["medium"])
         return {
             "thinking": {"type": "enabled", "budget_tokens": budget},
-            # Anthropic requires temperature=1.0 when thinking is enabled
-            "temperature": 1.0,
+            "temperature": 1.0,  # Anthropic requires temperature=1.0 with thinking
             "betas": ["interleaved-thinking-2025-05-14"],
         }
 
@@ -175,7 +190,7 @@ class AnthropicModel(Model):
         if stop_sequences:
             kwargs["stop_sequences"] = stop_sequences
 
-        thinking_kw = self._thinking_kwargs(thinking_level, temperature)
+        thinking_kw = self._thinking_kwargs(thinking_level)
         # betas must be passed separately via the client, not as a kwarg
         betas = thinking_kw.pop("betas", None)
         kwargs.update(thinking_kw)
@@ -213,7 +228,7 @@ class AnthropicModel(Model):
         if stop_sequences:
             kwargs["stop_sequences"] = stop_sequences
 
-        thinking_kw = self._thinking_kwargs(thinking_level, temperature)
+        thinking_kw = self._thinking_kwargs(thinking_level)
         betas = thinking_kw.pop("betas", None)
         kwargs.update(thinking_kw)
 

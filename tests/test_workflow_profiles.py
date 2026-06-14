@@ -390,8 +390,13 @@ async def test_anthropic_thinking_kwargs_budget_mapping():
     from tvastar.model.anthropic import AnthropicModel
 
     m = AnthropicModel.__new__(AnthropicModel)
-    for level, expected_budget in [("low", 1_024), ("medium", 8_000), ("high", 16_000)]:
-        kw = m._thinking_kwargs(level, temperature=0.5)
+    for level, expected_budget in [
+        ("low", 1_024),
+        ("medium", 8_000),
+        ("high", 16_000),
+        ("xhigh", 32_000),
+    ]:
+        kw = m._thinking_kwargs(level)
         assert kw["thinking"]["budget_tokens"] == expected_budget, f"Wrong budget for {level}"
         assert kw["temperature"] == 1.0, "Temperature must be forced to 1.0"
-    assert m._thinking_kwargs(None, 0.5) == {}
+    assert m._thinking_kwargs(None) == {}

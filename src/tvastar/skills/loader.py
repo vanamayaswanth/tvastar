@@ -62,6 +62,22 @@ class SkillLibrary:
             self._skills[s.name] = s
 
     @classmethod
+    def from_workspace(cls, cwd: str | Path = ".") -> "SkillLibrary":
+        """Discover skills from ``.agents/skills/`` in the workspace root.
+
+        Follows the same convention as Flue/Claude Code: any ``*.md`` file
+        under ``<cwd>/.agents/skills/`` is loaded automatically — no import
+        needed. Useful for repo-level skills that CI or contributors can add
+        without touching Python code.
+
+        Example::
+
+            agent = create_agent("bot", skills=SkillLibrary.from_workspace())
+        """
+        skills_dir = Path(cwd) / ".agents" / "skills"
+        return cls.from_dirs(skills_dir)
+
+    @classmethod
     def from_dirs(cls, *dirs: str | Path, pattern: str = "*.md") -> "SkillLibrary":
         lib = cls()
         for d in dirs:
