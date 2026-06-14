@@ -16,8 +16,10 @@ it is silently ignored by the API.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import random
 from typing import Any, Optional
 
 from ..errors import ModelError
@@ -32,7 +34,7 @@ from ..types import (
     ToolUseBlock,
     Usage,
 )
-from .base import Model
+from .base import Model, ModelRetryPolicy, _default_retryable
 
 
 class OpenAIModel(Model):
@@ -53,9 +55,11 @@ class OpenAIModel(Model):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         client: Any = None,
+        retry: Optional[ModelRetryPolicy] = None,
     ):
         self.name = model
         self._model = model
+        self.retry = retry
         if client is not None:
             self._client = client
         else:
@@ -167,10 +171,24 @@ class OpenAIModel(Model):
             effort = "high" if thinking_level == "xhigh" else thinking_level
             kwargs["reasoning_effort"] = effort
 
-        try:
-            resp = await self._client.chat.completions.create(**kwargs)
-        except Exception as e:  # pragma: no cover - network
-            raise ModelError(f"OpenAI request failed: {e}") from e
+        policy = self.retry
+        max_attempts = policy.max_attempts if policy else 1
+        for attempt in range(max_attempts):
+            try:
+                resp = await self._client.chat.completions.create(**kwargs)
+                break
+            except Exception as e:  # pragma: no cover - network
+                is_last = attempt >= max_attempts - 1
+                if not is_last and policy is not None:
+                    check = policy.retryable or _default_retryable
+                    if check(e):
+                        delay = min(
+                            policy.backoff_base * (2**attempt) + random.uniform(0, policy.jitter),
+                            policy.backoff_max,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                raise ModelError(f"OpenAI request failed: {e}") from e
 
         choice = resp.choices[0]
         blocks: list[Any] = []

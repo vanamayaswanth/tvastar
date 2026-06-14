@@ -520,6 +520,27 @@ class Session:
                             stopped = "budget"
                             break
 
+            # Memory cap: compact first, then stop if still over limit.
+            cap_mb = getattr(spec, "memory_cap_mb", None)
+            if cap_mb is not None:
+                size = _messages_size_bytes(self.messages)
+                if size > cap_mb * 1024 * 1024:
+                    compacted = False
+                    try:
+                        compacted = await compact_session(self, force=True)
+                    except Exception:
+                        pass
+                    if compacted:
+                        size = _messages_size_bytes(self.messages)
+                    if size > cap_mb * 1024 * 1024:
+                        self.tracer_event(
+                            "memory_cap_exceeded",
+                            cap_mb=cap_mb,
+                            size_mb=round(size / 1024 / 1024, 2),
+                        )
+                        stopped = "memory_cap"
+                        break
+
             if resp.stop_reason != StopReason.TOOL_USE and not resp.tool_uses:
                 stopped = "end_turn"
                 break
@@ -815,3 +836,27 @@ def _is_context_overflow(exc: Exception) -> bool:
     """Return True when the exception looks like a provider context-window error."""
     msg = str(exc).lower()
     return any(phrase in msg for phrase in _OVERFLOW_PHRASES)
+
+
+def _messages_size_bytes(messages: list[Message]) -> int:
+    """Estimate the in-memory byte size of the accumulated message list.
+
+    Counts UTF-8-encoded text in all content blocks. Used to enforce
+    ``memory_cap_mb`` on ``AgentSpec``. Intentionally approximate — the goal
+    is to catch runaway growth, not to be exact to the byte.
+    """
+    import json as _json
+
+    total = 0
+    for m in messages:
+        for b in m.blocks:
+            if isinstance(b, TextBlock):
+                total += len(b.text.encode("utf-8", errors="replace"))
+            elif isinstance(b, ToolUseBlock):
+                total += len(_json.dumps(b.input).encode("utf-8", errors="replace"))
+                total += len(b.name)
+            elif isinstance(b, ToolResultBlock):
+                total += len(b.content.encode("utf-8", errors="replace"))
+            elif isinstance(b, ImageBlock):
+                total += len(b.data)  # base64 string
+    return total

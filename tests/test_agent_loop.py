@@ -382,10 +382,7 @@ async def test_openai_xhigh_capped_at_high():
                     resp.usage.completion_tokens = 5
                     return resp
 
-    m = OpenAIModel.__new__(OpenAIModel)
-    m.name = "o1"
-    m._model = "o1"
-    m._client = StubClient()
+    m = OpenAIModel(model="o1", client=StubClient())
 
     from tvastar.types import Message
 

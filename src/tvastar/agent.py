@@ -48,6 +48,10 @@ class AgentSpec:
     tool_policy: Optional[Any] = None  # masking.ToolPolicy
     #: optional invocation-layer governance (phase-based enforcement, separate from masking)
     governance: Optional[Any] = None  # masking.GovernancePolicy
+    #: optional session message-size cap in megabytes. When the accumulated
+    #: messages exceed this limit the run compacts (if possible) then stops
+    #: with stopped="memory_cap". None = unlimited (default).
+    memory_cap_mb: Optional[float] = None
     #: optional hook applied to the composed system prompt just before each model call.
     #: Signature: (system_prompt: str) -> str. Use this to inject retrieved LTM context,
     #: dynamic instructions, or any other per-call augmentation without subclassing.
@@ -94,6 +98,7 @@ def create_agent(
     tool_policy: Optional[Any] = None,
     governance: Optional[Any] = None,
     system_prompt_hook: Optional[Callable[[str], str]] = None,
+    memory_cap_mb: Optional[float] = None,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -166,5 +171,6 @@ def create_agent(
         tool_policy=tool_policy,
         governance=governance,
         system_prompt_hook=system_prompt_hook,
+        memory_cap_mb=memory_cap_mb,
         metadata=metadata,
     )
