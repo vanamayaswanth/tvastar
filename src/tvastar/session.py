@@ -567,8 +567,31 @@ class Session:
         ctx = self._tool_context()
 
         default_retry = getattr(self.spec, "tool_retry", None)
+        gov = getattr(self.spec, "governance", None)
 
         async def run_one(use: ToolUseBlock) -> ToolResultBlock:
+            # Governance: invocation-layer enforcement (runs after masking/discovery).
+            # Tamper-proof against prompt injection — checked in Python, not prompt.
+            if gov is not None and not gov.is_allowed(use.name):
+                self.tracer_event("governance_blocked", tool=use.name, phase=gov.current_phase)
+                if gov.approval_gate is not None:
+                    try:
+                        await gov.approval_gate.request(
+                            f"Tool '{use.name}' is restricted in phase '{gov.current_phase}'.\n"
+                            f"Input: {use.input!r}\n"
+                            "Policy 'least_privilege' requires elevation to proceed.",
+                        )
+                        # Human approved — fall through to normal execution below.
+                    except (ApprovalDenied, ApprovalTimeout) as e:
+                        return ToolResultBlock(use.id, f"[governance] {e}", is_error=True)
+                else:
+                    return ToolResultBlock(
+                        use.id,
+                        f"[governance] Tool '{use.name}' is not permitted"
+                        f" in phase '{gov.current_phase}'",
+                        is_error=True,
+                    )
+
             with self.tracer.span("tool.invoke", tool=use.name) as sp:
                 try:
                     tool = registry.get(use.name)

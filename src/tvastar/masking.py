@@ -1,21 +1,26 @@
-"""Tool masking — show the model only the tools it should consider *this turn*.
+"""Tool masking and capability governance.
 
-Exposing every tool on every turn burns context and, worse, invites the model
-to reach for tools that are irrelevant to the current phase of work. A
-``ToolPolicy`` is a pure function that, given the live conversation state,
-returns the subset of tool names to expose for the next model call. The harness
-applies it before each ``model.generate`` — so masking is dynamic, not static.
+**Masking** (discovery layer): show the model only the tools it should
+consider *this turn*. A ``ToolPolicy`` is a pure function that, given the live
+conversation state, returns the subset of tool names to expose before each
+``model.generate`` call. Masking is advisory — it shapes what the model *sees*.
+
+**Governance** (invocation layer): enforce phase-based permissions at the
+moment a tool is *called*, regardless of what the model was shown. A
+``GovernancePolicy`` intercepts ``Session._execute_tools`` and either hard-
+blocks a call or routes it through an ``ApprovalGate`` so a human can
+elevate the privilege. This layer is tamper-proof against prompt injection
+because it runs in Python code, not as a prompt instruction.
 
 Design notes
 ------------
-- A policy returns an iterable of tool *names*. The harness intersects that with
-  the tools actually available this turn (after skill-scoping), so a policy can
-  never *grant* a tool the agent doesn't have — only hide ones it does.
+- A ToolPolicy returns an iterable of tool *names*. The harness intersects that
+  with the tools actually available this turn, so a policy can never *grant* a
+  tool the agent doesn't have — only hide ones it does.
 - Masking must never break a run: if a policy raises, the harness falls back to
   exposing all available tools and carries on.
-- This is plain, inspectable Python. The helpers below cover the common cases
-  (allow-list, deny-list, phase-by-step); for anything richer, pass your own
-  ``Callable[[MaskContext], Iterable[str]]``.
+- GovernancePolicy violations return an error ToolResultBlock (not a raised
+  exception) so the agent loop stays alive and the model can self-correct.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Iterable, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
+    from .approval import ApprovalGate
     from .types import Message
 
 
@@ -117,3 +123,63 @@ def apply_policy(policy: Optional[ToolPolicy], ctx: MaskContext) -> Optional[set
         return set(policy(ctx))
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Governance — invocation-layer enforcement
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class GovernancePolicy:
+    """Phase-based capability governance enforced at tool invocation time.
+
+    Unlike masking (which hides tools from the model's view), governance runs
+    *after* the model has requested a tool call — inside
+    ``Session._execute_tools``. A prompt-injected model cannot bypass it by
+    reasoning around what it was shown.
+
+    Define named phases with an allow-set of tool names. Use ``"*"`` as a
+    sentinel to mean "all tools". When a tool call violates the current phase:
+
+    * If ``approval_gate`` is set, the gate is prompted. If the human approves,
+      the call proceeds normally. If denied or timed out, an error result is
+      returned to the model.
+    * If ``approval_gate`` is ``None``, the call is hard-blocked with an error.
+
+    Example::
+
+        from tvastar import create_agent, GovernancePolicy, ApprovalGate
+
+        gov = GovernancePolicy(
+            phases={
+                "read":  {"grep", "read_file", "glob"},
+                "write": {"grep", "read_file", "glob", "write_file", "bash"},
+            },
+            current_phase="read",
+            approval_gate=ApprovalGate(backend="cli"),
+        )
+        agent = create_agent("assistant", model=..., governance=gov)
+
+        # Transition phases at runtime:
+        agent.governance.set_phase("write")
+    """
+
+    phases: dict[str, set[str]]
+    current_phase: str = "default"
+    approval_gate: Optional["ApprovalGate"] = None
+
+    def set_phase(self, name: str) -> None:
+        """Switch to a named phase. Raises ``ValueError`` for unknown names."""
+        if name not in self.phases:
+            raise ValueError(
+                f"Unknown governance phase {name!r}. Known phases: {sorted(self.phases)}"
+            )
+        self.current_phase = name
+
+    def is_allowed(self, tool_name: str) -> bool:
+        """Return True if ``tool_name`` is permitted in the current phase."""
+        allowed = self.phases.get(self.current_phase)
+        if allowed is None:
+            return True  # phase not defined → no restriction
+        return "*" in allowed or tool_name in allowed

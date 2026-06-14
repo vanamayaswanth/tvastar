@@ -580,3 +580,238 @@ async def test_anthropic_model_raises_after_max_attempts():
 
     with pytest.raises(ModelError):
         await m.generate([Message("user", "hi")])
+
+
+# ---------------------------------------------------------------------------
+# Feature: Dynamic Capability Governance
+# ---------------------------------------------------------------------------
+
+
+async def test_governance_hard_blocks_disallowed_tool():
+    """Tool call that violates the current phase returns an error result (no gate)."""
+    from tvastar.masking import GovernancePolicy
+    from tvastar.tools.base import tool as tool_decorator
+    from tvastar.types import ToolUseBlock
+
+    @tool_decorator
+    async def safe_tool() -> str:
+        return "safe"
+
+    @tool_decorator
+    async def dangerous_tool() -> str:
+        return "DANGER"
+
+    gov = GovernancePolicy(
+        phases={"read": {"safe_tool"}},
+        current_phase="read",
+    )
+    agent = create_agent(
+        "gov-test",
+        model=MockModel(
+            [
+                ToolUseBlock(name="dangerous_tool", input={}, id="tu_1"),  # blocked
+                "done",
+            ]
+        ),
+        tools=[safe_tool, dangerous_tool],
+        governance=gov,
+        detect=False,
+    )
+    h = Harness(agent)
+    r = await h.run("do something")
+    assert r.text == "done"
+    tool_results = [b for m in r.messages for b in m.blocks
+                    if hasattr(b, "is_error") and b.is_error]
+    assert any("governance" in b.content for b in tool_results)
+
+
+async def test_governance_allows_permitted_tool():
+    """Tool call allowed by the current phase executes normally."""
+    from tvastar.masking import GovernancePolicy
+    from tvastar.tools.base import tool as tool_decorator
+    from tvastar.types import ToolUseBlock
+
+    @tool_decorator
+    async def allowed_tool() -> str:
+        return "allowed-result"
+
+    gov = GovernancePolicy(
+        phases={"read": {"allowed_tool"}},
+        current_phase="read",
+    )
+    agent = create_agent(
+        "gov-allow",
+        model=MockModel(
+            [
+                ToolUseBlock(name="allowed_tool", input={}, id="tu_2"),
+                "finished",
+            ]
+        ),
+        tools=[allowed_tool],
+        governance=gov,
+        detect=False,
+    )
+    h = Harness(agent)
+    r = await h.run("go")
+    assert r.text == "finished"
+    tool_results = [b for m in r.messages for b in m.blocks
+                    if hasattr(b, "is_error")]
+    assert not any(b.is_error for b in tool_results)
+
+
+async def test_governance_set_phase_transition():
+    """set_phase() updates current_phase; unknown phase raises ValueError."""
+    from tvastar.masking import GovernancePolicy
+
+    gov = GovernancePolicy(
+        phases={"read": {"grep"}, "write": {"grep", "bash"}},
+        current_phase="read",
+    )
+    assert gov.is_allowed("bash") is False
+    gov.set_phase("write")
+    assert gov.current_phase == "write"
+    assert gov.is_allowed("bash") is True
+
+    with pytest.raises(ValueError, match="Unknown governance phase"):
+        gov.set_phase("nonexistent")
+
+
+async def test_governance_star_allows_all():
+    """A phase with '*' in its allow-set permits any tool."""
+    from tvastar.masking import GovernancePolicy
+
+    gov = GovernancePolicy(
+        phases={"admin": {"*"}},
+        current_phase="admin",
+    )
+    assert gov.is_allowed("bash") is True
+    assert gov.is_allowed("anything") is True
+
+
+async def test_governance_with_approval_gate_denied():
+    """When a gate denies the elevation, the tool call returns a governance error."""
+    from unittest.mock import AsyncMock
+
+    from tvastar.approval import ApprovalDenied, ApprovalGate
+    from tvastar.masking import GovernancePolicy
+    from tvastar.tools.base import tool as tool_decorator
+
+    @tool_decorator
+    async def restricted_tool() -> str:
+        return "secret"
+
+    gate = ApprovalGate(backend="event")
+    gate.request = AsyncMock(side_effect=ApprovalDenied("user denied"))
+
+    gov = GovernancePolicy(
+        phases={"locked": set()},
+        current_phase="locked",
+        approval_gate=gate,
+    )
+    agent = create_agent(
+        "gated",
+        model=MockModel(
+            [
+                ToolUseBlock(name="restricted_tool", input={}, id="tu_3"),
+                "gave up",
+            ]
+        ),
+        tools=[restricted_tool],
+        governance=gov,
+        detect=False,
+    )
+    h = Harness(agent)
+    r = await h.run("try it")
+    assert r.text == "gave up"
+    tool_results = [b for m in r.messages for b in m.blocks
+                    if hasattr(b, "is_error") and b.is_error]
+    assert any("governance" in b.content for b in tool_results)
+
+
+# ---------------------------------------------------------------------------
+# Feature: Transactional Snapshot Sandboxing
+# ---------------------------------------------------------------------------
+
+
+async def test_virtual_sandbox_snapshot_restore():
+    """VirtualSandbox.snapshot()/restore() round-trip preserves filesystem state."""
+    from tvastar.sandbox.virtual import VirtualSandbox
+
+    sb = VirtualSandbox({"a.txt": "original"})
+    snap = sb.snapshot()
+
+    sb.fs.write("a.txt", "modified")
+    sb.fs.write("b.txt", "new file")
+    assert sb.fs.read("a.txt") == "modified"
+
+    sb.restore(snap)
+    assert sb.fs.read("a.txt") == "original"
+    assert not sb.fs.exists("b.txt")
+
+
+async def test_local_sandbox_snapshot_raises():
+    """LocalSandbox raises NotImplementedError for snapshot/restore."""
+    from tvastar.sandbox.local import LocalSandbox
+
+    sb = LocalSandbox()
+    with pytest.raises(NotImplementedError):
+        sb.snapshot()
+    with pytest.raises(NotImplementedError):
+        sb.restore({})
+
+
+async def test_harness_transaction_rolls_back_on_exception():
+    """harness.transaction() restores the sandbox filesystem when the block raises."""
+    from tvastar.sandbox.virtual import VirtualSandbox
+
+    sb = VirtualSandbox({"seed.txt": "seed"})
+    agent = create_agent("tx-test", model=MockModel(["ok"]), sandbox=lambda: sb, detect=False)
+    h = Harness(agent)
+
+    async with h.session() as sess:
+        await sess.start()
+        sess.sandbox.fs.write("seed.txt", "seed")  # ensure known state
+
+        with pytest.raises(RuntimeError, match="boom"):
+            async with h.transaction(sess):
+                sess.sandbox.fs.write("seed.txt", "changed")
+                sess.sandbox.fs.write("new.txt", "added")
+                raise RuntimeError("boom")
+
+        # Filesystem rolled back
+        assert sess.sandbox.fs.read("seed.txt") == "seed"
+        assert not sess.sandbox.fs.exists("new.txt")
+
+
+async def test_harness_transaction_commits_on_success():
+    """harness.transaction() keeps changes when the block completes without error."""
+    from tvastar.sandbox.virtual import VirtualSandbox
+
+    sb = VirtualSandbox({"x.txt": "before"})
+    agent = create_agent("tx-ok", model=MockModel(["ok"]), sandbox=lambda: sb, detect=False)
+    h = Harness(agent)
+
+    async with h.session() as sess:
+        await sess.start()
+        async with h.transaction(sess):
+            sess.sandbox.fs.write("x.txt", "after")
+            sess.sandbox.fs.write("y.txt", "new")
+
+        assert sess.sandbox.fs.read("x.txt") == "after"
+        assert sess.sandbox.fs.read("y.txt") == "new"
+
+
+async def test_harness_transaction_no_snapshot_sandbox_passes_through():
+    """transaction() yields normally for sandboxes that don't support snapshot."""
+    from tvastar.sandbox.local import LocalSandbox
+
+    agent = create_agent(
+        "tx-local", model=MockModel(["ok"]), sandbox=LocalSandbox, detect=False
+    )
+    h = Harness(agent)
+    sess = h.session()
+    await sess.start()
+    # Should not raise even though LocalSandbox.snapshot() raises NotImplementedError
+    async with h.transaction(sess):
+        pass
+    await sess.close()

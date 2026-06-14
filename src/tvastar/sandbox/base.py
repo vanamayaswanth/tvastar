@@ -22,7 +22,7 @@ import shlex
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from ..errors import SecurityViolation
 from ..filesystem.base import FileSystem
@@ -190,6 +190,25 @@ class Sandbox(abc.ABC):
         cwd: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> ExecResult: ...
+
+    def snapshot(self) -> Any:
+        """Return an opaque snapshot of the current workspace state.
+
+        The returned value is sandbox-specific and should be treated as opaque
+        by callers — only pass it back to ``restore()`` on the same instance.
+
+        Raises ``NotImplementedError`` for sandboxes that don't support
+        transactional rollback (e.g. :class:`LocalSandbox`).
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support workspace snapshots")
+
+    def restore(self, snap: Any) -> None:
+        """Restore the workspace to a previously taken snapshot.
+
+        Raises ``NotImplementedError`` for sandboxes that don't support
+        transactional rollback.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support workspace restore")
 
     async def __aenter__(self) -> "Sandbox":
         await self.start()

@@ -41,7 +41,7 @@ from .detect import (
     run_detectors,
 )
 from .boundary import looks_like_injection, scan_for_injection, wrap_untrusted
-from .masking import MaskContext, ToolPolicy, allow_only, deny, phases
+from .masking import GovernancePolicy, MaskContext, ToolPolicy, allow_only, deny, phases
 from .harness import Harness
 from .mcp import MCPClient, connect_mcp_server
 from .memory import FileStore, InMemoryStore, Memory, Store
@@ -207,12 +207,13 @@ __all__ = [
     "wrap_untrusted",
     "scan_for_injection",
     "looks_like_injection",
-    # tool masking
+    # tool masking + invocation-layer governance
     "MaskContext",
     "ToolPolicy",
     "allow_only",
     "deny",
     "phases",
+    "GovernancePolicy",
     "Tracer",
     "ConsoleExporter",
     "JSONLExporter",

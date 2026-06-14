@@ -46,6 +46,8 @@ class AgentSpec:
     approval_gate: Optional[Any] = None  # ApprovalGate
     #: optional tool-masking policy applied before each model call (None = expose all)
     tool_policy: Optional[Any] = None  # masking.ToolPolicy
+    #: optional invocation-layer governance (phase-based enforcement, separate from masking)
+    governance: Optional[Any] = None  # masking.GovernancePolicy
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self) -> str:
@@ -80,6 +82,7 @@ def create_agent(
     budget: Optional[Any] = None,
     approval_gate: Optional[Any] = None,
     tool_policy: Optional[Any] = None,
+    governance: Optional[Any] = None,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -150,5 +153,6 @@ def create_agent(
         budget=budget,
         approval_gate=approval_gate,
         tool_policy=tool_policy,
+        governance=governance,
         metadata=metadata,
     )

@@ -196,6 +196,14 @@ class VirtualSandbox(Sandbox):
                 out = (out + "\n" + proc.stderr) if out else proc.stderr
             return ExecResult(proc.returncode, out.strip())
 
+    def snapshot(self) -> dict[str, str]:
+        """Snapshot the in-memory filesystem. O(n) copy of file contents."""
+        return self.fs.snapshot()
+
+    def restore(self, snap: dict[str, str]) -> None:
+        """Restore the filesystem to a previous snapshot, discarding changes."""
+        self.fs.restore(snap)
+
     def _resolve(self, p: str) -> str:
         import posixpath
 

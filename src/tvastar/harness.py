@@ -14,6 +14,8 @@ New in 0.2.0:
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 from .agent import AgentSpec
@@ -219,6 +221,47 @@ class Harness:
         if session_id is None:
             self._release(s.id)  # prune anonymous one-shot sessions
         return run_result
+
+    @asynccontextmanager
+    async def transaction(self, session: Session) -> AsyncIterator[Session]:
+        """Snapshot the session sandbox before the block; restore on exception.
+
+        Makes a group of agent steps atomically safe: if any step (or any code
+        in the ``async with`` block) raises, the sandbox filesystem is rolled
+        back to the state it was in before the block started. The exception is
+        re-raised after rollback so callers can handle it.
+
+        Only :class:`~tvastar.sandbox.virtual.VirtualSandbox` supports this
+        today. For :class:`~tvastar.sandbox.local.LocalSandbox` the context
+        manager yields normally but performs no snapshot/restore.
+
+        Example::
+
+            async with sess:
+                async with harness.transaction(sess) as s:
+                    await s.prompt("Write the migration script")
+                    await s.prompt("Run the tests")
+                # On exception: filesystem rolled back, exception re-raised.
+        """
+        sandbox = getattr(session, "sandbox", None)
+        snap = None
+        if sandbox is not None:
+            try:
+                snap = sandbox.snapshot()
+            except NotImplementedError:
+                snap = None  # sandbox doesn't support snapshots; proceed without
+
+        try:
+            yield session
+        except Exception:
+            if snap is not None:
+                try:
+                    sandbox.restore(snap)
+                    with self.tracer.span("workspace_rollback", session=session.id):
+                        pass
+                except Exception:
+                    pass  # rollback failure must not mask the original error
+            raise
 
     async def fan_out(
         self,
