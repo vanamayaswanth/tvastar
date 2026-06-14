@@ -48,15 +48,25 @@ class AgentSpec:
     tool_policy: Optional[Any] = None  # masking.ToolPolicy
     #: optional invocation-layer governance (phase-based enforcement, separate from masking)
     governance: Optional[Any] = None  # masking.GovernancePolicy
+    #: optional hook applied to the composed system prompt just before each model call.
+    #: Signature: (system_prompt: str) -> str. Use this to inject retrieved LTM context,
+    #: dynamic instructions, or any other per-call augmentation without subclassing.
+    system_prompt_hook: Optional[Callable[[str], str]] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self) -> str:
-        """Compose the system prompt from instructions + skill catalog."""
+        """Compose the system prompt from instructions + skill catalog, then apply hook."""
         parts = [self.instructions.strip()] if self.instructions.strip() else []
         catalog = self.skills.catalog()
         if catalog:
             parts.append(catalog)
-        return "\n\n".join(parts)
+        prompt = "\n\n".join(parts)
+        if self.system_prompt_hook is not None:
+            try:
+                prompt = self.system_prompt_hook(prompt)
+            except Exception:
+                pass  # hook failure must never take down a live session
+        return prompt
 
     def get_subagent(self, name: str) -> Optional[Any]:
         """Return a registered AgentProfile by name, or None."""
@@ -83,6 +93,7 @@ def create_agent(
     approval_gate: Optional[Any] = None,
     tool_policy: Optional[Any] = None,
     governance: Optional[Any] = None,
+    system_prompt_hook: Optional[Callable[[str], str]] = None,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -154,5 +165,6 @@ def create_agent(
         approval_gate=approval_gate,
         tool_policy=tool_policy,
         governance=governance,
+        system_prompt_hook=system_prompt_hook,
         metadata=metadata,
     )

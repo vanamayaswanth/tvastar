@@ -801,6 +801,44 @@ async def test_harness_transaction_commits_on_success():
         assert sess.sandbox.fs.read("y.txt") == "new"
 
 
+async def test_system_prompt_hook_injects_into_prompt():
+    """system_prompt_hook receives the composed prompt and its return value is used."""
+    received: list[str] = []
+
+    def hook(prompt: str) -> str:
+        received.append(prompt)
+        return prompt + "\n\n[LTM context injected]"
+
+    agent = create_agent(
+        "hook-test",
+        model=MockModel(["ok"]),
+        instructions="base instructions",
+        system_prompt_hook=hook,
+        detect=False,
+    )
+    h = Harness(agent)
+    await h.run("hi")
+    assert len(received) >= 1
+    assert "base instructions" in received[0]
+
+
+async def test_system_prompt_hook_crash_is_swallowed():
+    """A crashing hook does not break the session — base prompt is used instead."""
+    def bad_hook(_prompt: str) -> str:
+        raise RuntimeError("hook exploded")
+
+    agent = create_agent(
+        "hook-crash",
+        model=MockModel(["safe"]),
+        instructions="safe base",
+        system_prompt_hook=bad_hook,
+        detect=False,
+    )
+    h = Harness(agent)
+    r = await h.run("hi")
+    assert r.text == "safe"
+
+
 async def test_harness_transaction_no_snapshot_sandbox_passes_through():
     """transaction() yields normally for sandboxes that don't support snapshot."""
     from tvastar.sandbox.local import LocalSandbox
