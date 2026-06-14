@@ -140,6 +140,15 @@ class Harness:
 
     # ---- sessions -----------------------------------------------------------
 
+    def _release(self, sid: str) -> None:
+        """Remove a completed one-shot session from the in-memory registry.
+
+        Called automatically after ``run()`` and ``fan_out()`` finish and after
+        each :class:`~tvastar.graph.TaskGraph` task completes so anonymous
+        sessions don't accumulate in long-running servers.
+        """
+        self._sessions.pop(sid, None)
+
     def session(
         self,
         name: Optional[str] = None,
@@ -206,7 +215,10 @@ class Harness:
         """
         s = self.session(session_id=session_id)
         async with s:
-            return await s.prompt(prompt, result=result, cancel_after=cancel_after)
+            run_result = await s.prompt(prompt, result=result, cancel_after=cancel_after)
+        if session_id is None:
+            self._release(s.id)  # prune anonymous one-shot sessions
+        return run_result
 
     async def fan_out(
         self,
@@ -257,7 +269,7 @@ class Harness:
             sess = self.session()
             async with sess:
                 if agent_name or thinking_level or max_steps or result_schema or cancel_after:
-                    return await sess.task(
+                    fan_result = await sess.task(
                         prompt_text,
                         agent=agent_name,
                         result=result_schema,
@@ -265,7 +277,10 @@ class Harness:
                         thinking_level=thinking_level,
                         max_steps=max_steps,
                     )
-                return await sess.prompt(prompt_text, result=result_schema)
+                else:
+                    fan_result = await sess.prompt(prompt_text, result=result_schema)
+            self._release(sess.id)  # prune completed fan-out sessions
+            return fan_result
 
         if concurrency is None:
             return list(await _asyncio.gather(*(_run_one(p) for p in prompts)))

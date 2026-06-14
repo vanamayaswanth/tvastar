@@ -393,3 +393,190 @@ async def test_openai_xhigh_capped_at_high():
     assert captured.get("reasoning_effort") == "high", (
         f"Expected 'high', got {captured.get('reasoning_effort')!r}"
     )
+
+
+# ── Fix 1+2: TaskGraph deadlock + session pollution ───────────────────────────
+
+
+async def test_taskgraph_upstream_failure_does_not_deadlock():
+    """If task A fails, task B (which depends on A) must not hang."""
+    from tvastar import TaskGraph
+
+    fail_agent = create_agent(
+        "fail-agent",
+        model=MockModel([RuntimeError("task A exploded")]),
+        instructions="",
+    )
+    h = Harness(fail_agent)
+    g = TaskGraph(h)
+    g.task("a", "do task a")
+    g.task("b", "do task b", depends_on=["a"])
+
+    with pytest.raises(RuntimeError, match="task A exploded|Task 'a' failed"):
+        await g.run()
+
+
+async def test_taskgraph_rerun_gets_fresh_sessions():
+    """Re-running a graph must start with empty sessions (no history contamination)."""
+    from tvastar import TaskGraph
+
+    prompts_seen: list[str] = []
+
+    class SpyModel(MockModel):
+        async def generate(self, messages, **kw):
+            prompts_seen.append(messages[-1].text if messages else "")
+            return await super().generate(messages, **kw)
+
+    agent = create_agent("spy", model=SpyModel(["run1", "run2", "run3", "run4"]), instructions="")
+    h = Harness(agent)
+
+    g1 = TaskGraph(h)
+    g1.task("t", "first run prompt")
+    await g1.run()
+
+    history_after_run1 = len(prompts_seen)
+
+    g2 = TaskGraph(h)
+    g2.task("t", "second run prompt")
+    await g2.run()
+
+    # The second run should only have seen its own prompt, not the first run's messages
+    assert prompts_seen[history_after_run1] == "second run prompt"
+
+
+# ── Fix 3: Harness session registry memory leak ───────────────────────────────
+
+
+async def test_harness_run_releases_anonymous_session():
+    """harness.run() (no session_id) must remove the session from the registry afterward."""
+    agent = create_agent("mem-test", model=MockModel(["done"]), instructions="")
+    h = Harness(agent)
+    assert len(h._sessions) == 0
+    await h.run("hello")
+    assert len(h._sessions) == 0, "Anonymous session was not released after run()"
+
+
+async def test_harness_named_run_keeps_session():
+    """harness.run(session_id=...) must keep the session in the registry for reuse."""
+    agent = create_agent("named-sess", model=MockModel(["a", "b"]), instructions="")
+    h = Harness(agent)
+    await h.run("first", session_id="my-thread")
+    assert "my-thread" in h._sessions, "Named session should remain in registry"
+
+
+async def test_harness_fan_out_releases_sessions():
+    """fan_out() must release each session from the registry after it completes."""
+    agent = create_agent("fan-mem", model=MockModel(["a", "b", "c"]), instructions="")
+    h = Harness(agent)
+    await h.fan_out(["p1", "p2", "p3"])
+    assert len(h._sessions) == 0, "fan_out sessions were not released"
+
+
+# ── Fix 4: context overflow auto-recovery without explicit CompactionPolicy ───
+
+
+async def test_overflow_with_enough_history_auto_recovers():
+    """Overflow self-heals via default compaction when session has enough messages."""
+    from tvastar.types import Message as Msg
+
+    overflow = RuntimeError("context_length_exceeded: prompt too long")
+    summary_model = MockModel(["Compact summary."])
+    main_model = MockModel([overflow, "recovered reply"])
+
+    # Inject a cheap summary_model via a custom policy so we don't need the real model
+    from tvastar.compaction import CompactionPolicy
+
+    agent = create_agent(
+        "auto-recover",
+        model=main_model,
+        instructions="",
+        compaction=CompactionPolicy(keep_last=1, min_messages=2, summary_model=summary_model),
+    )
+    h = Harness(agent)
+    sess = h.session()
+    async with sess:
+        # Pre-populate enough history that compaction can trim it
+        sess.messages += [Msg("user", "old1"), Msg("assistant", "old2")]
+        r = await sess.prompt("new prompt")
+
+    assert r.text == "recovered reply"
+    assert r.stopped == "end_turn"
+
+
+# ── Fix 5: structured-output fallback emits a Finding ────────────────────────
+
+
+async def test_structured_output_fallback_produces_warning_finding():
+    """When structured output exhausts all retries, run.ok is False (Warning Finding added)."""
+    from tvastar.detect import Severity
+
+    script = ["bad", "also bad", "still bad"]
+    agent = make_agent(script)
+    r = await Harness(agent).run("get user", result=_User)
+
+    assert isinstance(r.data, str), "data should fall back to raw text"
+    assert not r.ok, "run.ok must be False when structured output falls back"
+    fallback_findings = [f for f in r.findings if f.detector == "structured_output_fallback"]
+    assert fallback_findings, "structured_output_fallback Finding not raised"
+    assert fallback_findings[0].severity == Severity.WARNING
+
+
+# ── Fix 6: AnthropicModel retry policy ───────────────────────────────────────
+
+
+async def test_anthropic_model_retries_on_transient_error():
+    """AnthropicModel retries when the exception looks like a rate-limit."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tvastar.model.anthropic import AnthropicModel
+    from tvastar.model.base import ModelRetryPolicy
+
+    call_count = 0
+
+    async def fake_create(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise Exception("rate limit exceeded 429")
+        resp = MagicMock()
+        resp.stop_reason = "end_turn"
+        resp.content = [MagicMock(type="text", text="retried successfully")]
+        resp.usage.input_tokens = 5
+        resp.usage.output_tokens = 3
+        return resp
+
+    stub_client = MagicMock()
+    stub_client.messages.create = AsyncMock(side_effect=fake_create)
+    stub_client.beta.messages.create = AsyncMock(side_effect=fake_create)
+
+    m = AnthropicModel(
+        client=stub_client,
+        retry=ModelRetryPolicy(max_attempts=3, backoff_base=0.0, jitter=0.0),
+    )
+    from tvastar.types import Message
+
+    result = await m.generate([Message("user", "hi")])
+    assert result.message.text == "retried successfully"
+    assert call_count == 3
+
+
+async def test_anthropic_model_raises_after_max_attempts():
+    """AnthropicModel gives up and raises ModelError after exhausting all attempts."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tvastar.errors import ModelError
+    from tvastar.model.anthropic import AnthropicModel
+    from tvastar.model.base import ModelRetryPolicy
+
+    stub_client = MagicMock()
+    stub_client.messages.create = AsyncMock(side_effect=Exception("rate limit exceeded 429"))
+    stub_client.beta.messages.create = AsyncMock(side_effect=Exception("rate limit exceeded 429"))
+
+    m = AnthropicModel(
+        client=stub_client,
+        retry=ModelRetryPolicy(max_attempts=2, backoff_base=0.0, jitter=0.0),
+    )
+    from tvastar.types import Message
+
+    with pytest.raises(ModelError):
+        await m.generate([Message("user", "hi")])

@@ -10,9 +10,61 @@ from __future__ import annotations
 
 import abc
 from collections.abc import AsyncIterator
-from typing import Optional
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 from ..types import Message, ModelResponse, StreamEvent, TextBlock, ToolSpec
+
+# Substrings (lowercased) treated as retryable transient errors by default.
+_RETRYABLE_PHRASES = (
+    "rate limit",
+    "too many requests",
+    "429",
+    "503",
+    "502",
+    "504",
+    "timeout",
+    "connection",
+    "server error",
+    "overloaded",
+)
+
+
+def _default_retryable(exc: Exception) -> bool:
+    """Return True when the exception looks like a transient network/rate-limit error."""
+    msg = str(exc).lower()
+    return any(phrase in msg for phrase in _RETRYABLE_PHRASES)
+
+
+@dataclass
+class ModelRetryPolicy:
+    """Retry policy for transient model errors (rate limits, timeouts, server faults).
+
+    Attach to an Anthropic or OpenAI model adapter to automatically retry on
+    transient failures with exponential backoff:
+
+    .. code-block:: python
+
+        from tvastar.model import AnthropicModel, ModelRetryPolicy
+
+        model = AnthropicModel(
+            retry=ModelRetryPolicy(max_attempts=4, backoff_base=2.0)
+        )
+
+    Attributes:
+        max_attempts: Total attempts including the first. 1 = no retry.
+        backoff_base: Base delay (seconds) for exponential backoff.
+        backoff_max: Maximum delay cap (seconds).
+        jitter: Maximum uniform random jitter added to each delay (seconds).
+        retryable: Optional predicate ``(exc) -> bool``. Defaults to checking
+                   for HTTP 429/5xx patterns and connection-level errors.
+    """
+
+    max_attempts: int = 3
+    backoff_base: float = 1.0
+    backoff_max: float = 60.0
+    jitter: float = 0.25
+    retryable: Optional[Callable[[Exception], bool]] = None
 
 
 class Model(abc.ABC):

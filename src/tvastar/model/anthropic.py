@@ -20,7 +20,9 @@ When extended thinking is enabled:
 
 from __future__ import annotations
 
+import asyncio
 import os
+import random
 from collections.abc import AsyncIterator
 from typing import Any, Optional
 
@@ -37,7 +39,7 @@ from ..types import (
     ToolUseBlock,
     Usage,
 )
-from .base import Model
+from .base import Model, ModelRetryPolicy, _default_retryable
 
 _STOP_MAP = {
     "end_turn": StopReason.END_TURN,
@@ -64,9 +66,11 @@ class AnthropicModel(Model):
         *,
         api_key: Optional[str] = None,
         client: Any = None,
+        retry: Optional[ModelRetryPolicy] = None,
     ):
         self.name = model
         self._model = model
+        self.retry = retry
         if client is not None:
             self._client = client
         else:
@@ -195,14 +199,28 @@ class AnthropicModel(Model):
         betas = thinking_kw.pop("betas", None)
         kwargs.update(thinking_kw)
 
-        try:
-            if betas:
-                resp = await self._client.beta.messages.create(betas=betas, **kwargs)
-            else:
-                resp = await self._client.messages.create(**kwargs)
-        except Exception as e:  # pragma: no cover - network
-            raise ModelError(f"Anthropic request failed: {e}") from e
-        return self._from_anthropic(resp)
+        policy = self.retry
+        max_attempts = policy.max_attempts if policy else 1
+        for attempt in range(max_attempts):
+            try:
+                if betas:
+                    resp = await self._client.beta.messages.create(betas=betas, **kwargs)
+                else:
+                    resp = await self._client.messages.create(**kwargs)
+                return self._from_anthropic(resp)
+            except Exception as e:  # pragma: no cover - network
+                is_last = attempt >= max_attempts - 1
+                if not is_last and policy is not None:
+                    check = policy.retryable or _default_retryable
+                    if check(e):
+                        delay = min(
+                            policy.backoff_base * (2**attempt) + random.uniform(0, policy.jitter),
+                            policy.backoff_max,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                raise ModelError(f"Anthropic request failed: {e}") from e
+        raise ModelError("Anthropic request failed: max_attempts=0")  # unreachable
 
     async def stream(
         self,

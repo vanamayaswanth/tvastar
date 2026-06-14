@@ -426,8 +426,22 @@ class Session:
             run_result = await self._run_loop()
             parsed, ok = _try_parse(run_result.text, schema)
 
-        # On final failure fall back to raw text (backward-compat with _parse_structured).
-        run_result.data = parsed if ok else run_result.text
+        if ok:
+            run_result.data = parsed
+        else:
+            # Fall back to raw text and surface a warning so run.ok → False.
+            run_result.data = run_result.text
+            from .detect import Finding, Severity
+
+            run_result.findings = list(run_result.findings) + [
+                Finding(
+                    "structured_output_fallback",
+                    Severity.WARNING,
+                    f"structured output parsing failed after {_STRUCTURED_RETRIES + 1} attempt(s);"
+                    " falling back to raw text",
+                    {"schema": type(schema).__name__},
+                )
+            ]
         return run_result
 
     # ---- the loop -----------------------------------------------------------
@@ -457,7 +471,8 @@ class Session:
                     )
                 except Exception as exc:
                     # Reactive overflow recovery: compact then retry this turn once.
-                    if _is_context_overflow(exc) and getattr(spec, "compaction", None) is not None:
+                    # Always attempt compaction on overflow (uses default policy if none set).
+                    if _is_context_overflow(exc):
                         compacted = False
                         try:
                             compacted = await compact_session(self, force=True)

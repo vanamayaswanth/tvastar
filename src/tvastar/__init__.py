@@ -45,7 +45,7 @@ from .masking import MaskContext, ToolPolicy, allow_only, deny, phases
 from .harness import Harness
 from .mcp import MCPClient, connect_mcp_server
 from .memory import FileStore, InMemoryStore, Memory, Store
-from .model import Model, MockModel
+from .model import Model, MockModel, ModelRetryPolicy
 from .observability import (
     ConsoleExporter,
     JSONLExporter,
@@ -169,6 +169,7 @@ __all__ = [
     "workflow_logs",
     "Model",
     "MockModel",
+    "ModelRetryPolicy",
     "tool",
     "Tool",
     "ToolContext",

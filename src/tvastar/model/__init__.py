@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .base import Model
+from .base import Model, ModelRetryPolicy
 from .mock import MockModel
 
 if TYPE_CHECKING:  # pragma: no cover
     from .anthropic import AnthropicModel
     from .openai import OpenAIModel
 
-__all__ = ["Model", "MockModel", "AnthropicModel", "OpenAIModel"]
+__all__ = ["Model", "ModelRetryPolicy", "MockModel", "AnthropicModel", "OpenAIModel"]
 
 
 def __getattr__(name: str):

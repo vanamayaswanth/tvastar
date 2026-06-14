@@ -168,38 +168,64 @@ class TaskGraph:
         self._validate()
 
         completed: dict[str, "RunResult"] = {}
+        errors: dict[str, BaseException] = {}
         done_events: dict[str, asyncio.Event] = {n: asyncio.Event() for n in self._nodes}
 
         async def _run_one(name: str) -> None:
             node = self._nodes[name]
 
-            # Wait for every dependency to finish
+            # Wait for every dependency — including failed ones to avoid deadlock.
             for dep in node.depends_on:
                 await done_events[dep].wait()
 
-            # Build prompt — inject dependency results when requested
-            prompt = node.prompt
-            if inject_results and node.depends_on:
-                parts = [f"[{dep} result]\n{completed[dep].text}" for dep in node.depends_on]
-                prompt = "\n\n".join(parts) + "\n\n---\n\n" + node.prompt
+            # Propagate upstream failures without running this task.
+            dep_errors = [dep for dep in node.depends_on if dep in errors]
+            if dep_errors:
+                errors[name] = RuntimeError(
+                    f"Task {name!r} skipped: upstream tasks failed: {dep_errors}"
+                )
+                done_events[name].set()
+                return
 
-            # Execute via a named session (one-shot)
-            sess = self._harness.session(f"graph-{name}")
-            kwargs: dict[str, Any] = {}
-            if node.result is not None:
-                kwargs["result"] = node.result
+            # Use an anonymous session each run to avoid history contamination
+            # if the graph is re-run.
+            sess = self._harness.session()
+            try:
+                # Build prompt — inject dependency results when requested
+                prompt = node.prompt
+                if inject_results and node.depends_on:
+                    parts = [f"[{dep} result]\n{completed[dep].text}" for dep in node.depends_on]
+                    prompt = "\n\n".join(parts) + "\n\n---\n\n" + node.prompt
 
-            async with sess:
-                coro = sess.prompt(prompt, **kwargs)
-                if node.cancel_after is not None:
-                    run_result = await asyncio.wait_for(coro, timeout=node.cancel_after)
-                else:
-                    run_result = await coro
+                kwargs: dict[str, Any] = {}
+                if node.result is not None:
+                    kwargs["result"] = node.result
 
-            completed[name] = run_result
-            done_events[name].set()
+                async with sess:
+                    coro = sess.prompt(prompt, **kwargs)
+                    if node.cancel_after is not None:
+                        run_result = await asyncio.wait_for(coro, timeout=node.cancel_after)
+                    else:
+                        run_result = await coro
+
+                completed[name] = run_result
+            except Exception as exc:
+                errors[name] = exc
+            finally:
+                # Always signal completion and release the one-shot session.
+                self._harness._release(sess.id)
+                done_events[name].set()
 
         await asyncio.gather(*[_run_one(n) for n in self._nodes])
+
+        # Re-raise the first real task failure (not downstream propagation noise).
+        real_errors = {
+            k: v for k, v in errors.items() if "skipped: upstream tasks failed" not in str(v)
+        }
+        if real_errors:
+            first_name, first_err = next(iter(real_errors.items()))
+            raise RuntimeError(f"Task {first_name!r} failed") from first_err
+
         all_findings = {name: r.findings for name, r in completed.items() if r.findings}
         return GraphResult(completed, findings=all_findings)
 
