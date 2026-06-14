@@ -220,9 +220,7 @@ class Session:
         self.messages.append(Message("user", prompt_text))
         with self.tracer.span("session.prompt", session=self.id, agent=self.spec.name):
             if cancel_after is not None:
-                return await asyncio.wait_for(
-                    self._run_with_schema(result), timeout=cancel_after
-                )
+                return await asyncio.wait_for(self._run_with_schema(result), timeout=cancel_after)
             return await self._run_with_schema(result)
 
     async def skill(

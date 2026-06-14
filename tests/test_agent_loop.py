@@ -108,7 +108,9 @@ async def test_overflow_triggers_compaction_and_retries():
 
     # Build an agent with compaction enabled so overflow recovery fires.
     summary_model = MockModel(["Summary of earlier messages."])
-    policy = CompactionPolicy(max_messages=2, min_messages=2, keep_last=1, summary_model=summary_model)
+    policy = CompactionPolicy(
+        max_messages=2, min_messages=2, keep_last=1, summary_model=summary_model
+    )
     agent = create_agent(
         "overflow-test",
         model=MockModel([overflow, success]),
@@ -122,6 +124,7 @@ async def test_overflow_triggers_compaction_and_retries():
     async with sess:
         # Pre-populate history so compact_session has something to work with.
         from tvastar.types import Message
+
         sess.messages += [Message("user", "msg1"), Message("assistant", "reply1")]
         r = await sess.prompt("get user", result=_User)
     assert isinstance(r.data, _User), f"Expected _User after overflow recovery, got {r.data!r}"
