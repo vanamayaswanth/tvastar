@@ -74,11 +74,13 @@ def _file_lock(path: Path):
     try:
         try:
             import msvcrt  # Windows only
+
             msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
             unlock = lambda: msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # noqa: E731
         except (ImportError, OSError):
             try:
                 import fcntl  # POSIX only
+
                 fcntl.flock(fd, fcntl.LOCK_EX)
                 unlock = lambda: fcntl.flock(fd, fcntl.LOCK_UN)  # noqa: E731
             except (ImportError, OSError):

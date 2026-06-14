@@ -229,4 +229,5 @@ class GovernancePolicy:
         ``set_phase()`` calls in one session cannot race with another.
         """
         import dataclasses
+
         return dataclasses.replace(self)

@@ -482,6 +482,7 @@ class Session:
                     # Also enforce a cooldown to avoid hammering the endpoint.
                     if _is_context_overflow(exc) and getattr(spec, "compaction", None) is not None:
                         import time as _time
+
                         now = _time.monotonic()
                         _compact_cooldown = 30.0
                         compacted = False

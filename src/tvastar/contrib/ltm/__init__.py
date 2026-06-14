@@ -58,6 +58,7 @@ __all__ = ["LTMNode", "LTMStore"]
 # Node types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class LTMNode:
     """A single unit of long-term memory.
@@ -74,7 +75,7 @@ class LTMNode:
     """
 
     id: str
-    type: str                     # "factual" | "procedural"
+    type: str  # "factual" | "procedural"
     content: str
     tags: list[str] = field(default_factory=list)
     session_id: str = ""
@@ -87,8 +88,11 @@ class LTMNode:
 
 _REDACT_SUBS: list[tuple[str, str]] = [
     # key = value  /  key: value
-    (r"(?i)(password|passwd|secret|token|api[_\-]?key|auth[_\-]?key"
-     r"|credential|private[_\-]?key)\s*[=:]\s*\S+", r"\1=[REDACTED]"),
+    (
+        r"(?i)(password|passwd|secret|token|api[_\-]?key|auth[_\-]?key"
+        r"|credential|private[_\-]?key)\s*[=:]\s*\S+",
+        r"\1=[REDACTED]",
+    ),
     # OpenAI-style  sk-...
     (r"\bsk-[A-Za-z0-9]{20,}\b", "[REDACTED]"),
     # AWS access key
@@ -113,18 +117,36 @@ def _redact(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 _STOP_WORDS = {
-    "the", "and", "for", "that", "this", "with", "from", "have",
-    "not", "are", "was", "were", "been", "has", "had", "but",
-    "its", "can", "will", "when", "what", "all", "one", "our",
+    "the",
+    "and",
+    "for",
+    "that",
+    "this",
+    "with",
+    "from",
+    "have",
+    "not",
+    "are",
+    "was",
+    "were",
+    "been",
+    "has",
+    "had",
+    "but",
+    "its",
+    "can",
+    "will",
+    "when",
+    "what",
+    "all",
+    "one",
+    "our",
 }
 
 
 def _tokenize(text: str) -> list[str]:
     """Return lower-cased words (3+ chars, not stop words)."""
-    return [
-        w for w in re.findall(r"\b[a-z]{3,}\b", text.lower())
-        if w not in _STOP_WORDS
-    ]
+    return [w for w in re.findall(r"\b[a-z]{3,}\b", text.lower()) if w not in _STOP_WORDS]
 
 
 def _keyword_score(query_tokens: set[str], node: LTMNode) -> float:
@@ -297,6 +319,7 @@ async def _extract_nodes(
 # ---------------------------------------------------------------------------
 # LTMStore — the public API
 # ---------------------------------------------------------------------------
+
 
 class LTMStore:
     """Persistent long-term memory store for tvastar agents.

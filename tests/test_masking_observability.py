@@ -207,7 +207,7 @@ def test_governance_copy_independent_phase():
     )
     copy = gov.copy()
     copy.set_phase("write")
-    assert gov.current_phase == "read"   # original unchanged
+    assert gov.current_phase == "read"  # original unchanged
     assert copy.current_phase == "write"
 
 
@@ -225,4 +225,4 @@ async def test_harness_session_gives_independent_governance_copy():
 
     s1.spec.governance.set_phase("write")
     assert s2.spec.governance.current_phase == "read"  # s2 unaffected
-    assert gov.current_phase == "read"                 # original unaffected
+    assert gov.current_phase == "read"  # original unaffected

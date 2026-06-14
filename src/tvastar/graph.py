@@ -248,9 +248,7 @@ class TaskGraph:
         # Re-raise the first real task failure (not downstream propagation noise).
         # _UpstreamSkipError is used for propagated skips so we can filter by
         # type rather than by fragile substring matching.
-        real_errors = {
-            k: v for k, v in errors.items() if not isinstance(v, _UpstreamSkipError)
-        }
+        real_errors = {k: v for k, v in errors.items() if not isinstance(v, _UpstreamSkipError)}
         if real_errors:
             first_name, first_err = next(iter(real_errors.items()))
             raise RuntimeError(f"Task {first_name!r} failed") from first_err

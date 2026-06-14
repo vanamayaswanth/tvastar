@@ -617,8 +617,9 @@ async def test_governance_hard_blocks_disallowed_tool():
     h = Harness(agent)
     r = await h.run("do something")
     assert r.text == "done"
-    tool_results = [b for m in r.messages for b in m.blocks
-                    if hasattr(b, "is_error") and b.is_error]
+    tool_results = [
+        b for m in r.messages for b in m.blocks if hasattr(b, "is_error") and b.is_error
+    ]
     assert any("governance" in b.content for b in tool_results)
 
 
@@ -651,8 +652,7 @@ async def test_governance_allows_permitted_tool():
     h = Harness(agent)
     r = await h.run("go")
     assert r.text == "finished"
-    tool_results = [b for m in r.messages for b in m.blocks
-                    if hasattr(b, "is_error")]
+    tool_results = [b for m in r.messages for b in m.blocks if hasattr(b, "is_error")]
     assert not any(b.is_error for b in tool_results)
 
 
@@ -720,8 +720,9 @@ async def test_governance_with_approval_gate_denied():
     h = Harness(agent)
     r = await h.run("try it")
     assert r.text == "gave up"
-    tool_results = [b for m in r.messages for b in m.blocks
-                    if hasattr(b, "is_error") and b.is_error]
+    tool_results = [
+        b for m in r.messages for b in m.blocks if hasattr(b, "is_error") and b.is_error
+    ]
     assert any("governance" in b.content for b in tool_results)
 
 
@@ -831,6 +832,7 @@ async def test_system_prompt_hook_injects_into_prompt():
 
 async def test_system_prompt_hook_crash_is_swallowed():
     """A crashing hook does not break the session — base prompt is used instead."""
+
     def bad_hook(_prompt: str) -> str:
         raise RuntimeError("hook exploded")
 
@@ -850,9 +852,7 @@ async def test_harness_transaction_no_snapshot_sandbox_passes_through():
     """transaction() yields normally for sandboxes that don't support snapshot."""
     from tvastar.sandbox.local import LocalSandbox
 
-    agent = create_agent(
-        "tx-local", model=MockModel(["ok"]), sandbox=LocalSandbox, detect=False
-    )
+    agent = create_agent("tx-local", model=MockModel(["ok"]), sandbox=LocalSandbox, detect=False)
     h = Harness(agent)
     sess = h.session()
     await sess.start()

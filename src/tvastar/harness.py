@@ -179,6 +179,7 @@ class Harness:
         gov = getattr(eff_spec, "governance", None)
         if gov is not None:
             import dataclasses
+
             eff_spec = dataclasses.replace(eff_spec, governance=gov.copy())
         s = Session(spec=eff_spec, harness=self)
         if sid:

@@ -22,6 +22,7 @@ from tvastar.model.mock import MockModel
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _elapsed_ms(fn, *args, **kwargs) -> float:
     t0 = time.perf_counter()
     fn(*args, **kwargs)
@@ -31,6 +32,7 @@ def _elapsed_ms(fn, *args, **kwargs) -> float:
 # ---------------------------------------------------------------------------
 # Perf: VirtualSandbox.snapshot() < 150 ms
 # ---------------------------------------------------------------------------
+
 
 def test_snapshot_perf_under_150ms():
     """snapshot() on a ~1 MB virtual filesystem must complete in < 150 ms."""
@@ -78,6 +80,7 @@ def test_restore_perf_under_150ms():
 # Perf: LTMStore.retrieve() < 200 ms across 500 nodes
 # ---------------------------------------------------------------------------
 
+
 def _build_ltm_store(n: int):
     from tvastar.contrib.ltm import LTMNode, LTMStore
     from tvastar.memory.store import InMemoryStore
@@ -111,6 +114,7 @@ def test_ltm_retrieve_perf_1000_nodes_under_200ms():
 # ---------------------------------------------------------------------------
 # Memory cap enforcement
 # ---------------------------------------------------------------------------
+
 
 async def test_memory_cap_stops_run():
     """When messages exceed memory_cap_mb the run stops with stopped='memory_cap'."""
@@ -151,6 +155,7 @@ async def test_memory_cap_field_on_spec():
 # ---------------------------------------------------------------------------
 # OpenAI retry
 # ---------------------------------------------------------------------------
+
 
 async def test_openai_model_retries_on_transient_error():
     """OpenAIModel retries transient errors and succeeds on the last attempt."""

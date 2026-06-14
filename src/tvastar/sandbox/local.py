@@ -115,7 +115,6 @@ class LocalSandbox(Sandbox):
             stderr=_truncate(err.decode("utf-8", "replace"), limit),
         )
 
-
     # ------------------------------------------------------------------
     # Transactional snapshot / restore (< 500 ms NFR for local FS)
     # ------------------------------------------------------------------
