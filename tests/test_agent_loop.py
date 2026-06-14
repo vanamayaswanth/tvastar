@@ -746,15 +746,24 @@ async def test_virtual_sandbox_snapshot_restore():
     assert not sb.fs.exists("b.txt")
 
 
-async def test_local_sandbox_snapshot_raises():
-    """LocalSandbox raises NotImplementedError for snapshot/restore."""
+async def test_local_sandbox_snapshot_restore():
+    """LocalSandbox.snapshot()/restore() round-trip preserves filesystem state."""
+    import tempfile
+    from pathlib import Path as _P
     from tvastar.sandbox.local import LocalSandbox
 
-    sb = LocalSandbox()
-    with pytest.raises(NotImplementedError):
-        sb.snapshot()
-    with pytest.raises(NotImplementedError):
-        sb.restore({})
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sb = LocalSandbox(root=tmpdir)
+        _P(tmpdir, "a.txt").write_bytes(b"original")
+        snap = sb.snapshot()
+        assert snap == {"a.txt": b"original"}
+
+        _P(tmpdir, "a.txt").write_bytes(b"modified")
+        _P(tmpdir, "b.txt").write_bytes(b"new")
+
+        sb.restore(snap)
+        assert _P(tmpdir, "a.txt").read_bytes() == b"original"
+        assert not _P(tmpdir, "b.txt").exists()
 
 
 async def test_harness_transaction_rolls_back_on_exception():

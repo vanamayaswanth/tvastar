@@ -46,6 +46,21 @@ def test_snapshot_perf_under_150ms():
     assert elapsed < 150, f"snapshot took {elapsed:.1f} ms (limit 150 ms)"
 
 
+def test_local_sandbox_snapshot_perf_under_500ms():
+    """LocalSandbox.snapshot() on ~500 KB of files must complete in < 500 ms."""
+    import tempfile
+    from pathlib import Path as _P
+    from tvastar.sandbox.local import LocalSandbox
+
+    content = b"x" * 5_000
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for i in range(100):
+            _P(tmpdir, f"file_{i:04d}.bin").write_bytes(content)
+        sb = LocalSandbox(root=tmpdir)
+        elapsed = _elapsed_ms(sb.snapshot)
+    assert elapsed < 500, f"LocalSandbox.snapshot took {elapsed:.1f} ms (limit 500 ms)"
+
+
 def test_restore_perf_under_150ms():
     """restore() on a ~1 MB snapshot must complete in < 150 ms."""
     from tvastar.sandbox.virtual import VirtualSandbox

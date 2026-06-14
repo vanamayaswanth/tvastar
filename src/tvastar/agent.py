@@ -53,13 +53,26 @@ class AgentSpec:
     #: with stopped="memory_cap". None = unlimited (default).
     memory_cap_mb: Optional[float] = None
     #: optional hook applied to the composed system prompt just before each model call.
-    #: Signature: (system_prompt: str) -> str. Use this to inject retrieved LTM context,
-    #: dynamic instructions, or any other per-call augmentation without subclassing.
-    system_prompt_hook: Optional[Callable[[str], str]] = None
+    #: Basic signature: ``(system_prompt: str) -> str``.
+    #: Extended signature: ``(system_prompt: str, *, last_user_text: str = "") -> str``.
+    #: If the hook declares ``last_user_text`` the session passes the most-recent
+    #: user message so retrieval can be keyed on actual intent, not static instructions.
+    system_prompt_hook: Optional[Callable[..., str]] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def build_system_prompt(self) -> str:
-        """Compose the system prompt from instructions + skill catalog, then apply hook."""
+    def build_system_prompt(self, *, last_user_text: str = "") -> str:
+        """Compose the system prompt from instructions + skill catalog, then apply hook.
+
+        Args:
+            last_user_text: The most-recent user message text from the live
+                session.  Forwarded to hooks that declare a ``last_user_text``
+                keyword parameter (e.g. ``LTMStore.as_hook()``) so retrieval
+                can be keyed on what the user actually asked rather than the
+                static instructions string.
+        """
+        import inspect
+        import warnings
+
         parts = [self.instructions.strip()] if self.instructions.strip() else []
         catalog = self.skills.catalog()
         if catalog:
@@ -67,9 +80,17 @@ class AgentSpec:
         prompt = "\n\n".join(parts)
         if self.system_prompt_hook is not None:
             try:
-                prompt = self.system_prompt_hook(prompt)
-            except Exception:
-                pass  # hook failure must never take down a live session
+                sig = inspect.signature(self.system_prompt_hook)
+                if "last_user_text" in sig.parameters:
+                    prompt = self.system_prompt_hook(prompt, last_user_text=last_user_text)
+                else:
+                    prompt = self.system_prompt_hook(prompt)
+            except Exception as exc:
+                warnings.warn(
+                    f"system_prompt_hook raised {type(exc).__name__}: {exc!r}; "
+                    "system prompt returned without hook augmentation.",
+                    stacklevel=2,
+                )
         return prompt
 
     def get_subagent(self, name: str) -> Optional[Any]:
@@ -97,7 +118,7 @@ def create_agent(
     approval_gate: Optional[Any] = None,
     tool_policy: Optional[Any] = None,
     governance: Optional[Any] = None,
-    system_prompt_hook: Optional[Callable[[str], str]] = None,
+    system_prompt_hook: Optional[Callable[..., str]] = None,
     memory_cap_mb: Optional[float] = None,
     **metadata: Any,
 ) -> AgentSpec:

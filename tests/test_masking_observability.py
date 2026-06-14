@@ -1,5 +1,7 @@
 """Tests for 0.5.0: tool masking, OTel GenAI conventions, injection detection."""
 
+import pytest
+
 from tvastar import (
     Harness,
     Severity,
@@ -14,7 +16,7 @@ from tvastar import (
     tool,
     wrap_untrusted,
 )
-from tvastar.masking import MaskContext, apply_policy
+from tvastar.masking import GovernancePolicy, MaskContext, apply_policy
 from tvastar.model import MockModel
 from tvastar.observability import Span
 from tvastar.types import ToolUseBlock
@@ -149,3 +151,78 @@ async def test_prompt_injection_detector_fires_on_tool_output():
     result = await Harness(agent).run("read the page")
     hits = [f for f in result.findings if f.detector == "prompt_injection"]
     assert hits and hits[0].severity == Severity.WARNING
+
+
+# ── GovernancePolicy unit tests ────────────────────────────────────────────
+
+
+def test_governance_empty_phases_raises():
+    with pytest.raises(ValueError, match="must not be empty"):
+        GovernancePolicy(phases={})
+
+
+def test_governance_unknown_phase_fails_closed():
+    gov = GovernancePolicy(phases={"read": {"grep"}}, current_phase="read")
+    with pytest.raises(ValueError, match="Unknown governance phase"):
+        gov.set_phase("nonexistent")
+    # Bypass set_phase to simulate misconfigured phase — must deny (fail closed)
+    gov.current_phase = "nonexistent"
+    assert gov.is_allowed("grep") is False
+
+
+def test_governance_as_tool_policy_mirrors_phase():
+    gov = GovernancePolicy(
+        phases={"read": {"grep", "read_file"}, "write": {"grep", "read_file", "bash"}},
+        current_phase="read",
+    )
+    policy = gov.as_tool_policy()
+    ctx = MaskContext(step=1, available=["grep", "read_file", "bash"])
+    assert sorted(policy(ctx)) == ["grep", "read_file"]
+
+
+def test_governance_as_tool_policy_live_update():
+    """set_phase() is reflected immediately in the policy returned by as_tool_policy()."""
+    gov = GovernancePolicy(
+        phases={"read": {"grep"}, "write": {"*"}},
+        current_phase="read",
+    )
+    policy = gov.as_tool_policy()
+    ctx = MaskContext(step=1, available=["grep", "bash", "write_file"])
+    assert policy(ctx) == ["grep"]
+    gov.set_phase("write")
+    assert sorted(policy(ctx)) == ["bash", "grep", "write_file"]
+
+
+def test_governance_as_tool_policy_star_allows_all():
+    gov = GovernancePolicy(phases={"all": {"*"}}, current_phase="all")
+    policy = gov.as_tool_policy()
+    ctx = MaskContext(step=1, available=["grep", "bash", "write_file"])
+    assert sorted(policy(ctx)) == ["bash", "grep", "write_file"]
+
+
+def test_governance_copy_independent_phase():
+    gov = GovernancePolicy(
+        phases={"read": {"grep"}, "write": {"bash"}},
+        current_phase="read",
+    )
+    copy = gov.copy()
+    copy.set_phase("write")
+    assert gov.current_phase == "read"   # original unchanged
+    assert copy.current_phase == "write"
+
+
+async def test_harness_session_gives_independent_governance_copy():
+    """Each session created from a harness gets its own GovernancePolicy copy."""
+    gov = GovernancePolicy(
+        phases={"read": {"grep"}, "write": {"bash"}},
+        current_phase="read",
+    )
+    agent = create_agent("g", model=MockModel(["ok"]), governance=gov)
+    h = Harness(agent)
+
+    s1 = h.session("s1")
+    s2 = h.session("s2")
+
+    s1.spec.governance.set_phase("write")
+    assert s2.spec.governance.current_phase == "read"  # s2 unaffected
+    assert gov.current_phase == "read"                 # original unaffected

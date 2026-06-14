@@ -169,6 +169,14 @@ class GovernancePolicy:
     current_phase: str = "default"
     approval_gate: Optional["ApprovalGate"] = None
 
+    def __post_init__(self) -> None:
+        if not self.phases:
+            raise ValueError(
+                "GovernancePolicy.phases must not be empty. "
+                "An empty phases dict would silently permit every tool call. "
+                "Define at least one phase, e.g. phases={'default': {'*'}}."
+            )
+
     def set_phase(self, name: str) -> None:
         """Switch to a named phase. Raises ``ValueError`` for unknown names."""
         if name not in self.phases:
@@ -178,8 +186,47 @@ class GovernancePolicy:
         self.current_phase = name
 
     def is_allowed(self, tool_name: str) -> bool:
-        """Return True if ``tool_name`` is permitted in the current phase."""
+        """Return True if ``tool_name`` is permitted in the current phase.
+
+        Fails *closed*: if the current phase has no entry in ``phases``,
+        the tool is **denied** rather than allowed.  This prevents a
+        misconfigured or uninitialised phase from silently granting access.
+        """
         allowed = self.phases.get(self.current_phase)
         if allowed is None:
-            return True  # phase not defined → no restriction
+            return False  # unknown phase → deny (fail closed)
         return "*" in allowed or tool_name in allowed
+
+    def as_tool_policy(self) -> "ToolPolicy":
+        """Return a masking :data:`ToolPolicy` that mirrors the current phase.
+
+        The returned callable reads ``self.current_phase`` on every call, so
+        ``set_phase()`` is reflected in masking immediately — both enforcement
+        layers are driven by one policy object.
+
+        Example::
+
+            gov = GovernancePolicy(phases={"read": {"grep", "read_file"}, "write": {"*"}})
+            agent = create_agent("a", model=m, governance=gov, tool_policy=gov.as_tool_policy())
+            gov.set_phase("write")  # both layers unlock write tools at once
+        """
+        gov = self  # capture reference for the closure
+
+        def _policy(ctx: "MaskContext") -> list[str]:
+            allowed = gov.phases.get(gov.current_phase)
+            if allowed is None or "*" in allowed:
+                return list(ctx.available)
+            return [n for n in ctx.available if n in allowed]
+
+        _policy.__name__ = "governance_as_tool_policy"
+        return _policy
+
+    def copy(self) -> "GovernancePolicy":
+        """Return a shallow copy with independent ``current_phase`` state.
+
+        Each :class:`~tvastar.session.Session` created from the same
+        :class:`~tvastar.agent.AgentSpec` gets its own copy so that
+        ``set_phase()`` calls in one session cannot race with another.
+        """
+        import dataclasses
+        return dataclasses.replace(self)

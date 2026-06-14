@@ -200,7 +200,7 @@ class AnthropicModel(Model):
         kwargs.update(thinking_kw)
 
         policy = self.retry
-        max_attempts = policy.max_attempts if policy else 1
+        max_attempts = max(policy.max_attempts if policy else 1, 1)
         for attempt in range(max_attempts):
             try:
                 if betas:
@@ -213,14 +213,14 @@ class AnthropicModel(Model):
                 if not is_last and policy is not None:
                     check = policy.retryable or _default_retryable
                     if check(e):
-                        delay = min(
-                            policy.backoff_base * (2**attempt) + random.uniform(0, policy.jitter),
-                            policy.backoff_max,
-                        )
+                        # Full-jitter backoff: sleep a random fraction of the
+                        # capped backoff interval to decorrelate concurrent retries.
+                        cap = min(policy.backoff_base * (2**attempt), policy.backoff_max)
+                        delay = random.uniform(0, cap)
                         await asyncio.sleep(delay)
                         continue
                 raise ModelError(f"Anthropic request failed: {e}") from e
-        raise ModelError("Anthropic request failed: max_attempts=0")  # unreachable
+        raise ModelError("Anthropic request failed: max_attempts must be >= 1")  # unreachable
 
     async def stream(
         self,

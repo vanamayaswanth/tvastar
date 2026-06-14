@@ -45,6 +45,15 @@ if TYPE_CHECKING:
 __all__ = ["TaskGraph", "GraphResult"]
 
 
+class _UpstreamSkipError(RuntimeError):
+    """Raised internally when a task is skipped due to an upstream failure.
+
+    Using a typed exception (instead of string-matching the message) lets the
+    real-error filter use ``isinstance`` checks rather than fragile substring
+    matching that breaks if the message is ever rephrased.
+    """
+
+
 @dataclass
 class _TaskNode:
     name: str
@@ -152,7 +161,12 @@ class TaskGraph:
         )
         return self
 
-    async def run(self, *, inject_results: bool = True) -> GraphResult:
+    async def run(
+        self,
+        *,
+        inject_results: bool = True,
+        concurrency: int = 8,
+    ) -> GraphResult:
         """
         Execute the task graph and return a :class:`GraphResult`.
 
@@ -161,6 +175,10 @@ class TaskGraph:
         inject_results:
             When True (default), prepend each dependency's output to the
             downstream task's prompt so it has full context.
+        concurrency:
+            Maximum number of tasks running model calls simultaneously.
+            Defaults to 8 to avoid thundering-herd retry storms when the
+            model provider rate-limits.  Pass ``0`` for unlimited.
         """
         if not self._nodes:
             return GraphResult({})
@@ -170,6 +188,7 @@ class TaskGraph:
         completed: dict[str, "RunResult"] = {}
         errors: dict[str, BaseException] = {}
         done_events: dict[str, asyncio.Event] = {n: asyncio.Event() for n in self._nodes}
+        _sem: asyncio.Semaphore | None = asyncio.Semaphore(concurrency) if concurrency > 0 else None
 
         async def _run_one(name: str) -> None:
             node = self._nodes[name]
@@ -181,7 +200,7 @@ class TaskGraph:
             # Propagate upstream failures without running this task.
             dep_errors = [dep for dep in node.depends_on if dep in errors]
             if dep_errors:
-                errors[name] = RuntimeError(
+                errors[name] = _UpstreamSkipError(
                     f"Task {name!r} skipped: upstream tasks failed: {dep_errors}"
                 )
                 done_events[name].set()
@@ -201,12 +220,20 @@ class TaskGraph:
                 if node.result is not None:
                     kwargs["result"] = node.result
 
-                async with sess:
-                    coro = sess.prompt(prompt, **kwargs)
-                    if node.cancel_after is not None:
-                        run_result = await asyncio.wait_for(coro, timeout=node.cancel_after)
-                    else:
-                        run_result = await coro
+                # Acquire the concurrency semaphore only around the model call,
+                # not the dependency-wait above, so waiting tasks don't hold slots.
+                async def _execute() -> "RunResult":
+                    async with sess:
+                        coro = sess.prompt(prompt, **kwargs)
+                        if node.cancel_after is not None:
+                            return await asyncio.wait_for(coro, timeout=node.cancel_after)
+                        return await coro
+
+                if _sem is not None:
+                    async with _sem:
+                        run_result = await _execute()
+                else:
+                    run_result = await _execute()
 
                 completed[name] = run_result
             except Exception as exc:
@@ -219,8 +246,10 @@ class TaskGraph:
         await asyncio.gather(*[_run_one(n) for n in self._nodes])
 
         # Re-raise the first real task failure (not downstream propagation noise).
+        # _UpstreamSkipError is used for propagated skips so we can filter by
+        # type rather than by fragile substring matching.
         real_errors = {
-            k: v for k, v in errors.items() if "skipped: upstream tasks failed" not in str(v)
+            k: v for k, v in errors.items() if not isinstance(v, _UpstreamSkipError)
         }
         if real_errors:
             first_name, first_err = next(iter(real_errors.items()))

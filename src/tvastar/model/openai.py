@@ -172,7 +172,8 @@ class OpenAIModel(Model):
             kwargs["reasoning_effort"] = effort
 
         policy = self.retry
-        max_attempts = policy.max_attempts if policy else 1
+        max_attempts = max(policy.max_attempts if policy else 1, 1)
+        resp = None
         for attempt in range(max_attempts):
             try:
                 resp = await self._client.chat.completions.create(**kwargs)
@@ -182,13 +183,15 @@ class OpenAIModel(Model):
                 if not is_last and policy is not None:
                     check = policy.retryable or _default_retryable
                     if check(e):
-                        delay = min(
-                            policy.backoff_base * (2**attempt) + random.uniform(0, policy.jitter),
-                            policy.backoff_max,
-                        )
+                        # Full-jitter backoff: sleep a random fraction of the
+                        # capped backoff interval to decorrelate concurrent retries.
+                        cap = min(policy.backoff_base * (2**attempt), policy.backoff_max)
+                        delay = random.uniform(0, cap)
                         await asyncio.sleep(delay)
                         continue
                 raise ModelError(f"OpenAI request failed: {e}") from e
+        if resp is None:  # max_attempts=0 guard (unreachable via normal paths)
+            raise ModelError("OpenAI request failed: max_attempts must be >= 1")
 
         choice = resp.choices[0]
         blocks: list[Any] = []

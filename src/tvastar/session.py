@@ -103,6 +103,8 @@ class Session:
     _active_skill: Optional[Skill] = None
     _task_depth: int = 0  # how deep in the task delegation tree we are
     _cancel_event: Optional[asyncio.Event] = None
+    _last_compact_at: float = 0.0  # monotonic time of last compaction attempt
+    _last_user_text: str = ""  # most-recent user message text (for LTM hook)
 
     # ---- lifecycle ----------------------------------------------------------
 
@@ -183,7 +185,7 @@ class Session:
         return masked
 
     def _system_prompt(self) -> str:
-        base = self.spec.build_system_prompt()
+        base = self.spec.build_system_prompt(last_user_text=self._last_user_text)
         if self._active_skill:
             base = (
                 f"{base}\n\n## Active skill: {self._active_skill.name}\n"
@@ -220,6 +222,9 @@ class Session:
             self.messages.append(Message("user", [TextBlock(text=prompt_text), *images]))
         else:
             self.messages.append(Message("user", prompt_text))
+        # Track the raw user text so _system_prompt() can forward it to hooks
+        # that want the current intent (e.g. LTMStore.as_hook()).
+        self._last_user_text = text
         with self.tracer.span("session.prompt", session=self.id, agent=self.spec.name):
             if cancel_after is not None:
                 return await asyncio.wait_for(self._run_with_schema(result), timeout=cancel_after)
@@ -471,13 +476,22 @@ class Session:
                     )
                 except Exception as exc:
                     # Reactive overflow recovery: compact then retry this turn once.
-                    # Always attempt compaction on overflow (uses default policy if none set).
-                    if _is_context_overflow(exc):
+                    # Only attempt when a CompactionPolicy is configured — otherwise
+                    # compact_session would call model.generate() on the same already-
+                    # overloaded endpoint, risking an infinite rate-limit / overflow loop.
+                    # Also enforce a cooldown to avoid hammering the endpoint.
+                    if _is_context_overflow(exc) and getattr(spec, "compaction", None) is not None:
+                        import time as _time
+                        now = _time.monotonic()
+                        _compact_cooldown = 30.0
                         compacted = False
-                        try:
-                            compacted = await compact_session(self, force=True)
-                        except Exception:
-                            pass
+                        if now - self._last_compact_at > _compact_cooldown:
+                            try:
+                                compacted = await compact_session(self, force=True)
+                                if compacted:
+                                    self._last_compact_at = now
+                            except Exception:
+                                pass
                         if compacted:
                             self.tracer_event("context_overflow_compacted", step=steps)
                             resp = await spec.model.generate(
@@ -538,6 +552,15 @@ class Session:
                             cap_mb=cap_mb,
                             size_mb=round(size / 1024 / 1024, 2),
                         )
+                        # If the last message is an assistant tool-use turn that
+                        # has not yet had its results appended, remove it so the
+                        # history stays in a valid state for future calls.
+                        if (
+                            resp.stop_reason == StopReason.TOOL_USE
+                            and self.messages
+                            and self.messages[-1].role == "assistant"
+                        ):
+                            self.messages.pop()
                         stopped = "memory_cap"
                         break
 

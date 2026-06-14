@@ -116,6 +116,48 @@ class LocalSandbox(Sandbox):
         )
 
 
+    # ------------------------------------------------------------------
+    # Transactional snapshot / restore (< 500 ms NFR for local FS)
+    # ------------------------------------------------------------------
+
+    def snapshot(self) -> dict[str, bytes]:
+        """Return all files under root as ``{relative_posix_path: raw_bytes}``."""
+        snap: dict[str, bytes] = {}
+        root = Path(self.root)
+        if not root.exists():
+            return snap
+        for p in root.rglob("*"):
+            if p.is_file():
+                rel = p.relative_to(root).as_posix()
+                snap[rel] = p.read_bytes()
+        return snap
+
+    def restore(self, snap: dict[str, bytes]) -> None:
+        """Restore workspace to a previously snapshotted state.
+
+        Files present in the snapshot are (re-)created; files *not* in the
+        snapshot are deleted; directory structure is rebuilt as needed.
+        """
+        root = Path(self.root)
+        # Remove all current files
+        if root.exists():
+            for p in root.rglob("*"):
+                if p.is_file():
+                    p.unlink()
+            # Prune empty directories bottom-up (skip root itself)
+            for p in sorted(root.rglob("*"), key=lambda x: len(x.parts), reverse=True):
+                if p.is_dir() and p != root:
+                    try:
+                        p.rmdir()
+                    except OSError:
+                        pass
+        # Recreate snapshotted files
+        for rel, data in snap.items():
+            target = root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+
+
 def default_local_shell() -> Optional[str]:
     """Prefer bash if present (incl. Git Bash on Windows), else None."""
     if sys.platform == "win32":

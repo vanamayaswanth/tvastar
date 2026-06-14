@@ -173,7 +173,14 @@ class Harness:
         sid = name or session_id
         if sid and sid in self._sessions:
             return self._sessions[sid]
-        s = Session(spec=spec or self.spec, harness=self)
+        eff_spec = spec or self.spec
+        # Give each session its own GovernancePolicy copy so set_phase() calls
+        # in one concurrent session don't mutate the phase seen by others.
+        gov = getattr(eff_spec, "governance", None)
+        if gov is not None:
+            import dataclasses
+            eff_spec = dataclasses.replace(eff_spec, governance=gov.copy())
+        s = Session(spec=eff_spec, harness=self)
         if sid:
             s.id = sid
         self._sessions[s.id] = s
@@ -259,15 +266,22 @@ class Harness:
                     sandbox.restore(snap)
                     with self.tracer.span("workspace_rollback", session=session.id):
                         pass
-                except Exception:
-                    pass  # rollback failure must not mask the original error
+                except Exception as restore_exc:
+                    # Rollback failed — log it so the caller knows the workspace
+                    # was NOT restored, then re-raise the original error.
+                    with self.tracer.span(
+                        "workspace_rollback_failed",
+                        session=session.id,
+                        error=str(restore_exc),
+                    ):
+                        pass
             raise
 
     async def fan_out(
         self,
         prompts: list,
         *,
-        concurrency: Optional[int] = None,
+        concurrency: Optional[int] = 8,
     ) -> list[RunResult]:
         """Run multiple prompts concurrently, each in its own session.
 
@@ -278,7 +292,9 @@ class Harness:
                     ``prompt`` (required), ``agent`` (profile name),
                     ``result`` (schema), ``cancel_after`` (timeout seconds),
                     ``thinking_level``, ``max_steps``
-            concurrency: Maximum concurrent sessions. ``None`` = all at once.
+            concurrency: Maximum concurrent sessions. Defaults to 8 to avoid
+            thundering-herd retry storms when a provider rate-limits.
+            Pass ``None`` to run all prompts simultaneously (use with care).
 
         Returns:
             A list of ``RunResult`` in the same order as ``prompts``.
@@ -326,6 +342,7 @@ class Harness:
             return fan_result
 
         if concurrency is None:
+            # Unlimited — caller opted in explicitly; all prompts fire at once.
             return list(await _asyncio.gather(*(_run_one(p) for p in prompts)))
 
         # Bounded concurrency via semaphore

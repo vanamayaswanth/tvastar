@@ -146,18 +146,32 @@ def _keyword_retrieve(query: str, nodes: list[LTMNode], k: int) -> list[LTMNode]
     return [n for n, s in scored[:k] if s > 0.0] or nodes[:k]
 
 
-def _semantic_retrieve(query: str, nodes: list[LTMNode], k: int) -> list[LTMNode]:
-    """Cosine-similarity retrieval via sentence-transformers (optional dep)."""
+def _semantic_retrieve(
+    query: str,
+    nodes: list[LTMNode],
+    k: int,
+    *,
+    _model_cache: dict = {},  # module-level cache keyed by model name
+) -> list[LTMNode]:
+    """Cosine-similarity retrieval via sentence-transformers (optional dep).
+
+    The SentenceTransformer model is cached on first load so it is not
+    re-instantiated (and re-loaded from disk) on every retrieval call.
+    """
     try:
         from sentence_transformers import SentenceTransformer  # type: ignore[import]
         import numpy as np  # type: ignore[import]
     except ImportError:
         return _keyword_retrieve(query, nodes, k)
 
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    _model_name = "all-MiniLM-L6-v2"
+    if _model_name not in _model_cache:
+        _model_cache[_model_name] = SentenceTransformer(_model_name)
+    st_model = _model_cache[_model_name]
+
     contents = [n.content for n in nodes]
-    embeddings = model.encode(contents, show_progress_bar=False)
-    query_emb = model.encode([query], show_progress_bar=False)[0]
+    embeddings = st_model.encode(contents, show_progress_bar=False)
+    query_emb = st_model.encode([query], show_progress_bar=False)[0]
     norms = np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_emb) + 1e-8
     scores = (embeddings @ query_emb) / norms
     top_idx = scores.argsort()[::-1][:k]
@@ -198,12 +212,31 @@ Rules:
 """
 
 
+_INJECTION_BLOCK = re.compile(
+    r"(?i)(ignore\s+(previous|prior|above|all)\s+instructions?|"
+    r"disregard\s+(the\s+)?(above|previous|prior)|"
+    r"system\s*prompt|you\s+are\s+now|new\s+instructions?|"
+    r"forget\s+(everything|all)|override\s+(your\s+)?instructions?)"
+)
+
+
+def _sanitize_for_extraction(text: str, max_chars: int = 400) -> str:
+    """Truncate and redact instruction-injection patterns from a message snippet.
+
+    This prevents adversarial user messages from hijacking the cheap extraction
+    LLM into persisting attacker-controlled strings as LTM facts.
+    """
+    truncated = text[:max_chars]
+    return _INJECTION_BLOCK.sub("[FILTERED]", truncated)
+
+
 def _format_conversation(messages: "list[Message]", char_limit: int = 6000) -> str:
     parts: list[str] = []
     for m in messages:
         text = m.text
         if text:
-            parts.append(f"{m.role}: {text[:400]}")
+            safe = _sanitize_for_extraction(text)
+            parts.append(f"{m.role}: {safe}")
     return "\n".join(parts)[:char_limit]
 
 
@@ -220,14 +253,19 @@ async def _extract_nodes(
         return []
 
     prompt_text = _EXTRACT_PROMPT.format(conversation=conversation)
-    try:
-        resp = await model.generate(
-            [Msg("user", prompt_text)],
-            system=_EXTRACT_SYSTEM,
-            max_tokens=1024,
-            temperature=0.0,
-        )
-    except Exception:
+    resp = None
+    for _attempt in range(2):  # one retry on transient model failure
+        try:
+            resp = await model.generate(
+                [Msg("user", prompt_text)],
+                system=_EXTRACT_SYSTEM,
+                max_tokens=1024,
+                temperature=0.0,
+            )
+            break
+        except Exception:
+            resp = None
+    if resp is None:
         return []
 
     raw = resp.message.text.strip()
@@ -310,7 +348,11 @@ class LTMStore:
         Returns:
             The list of ``LTMNode`` objects that were persisted.
         """
-        if not result.ok:
+        # Gate on whether the session ran to completion, not result.ok.
+        # result.ok is False whenever any WARNING finding is present (including
+        # structured_output_fallback), but those runs still produced valid
+        # conversation knowledge worth preserving.
+        if result.stopped != "end_turn":
             return []
 
         nodes = await _extract_nodes(result.messages, model, session_id)
@@ -337,17 +379,27 @@ class LTMStore:
 
     # ---- hook ---------------------------------------------------------------
 
-    def as_hook(self) -> Callable[[str], str]:
-        """Return a ``system_prompt_hook`` that prepends recalled memory.
+    def as_hook(self) -> Callable[..., str]:
+        """Return a ``system_prompt_hook`` that injects recalled memory.
 
         Wire into ``create_agent(system_prompt_hook=ltm.as_hook())``.
-        The hook is called once per model turn; it retrieves the top
-        ``max_inject`` nodes relevant to the current system prompt and
-        appends them as a *Recalled Memory* block.
+
+        The hook accepts an optional ``last_user_text`` keyword argument
+        (forwarded by the session when the extended hook signature is detected).
+        When present, retrieval is keyed on the actual user intent rather than
+        the static agent instructions string, making recalled memories
+        contextually relevant to each turn.
+
+        Extended signature (auto-detected by AgentSpec.build_system_prompt)::
+
+            hook(system_prompt: str, *, last_user_text: str = "") -> str
         """
 
-        def hook(system_prompt: str) -> str:
-            nodes = self.retrieve(system_prompt)
+        def hook(system_prompt: str, *, last_user_text: str = "") -> str:
+            # Use the user's actual message as the retrieval query when available;
+            # fall back to the system prompt for the very first turn.
+            query = last_user_text.strip() or system_prompt
+            nodes = self.retrieve(query)
             if not nodes:
                 return system_prompt
             lines = [f"[{n.type}] {n.content}" for n in nodes]
