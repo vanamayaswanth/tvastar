@@ -48,6 +48,20 @@ if TYPE_CHECKING:  # pragma: no cover
     from .detect import Finding
     from .harness import Harness
 
+# How many times to retry structured-output parsing before giving up.
+_STRUCTURED_RETRIES = 2
+
+# Substrings (lowercased) that indicate a context-overflow error from the provider.
+_OVERFLOW_PHRASES = (
+    "context_length_exceeded",
+    "prompt is too long",
+    "context window exceeded",
+    "maximum context length",
+    "input is too long",
+    "request too large",
+    "token count exceeds",
+)
+
 
 @dataclass
 class RunResult:
@@ -191,6 +205,10 @@ class Session:
             result: Optional schema for structured output. Pass a callable
                     validator (e.g. a Pydantic model class) to validate and
                     parse the model's JSON response into ``RunResult.data``.
+                    If the first attempt produces invalid JSON, the model is
+                    given the schema error and retried up to
+                    ``_STRUCTURED_RETRIES`` times before falling back to raw
+                    text.
             cancel_after: Optional timeout in seconds; raises asyncio.TimeoutError
                     if the run exceeds it.
         """
@@ -202,12 +220,10 @@ class Session:
         self.messages.append(Message("user", prompt_text))
         with self.tracer.span("session.prompt", session=self.id, agent=self.spec.name):
             if cancel_after is not None:
-                run_result = await asyncio.wait_for(self._run_loop(), timeout=cancel_after)
-            else:
-                run_result = await self._run_loop()
-        if result is not None:
-            run_result.data = _parse_structured(run_result.text, result)
-        return run_result
+                return await asyncio.wait_for(
+                    self._run_with_schema(result), timeout=cancel_after
+                )
+            return await self._run_with_schema(result)
 
     async def skill(
         self,
@@ -229,10 +245,7 @@ class Session:
                 if result is not None:
                     prompt_text = _inject_schema_instruction(text, result)
                 self.messages.append(Message("user", prompt_text))
-                run_result = await self._run_loop()
-            if result is not None:
-                run_result.data = _parse_structured(run_result.text, result)
-            return run_result
+                return await self._run_with_schema(result)
         finally:
             self._active_skill = prev
 
@@ -392,6 +405,27 @@ class Session:
         with self.tracer.span(f"event.{kind}", **safe):
             pass
 
+    # ---- structured-output retry wrapper ------------------------------------
+
+    async def _run_with_schema(self, schema: Optional[Any]) -> RunResult:
+        """Run the agent loop; if structured output fails to parse, correct and retry."""
+        run_result = await self._run_loop()
+        if schema is None:
+            return run_result
+
+        parsed, ok = _try_parse(run_result.text, schema)
+        for _ in range(_STRUCTURED_RETRIES):
+            if ok:
+                break
+            self.tracer_event("structured_output_retry")
+            self.messages.append(Message("user", _correction_message(parsed, schema)))
+            run_result = await self._run_loop()
+            parsed, ok = _try_parse(run_result.text, schema)
+
+        # On final failure fall back to raw text (backward-compat with _parse_structured).
+        run_result.data = parsed if ok else run_result.text
+        return run_result
+
     # ---- the loop -----------------------------------------------------------
 
     async def _run_loop(self) -> RunResult:
@@ -408,14 +442,37 @@ class Session:
                 "model.generate",
                 **_genai_request_attrs(spec, step=steps, n_tools=len(tools)),
             ) as sp:
-                resp: ModelResponse = await spec.model.generate(
-                    self.messages,
-                    system=self._system_prompt(),
-                    tools=tools or None,
-                    max_tokens=spec.max_tokens,
-                    temperature=spec.temperature,
-                    thinking_level=spec.thinking_level,
-                )
+                try:
+                    resp: ModelResponse = await spec.model.generate(
+                        self.messages,
+                        system=self._system_prompt(),
+                        tools=tools or None,
+                        max_tokens=spec.max_tokens,
+                        temperature=spec.temperature,
+                        thinking_level=spec.thinking_level,
+                    )
+                except Exception as exc:
+                    # Reactive overflow recovery: compact then retry this turn once.
+                    if _is_context_overflow(exc) and getattr(spec, "compaction", None) is not None:
+                        compacted = False
+                        try:
+                            compacted = await compact_session(self, force=True)
+                        except Exception:
+                            pass
+                        if compacted:
+                            self.tracer_event("context_overflow_compacted", step=steps)
+                            resp = await spec.model.generate(
+                                self.messages,
+                                system=self._system_prompt(),
+                                tools=tools or None,
+                                max_tokens=spec.max_tokens,
+                                temperature=spec.temperature,
+                                thinking_level=spec.thinking_level,
+                            )
+                        else:
+                            raise exc
+                    else:
+                        raise
             _set_genai_response_attrs(sp, resp)
             total = total + resp.usage
             self.messages.append(resp.message)
@@ -659,34 +716,60 @@ def _schema_hint(schema: Any) -> str:
     return str(schema)
 
 
-def _parse_structured(text: str, schema: Any) -> Any:
-    """Parse the model's JSON text against the schema. Returns parsed data or raw text."""
+def _try_parse(text: str, schema: Any) -> tuple[Any, bool]:
+    """Attempt to parse structured output.
+
+    Returns ``(parsed_data, True)`` on success or ``(error_string, False)`` on
+    failure. Callers use the error string to build a correction message for the
+    model.
+    """
     import json
     import re
 
-    # strip markdown fences if the model ignored instructions
     cleaned = re.sub(r"```(?:json)?\s*", "", text).strip().rstrip("`").strip()
     try:
         data = json.loads(cleaned)
-    except (json.JSONDecodeError, ValueError):
-        return text  # couldn't parse — return raw
+    except (json.JSONDecodeError, ValueError) as exc:
+        return str(exc), False
 
     # Pydantic v2
     if hasattr(schema, "model_validate"):
         try:
-            return schema.model_validate(data)
-        except Exception:
-            return data
+            return schema.model_validate(data), True
+        except Exception as exc:
+            return str(exc), False
     # Pydantic v1
     if hasattr(schema, "parse_obj"):
         try:
-            return schema.parse_obj(data)
-        except Exception:
-            return data
+            return schema.parse_obj(data), True
+        except Exception as exc:
+            return str(exc), False
     # callable validator
     if callable(schema):
         try:
-            return schema(data)
-        except Exception:
-            return data
-    return data
+            return schema(data), True
+        except Exception as exc:
+            return str(exc), False
+    return data, True
+
+
+def _correction_message(error: Any, schema: Any) -> str:
+    """User message injected between retries when structured output fails."""
+    return (
+        "Your previous response was not valid JSON matching the required schema.\n"
+        f"Problem: {error}\n\n"
+        f"Required schema:\n{_schema_hint(schema)}\n\n"
+        "Respond with valid JSON only — no markdown fences, no explanation."
+    )
+
+
+def _parse_structured(text: str, schema: Any) -> Any:
+    """Parse the model's JSON text against the schema. Returns parsed data or raw text."""
+    data, ok = _try_parse(text, schema)
+    return data if ok else text
+
+
+def _is_context_overflow(exc: Exception) -> bool:
+    """Return True when the exception looks like a provider context-window error."""
+    msg = str(exc).lower()
+    return any(phrase in msg for phrase in _OVERFLOW_PHRASES)

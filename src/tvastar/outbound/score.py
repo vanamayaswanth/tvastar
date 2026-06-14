@@ -69,8 +69,9 @@ async def score_lead(
         else:
             result = await sess.prompt(prompt)
 
-    # Fallback: extract first float from the text response
-    m = re.search(r"\b(0\.\d+|1\.0|0|1)\b", result.text)
+    # Fallback: extract first decimal score from the text response.
+    # Require a decimal point so bare integers ("line 1 column 2") don't match.
+    m = re.search(r"\b(0\.\d+|1\.0)\b", result.text)
     raw_score = max(0.0, min(1.0, float(m.group()))) if m else 0.0
     return ScoredLead(
         research=research,

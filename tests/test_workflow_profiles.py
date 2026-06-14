@@ -180,9 +180,9 @@ async def test_structured_result_falls_back_on_bad_json():
     sess = h.session()
     async with sess:
         result = await sess.prompt("give me json", result=dict)
-    # Falls back to raw text — no crash
+    # After structured-output retries are exhausted, data falls back to the
+    # last raw text response — any string, no crash.
     assert isinstance(result.data, str)
-    assert result.data == "not json at all"
 
 
 # ── T4: harness.fs ───────────────────────────────────────────────────────────

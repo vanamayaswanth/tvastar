@@ -53,6 +53,8 @@ class MockModel(Model):
         if self._cursor < len(self._script):
             item = self._script[self._cursor]
             self._cursor += 1
+            if isinstance(item, BaseException):
+                raise item
             return self._wrap(item)
 
         # No more scripted items: end the turn with a canned summary.

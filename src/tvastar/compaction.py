@@ -70,6 +70,7 @@ class CompactionPolicy:
         "original messages to save context space."
     )
     token_estimator: Optional[Callable[[list[Message]], int]] = None
+    summary_model: Optional[Any] = None
 
 
 def _estimate_tokens(messages: list[Message]) -> int:
@@ -129,10 +130,11 @@ async def compact_messages(
     transcript = "\n".join(transcript_parts)
     summary_messages.append(Message("user", f"Conversation to summarise:\n\n{transcript}"))
 
+    effective_model = policy.summary_model or model
     try:
         from .types import ModelResponse
 
-        resp: ModelResponse = await model.generate(
+        resp: ModelResponse = await effective_model.generate(
             summary_messages,
             system=system or "You are a helpful summariser.",
             tools=None,
