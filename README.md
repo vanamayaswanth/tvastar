@@ -198,6 +198,8 @@ pip install "tvastar[all]"              # everything
 | `Skill` | A Markdown file of reusable expertise, loaded on demand |
 | `Sandbox` | Where code runs — virtual (in-memory), local, or Docker |
 | `RunResult` | What you get back: `.text`, `.data`, `.usage`, `.steps`, `.ok` |
+| `GovernancePolicy` | Phase-based tool enforcement — declare which tools are legal per workflow phase |
+| `Finding` | A structured signal from a silent-failure detector (severity + message + evidence) |
 
 ---
 

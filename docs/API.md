@@ -219,9 +219,10 @@ class RunResult:
     messages: list[Message]          # complete conversation history
     usage: Usage                     # token counts
     steps: int                       # number of model calls
-    stopped: str                     # 'end_turn' | 'max_steps' | 'error'
+    stopped: str                     # 'end_turn'|'max_steps'|'error'|'memory_cap'
     findings: list[Finding]          # from silent-failure detectors
     data: Any | None                 # populated when result= schema used
+    cost: Cost | None = None         # populated when BudgetPolicy is configured
 
     @property
     def ok(self) -> bool             # stopped=='end_turn' and no warnings
@@ -268,11 +269,19 @@ class ToolResultBlock:
     type: str = "tool_result"
 
 @dataclass
+class ImageBlock:
+    data: str                        # base64-encoded bytes or URL
+    media_type: str = "image/jpeg"   # e.g. "image/png", "image/webp"
+    source_type: str = "base64"      # "base64" | "url"
+    type: str = "image"
+    # Pass to session.prompt(images=[image_block]) — works with Anthropic vision models
+
+@dataclass
 class ModelResponse:
     message: Message
     stop_reason: StopReason
-    usage: Usage
-    raw: Any | None                  # provider's raw response
+    usage: Usage = field(default_factory=Usage)
+    raw: Any | None = None           # provider's raw response
     @property def tool_uses(self) -> list[ToolUseBlock]
 
 class StopReason(str, Enum):
@@ -296,7 +305,12 @@ class ToolSpec:
 
 @dataclass
 class StreamEvent:
-    type: 'text_delta'|'tool_call'|'tool_result'|'turn_start'|'turn_end'|'error'
+    type: Literal[
+        'text_delta', 'tool_call', 'tool_result',
+        'turn_start', 'turn_end',
+        'skill_loaded', 'task_spawned',   # emitted by skill/task delegation
+        'error',
+    ]
     data: dict[str, Any]
     at: float
 ```
@@ -336,6 +350,16 @@ class Model(ABC):
 ```
 
 ```python
+@dataclass
+class ModelRetryPolicy:
+    """Exponential-backoff retry for transient model API errors (429, 5xx)."""
+    max_attempts: int = 3
+    backoff_base: float = 1.0         # full-jitter: sleep = uniform(0, min(base*2^n, max))
+    backoff_max: float = 60.0
+    jitter: float = 0.25
+    retryable: Callable[[Exception], bool] | None = None
+    # Default retryable: status 429 / 5xx / network errors; not 4xx (bad request)
+
 class AnthropicModel(Model):
     def __init__(
         self,
@@ -343,10 +367,15 @@ class AnthropicModel(Model):
         *,
         api_key: str | None = None,    # default: ANTHROPIC_API_KEY env
         client: Any | None = None,     # inject pre-built AsyncAnthropic
+        retry: ModelRetryPolicy | None = None,
     )
-    # thinking_level: low→1024, medium→8000, high→16000 budget_tokens
-    # + interleaved-thinking-2025-05-14 beta header
-    # + forces temperature=1.0 when thinking enabled
+    # thinking_level mapping:
+    #   'low'    → budget_tokens=1024
+    #   'medium' → budget_tokens=8000
+    #   'high'   → budget_tokens=16000
+    #   'xhigh'  → budget_tokens=32000
+    # All extended-thinking levels add the interleaved-thinking beta header
+    # and force temperature=1.0.
 
 class OpenAIModel(Model):
     def __init__(
@@ -354,16 +383,18 @@ class OpenAIModel(Model):
         model: str = "gpt-4o",
         *,
         api_key: str | None = None,    # default: OPENAI_API_KEY env
-        base_url: str | None = None,   # for compatible providers
+        base_url: str | None = None,   # for compatible providers (Groq, Ollama, …)
         client: Any | None = None,
+        retry: ModelRetryPolicy | None = None,
     )
     # thinking_level: passed as reasoning_effort='low'|'medium'|'high'
+    # 'xhigh' is capped to 'high' (not supported by OpenAI API)
 
 class MockModel(Model):
     name = "mock"
     def __init__(self, script: list[str | ToolUseBlock | Message] | None = None)
     calls: list[list[Message]]         # inspect after test
-    # thinking_level: accepted, noted in echo text
+    # thinking_level: accepted and noted in echoed text for test visibility
 ```
 
 ---
@@ -415,6 +446,7 @@ class ToolContext:
     filesystem: FileSystem | None
     memory: Memory
     session: Session
+    approval_gate: Any | None        # ApprovalGate — available inside tool via ctx
     extra: dict[str, Any]
 
 class ToolRegistry:
@@ -693,8 +725,56 @@ class LocalSandbox(Sandbox):
 class ExecResult:
     exit_code: int
     stdout: str
-    stderr: str
+    stderr: str = ""
     timed_out: bool = False
+
+    @property def ok(self) -> bool   # exit_code == 0 and not timed_out
+    def render(self) -> str          # human-readable stdout+stderr summary
+
+@dataclass
+class AuditEntry:
+    """Append-only record of every exec() call on a sandbox."""
+    command: str
+    timestamp: float
+    allowed: bool
+    violation: str | None = None    # set when allowed=False
+    exit_code: int | None = None    # set after completion
+    duration_ms: float | None = None
+
+    @classmethod
+    def blocked(cls, command: str, reason: str) -> AuditEntry
+    @classmethod
+    def executed(cls, command: str, exit_code: int, duration_ms: float) -> AuditEntry
+
+@dataclass
+class ResourcePolicy:
+    """CPU / memory / output limits for LocalSandbox."""
+    max_cpu_seconds: float = 30.0
+    max_memory_mb: int | None = None   # ulimit -v on Linux/macOS; no-op on Windows
+    max_output_chars: int = 50_000
+    allowed_domains: list[str] = field(default_factory=list)
+
+@dataclass
+class SecurityPolicy:
+    """Command-allowlist / denylist for LocalSandbox."""
+    network: bool = True                # False → zero out proxy env vars
+    max_output_bytes: int = 256_000
+    timeout_seconds: float = 60.0
+    denied_commands: set[str] = field(default_factory=set)    # e.g. {"rm", "curl"}
+    allowed_commands: set[str] = field(default_factory=set)   # empty = no allowlist
+    denied_substrings: set[str] = field(default_factory=set)  # blocked anywhere in cmd
+
+    def check(self, cmd: str) -> None   # raises SecurityViolation if blocked
+
+@dataclass
+class CredentialFilter:
+    """Strips secret-looking env vars from the subprocess environment."""
+    patterns: list[str] = field(default_factory=lambda: [
+        "*_KEY", "*_TOKEN", "*_SECRET", "*_PASSWORD",
+        "*_PASS", "*_CREDENTIAL", "*_CREDENTIALS",
+    ])    # case-insensitive glob patterns
+
+    def filter_env(self, env: dict[str, str]) -> dict[str, str]
 ```
 
 ---
@@ -752,6 +832,101 @@ class LTMStore:
 
 ---
 
+## Cost & Budget (`tvastar/cost.py`)
+
+```python
+@dataclass
+class Cost:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    model: str = ""
+
+    @property
+    def usd(self) -> float    # total USD cost for this run
+
+    def __add__(self, other: Cost) -> Cost
+
+def cost_for_model(
+    model: str,
+    *,
+    input_tokens: int,
+    output_tokens: int,
+) -> Cost
+# Looks up per-token pricing. Covers: all Claude tiers, GPT-4o, o1, o3-mini,
+# Llama via Groq. Add custom entries to COST_TABLE.
+
+@dataclass
+class BudgetPolicy:
+    max_usd: float
+    on_exceed: Literal["raise", "stop", "approve"] = "raise"
+    # "raise"   → raises BudgetExceeded (default)
+    # "stop"    → stops run with stopped="budget" (no exception)
+    # "approve" → routes to the agent's approval_gate for human sign-off;
+    #             falls back to "raise" if no gate is configured
+    warn_at: float | None = 0.8   # warn when spend reaches this fraction of max_usd
+```
+
+---
+
+## Approval (`tvastar/approval.py`)
+
+```python
+class ApprovalGate:
+    """Human-in-the-loop gate — pauses the run and waits for human decision."""
+
+    def __init__(
+        self,
+        backend: Literal["cli", "webhook", "event"] = "cli",
+        *,
+        webhook_url: str | None = None,   # for backend="webhook"
+        on_request: Callable[[ApprovalRequest], Any] | None = None,  # for backend="event"
+        timeout: float = 300.0,
+    )
+
+    async def request(
+        self,
+        message: str,
+        *,
+        timeout: float | None = None,
+        metadata: dict | None = None,
+    ) -> None
+    # Raises ApprovalDenied or ApprovalTimeout if the human denies or times out.
+
+@dataclass
+class ApprovalRequest:
+    message: str
+    timeout: float = 300.0
+    metadata: dict = field(default_factory=dict)
+
+    def approve(self) -> None   # unblocks the waiting agent
+    def deny(self) -> None      # raises ApprovalDenied in the agent
+
+async def require_approval(
+    message: str,
+    *,
+    timeout: float = 300.0,
+) -> None
+# Convenience shortcut — calls the default gate set by set_default_gate()
+
+def set_default_gate(gate: ApprovalGate) -> None
+```
+
+Wire to an agent:
+
+```python
+agent = create_agent("assistant", model=..., approval_gate=ApprovalGate(backend="cli"))
+```
+
+Wire governance-specific approval:
+
+```python
+gov = GovernancePolicy(phases={"read": {"grep"}, "write": {"*"}},
+                       approval_gate=ApprovalGate(backend="cli"))
+agent = create_agent("assistant", model=..., governance=gov)
+```
+
+---
+
 ## Compaction (`tvastar/compaction.py`)
 
 ```python
@@ -763,6 +938,8 @@ class CompactionPolicy:
     min_messages: int = 20
     summary_instruction: str = "..."
     token_estimator: Callable[[list[Message]], int] | None = None
+    summary_model: Model | None = None   # override model used for summarisation
+    # None → uses the session's own model (default)
 
 def should_compact(messages: list[Message], policy: CompactionPolicy) -> bool
 
@@ -846,7 +1023,11 @@ class Finding:
     detector: str
     severity: Severity
     message: str
-    context: dict[str, Any] = {}
+    evidence: dict[str, Any] = field(default_factory=dict)
+    # (was named 'context' in older docs — renamed to 'evidence' to avoid
+    # confusion with Python's built-in context concept)
+
+    def __str__(self) -> str   # "detector [SEVERITY]: message"
 
 class Severity(str, Enum):
     INFO = "info"
@@ -854,17 +1035,30 @@ class Severity(str, Enum):
     ERROR = "error"
 
 @dataclass
+class ToolEvent:
+    """One tool call + its result, as seen by detectors."""
+    call: ToolUseBlock
+    result: ToolResultBlock | None
+    step: int
+
+@dataclass
 class RunContext:
+    """Snapshot passed to every detector after the run completes."""
     messages: list[Message]
     tools: ToolRegistry
-    stopped: str
+    stopped: str        # 'end_turn'|'max_steps'|'error'|'memory_cap'
     final_text: str
+
+    @property def tool_calls(self) -> list[ToolUseBlock]
+    @property def tool_results(self) -> list[ToolResultBlock]
+    @property def events(self) -> list[ToolEvent]        # paired calls+results
+    @property def last_tool_result(self) -> ToolResultBlock | None
 
 # A detector is: Callable[[RunContext], list[Finding]]
 
 def default_detectors() -> list[Callable]
 # Returns: unknown_tool, schema_mismatch, thrash_loop, ignored_tool_error,
-#          unverified_completion, empty_answer, step_limit
+#          unverified_completion, prompt_injection, empty_answer, step_limit
 
 def run_detectors(ctx: RunContext, detectors: list) -> list[Finding]
 ```
@@ -929,12 +1123,22 @@ class Skill:
     description: str
     instructions: str
     tools: list[str] | None = None    # None = all tools allowed
+    metadata: dict[str, Any] = field(default_factory=dict)  # extra frontmatter fields
+    source: str | None = None         # file path the skill was loaded from
+
+    def summary(self) -> str          # one-line description for catalog
 
 class SkillLibrary:
     def __init__(self, skills: list[Skill] | None = None)
 
     @classmethod
-    def from_dirs(cls, *dirs: str) -> SkillLibrary   # loads *.md files
+    def from_dirs(cls, *dirs: str) -> SkillLibrary
+    # Loads all *.md files in the given directories.
+
+    @classmethod
+    def from_workspace(cls) -> SkillLibrary
+    # Auto-discovers skills from .agents/skills/ relative to the working directory.
+    # Used by LocalSandbox harnesses to load workspace-local skills.
 
     def get(self, name: str) -> Skill    # raises SkillError if not found
     def names(self) -> list[str]
@@ -975,6 +1179,69 @@ class Checkpointer:
     def load(self, session_id: str) -> dict | None
     def exists(self, session_id: str) -> bool
     def list_sessions(self) -> list[str]
+```
+
+---
+
+## Filesystem (`tvastar/filesystem/`)
+
+```python
+@dataclass
+class GrepMatch:
+    """One line of a grep result."""
+    path: str      # relative path from sandbox root
+    line_no: int
+    line: str
+
+# Available on FileSystem (accessible from tools via ctx.filesystem):
+class FileSystem:
+    def read(self, path: str) -> str
+    def write(self, path: str, content: str) -> None
+    def exists(self, path: str) -> bool
+    def delete(self, path: str) -> None
+    def listdir(self, path: str = ".") -> list[str]
+    def glob(self, pattern: str) -> list[str]
+    def grep(self, pattern: str, *, glob: str = "**/*") -> list[GrepMatch]
+```
+
+---
+
+## Task Graph (`tvastar/graph.py`)
+
+```python
+class TaskGraph:
+    """DAG-based parallel task execution."""
+
+    def task(
+        self,
+        name: str,
+        prompt: str,
+        *,
+        depends_on: list[str] | None = None,
+        cancel_after: float | None = None,
+        result: Any | None = None,    # structured output schema
+        agent: str | None = None,     # AgentProfile name for this task
+    ) -> TaskGraph    # returns self for chaining
+
+    async def run(
+        self,
+        *,
+        inject_results: bool = True,  # prepend dependency output to downstream prompts
+        concurrency: int = 8,         # semaphore cap; 0 = unlimited
+    ) -> GraphResult
+
+@dataclass
+class GraphResult:
+    results: dict[str, RunResult]
+    findings: dict[str, list[Finding]] = field(default_factory=dict)
+
+    def __getitem__(self, name: str) -> RunResult
+    def __iter__(self) -> Iterator[str]           # iterates task names
+    def __len__(self) -> int
+
+    @property def ok(self) -> bool                # all tasks succeeded with no warnings
+    @property def text(self) -> dict[str, str]    # {task_name: result.text}
+    @property def all_findings(self) -> list[Finding]  # flat list across all tasks
 ```
 
 ---

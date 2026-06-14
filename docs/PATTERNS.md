@@ -863,72 +863,81 @@ with durable_session(agent, store, session_id="analysis-run-001") as session:
 
 ## 20. Full Production Stack
 
-Everything together: structured output, compaction, retry, tracing, SSE serving.
+Everything together: structured output, compaction, retry, tracing, governance, and SSE serving.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.compaction import CompactionPolicy
-from tvastar.tools import tool, ToolRetryPolicy
-from tvastar.tracer import Tracer, TraceEvent
-from tvastar.detection import Detector, DetectionResult
-from tvastar.serving.http import create_app
-from tvastar.model.anthropic import AnthropicModel
+import asyncio, logging, uvicorn
 from pydantic import BaseModel
-from typing import List
-import uvicorn, logging
+from tvastar import (
+    create_agent, Harness,
+    CompactionPolicy, GovernancePolicy,
+    ToolRetryPolicy, ModelRetryPolicy,
+    Tracer, ConsoleExporter, JSONLExporter,
+    default_detectors,
+    tool,
+)
+from tvastar.model.anthropic import AnthropicModel
+from tvastar.serving.http import create_app
 
 log = logging.getLogger(__name__)
 
-# --- Tracer ---
-class LogTracer(Tracer):
-    def on_event(self, event: TraceEvent):
-        log.info("agent_event type=%s", event.type)
-
-# --- Detector ---
-class EmptyResponseDetector(Detector):
-    def detect(self, result):
-        triggered = not result.text.strip()
-        return DetectionResult(triggered=triggered, label="empty_response")
-
-# --- Tools ---
-retry_policy = ToolRetryPolicy(max_attempts=3, backoff_base=1.0, jitter=True)
-
-@tool(retry=retry_policy)
+# --- Retry-capable tool ---
+@tool(retry=ToolRetryPolicy(max_attempts=3, backoff_base=1.0))
 def search_knowledge_base(query: str) -> str:
     """Search internal knowledge base."""
-    # ... real implementation
     return f"Results for: {query}"
 
-# --- Structured Output ---
+# --- Structured output schema ---
 class AnalysisResult(BaseModel):
     summary: str
-    key_points: List[str]
+    key_points: list[str]
     confidence: float
-    sources: List[str]
+    sources: list[str]
 
-# --- Agent ---
-agent = Agent(
-    spec=AgentSpec(
-        name="production_assistant",
-        instructions="You are a thorough research assistant.",
-        tools=[search_knowledge_base],
-        result_type=AnalysisResult,
-        compaction=CompactionPolicy(max_tokens=80_000, target_tokens=20_000),
-        tool_retry=ToolRetryPolicy(max_attempts=2),
-        thinking_level="medium",
-        tracer=LogTracer(),
-        detectors=[EmptyResponseDetector()],
-    ),
-    harness=Harness(workspace="/var/agent/workspace"),
-    model=AnthropicModel("claude-3-5-sonnet-20241022"),
+# --- Governance: only allow search tool during 'research' phase ---
+gov = GovernancePolicy(
+    phases={"research": ["search_knowledge_base"], "done": ["*"]},
+    current_phase="research",
 )
 
-# --- HTTP Server with SSE ---
-app = create_app(agent)
+# --- Agent ---
+agent = create_agent(
+    "production_assistant",
+    model=AnthropicModel(
+        "claude-sonnet-4-6",
+        retry=ModelRetryPolicy(max_attempts=4),
+    ),
+    instructions="You are a thorough research assistant.",
+    tools=[search_knowledge_base],
+    compaction=CompactionPolicy(max_messages=60, keep_last=10),
+    tool_retry=ToolRetryPolicy(max_attempts=2),
+    thinking_level="medium",
+    detect=default_detectors(),
+    governance=gov,
+)
+
+# --- Tracer ---
+tracer = Tracer([ConsoleExporter(), JSONLExporter("trace.jsonl")])
+
+# --- HTTP server with SSE ---
+harness = Harness(agent, tracer=tracer)
+app = create_app(harness)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    uvicorn.run(app, host="0.0.0.0", port=8000, workers=4)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# --- Or run one-shot from CLI ---
+async def main():
+    result = await harness.run(
+        "Analyse the latest trends in LLM tooling",
+        # result=AnalysisResult,   # uncomment for structured output
+    )
+    print(result.text)
+    for f in result.findings:
+        log.warning("finding: %s %s", f.severity, f.message)
+
+asyncio.run(main())
 ```
 
 ---
