@@ -60,7 +60,7 @@ class FileStore(Store):
         self._lock = threading.RLock()
 
     def _path(self, key: str) -> Path:
-        safe = key.replace("/", "__").replace("\\", "__")
+        safe = key.replace(":", "%3A").replace("/", "__").replace("\\", "__")
         return self.root / f"{safe}.json"
 
     def get(self, key: str) -> Optional[Any]:
@@ -87,7 +87,7 @@ class FileStore(Store):
     def keys(self, prefix: str = "") -> list[str]:
         out = []
         for p in self.root.glob("*.json"):
-            key = p.stem.replace("__", "/")
+            key = p.stem.replace("__", "/").replace("%3A", ":")
             if key.startswith(prefix):
                 out.append(key)
         return sorted(out)
