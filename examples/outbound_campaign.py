@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import argparse
-import sys
 
 
 # ── Sample leads (swap for parse_csv("leads.csv")) ────────────────────────

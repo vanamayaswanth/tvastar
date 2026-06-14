@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
-import sys
 import time
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -14,7 +10,6 @@ import tvastar
 from tvastar import AuditEntry, ResourcePolicy
 from tvastar.errors import SecurityViolation
 from tvastar.sandbox import LocalSandbox, SecurityPolicy
-from tvastar.sandbox.base import ExecResult
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +116,7 @@ async def test_output_truncated_by_resource_policy(tmp_path):
 async def test_cpu_timeout_via_resource_policy(tmp_path):
     rp = ResourcePolicy(max_cpu_seconds=0.1)
     sb = LocalSandbox(tmp_path, resources=rp)
-    result = await sb.exec("python -c \"import time; time.sleep(5)\"")
+    result = await sb.exec('python -c "import time; time.sleep(5)"')
     assert result.timed_out
     assert result.exit_code == 124
     # timeout is still audited
@@ -134,9 +129,7 @@ async def test_caller_timeout_wins_when_tighter(tmp_path):
     rp = ResourcePolicy(max_cpu_seconds=10.0)
     sb = LocalSandbox(tmp_path, resources=rp)
     # caller passes 0.05s, resource policy allows 10s — caller wins
-    result = await sb.exec(
-        "python -c \"import time; time.sleep(5)\"", timeout=0.05
-    )
+    result = await sb.exec('python -c "import time; time.sleep(5)"', timeout=0.05)
     assert result.timed_out
 
 
@@ -145,9 +138,7 @@ async def test_resource_policy_timeout_wins_when_tighter(tmp_path):
     rp = ResourcePolicy(max_cpu_seconds=0.1)
     sb = LocalSandbox(tmp_path, resources=rp)
     # caller passes 10s, resource policy allows 0.1s — resource wins
-    result = await sb.exec(
-        "python -c \"import time; time.sleep(5)\"", timeout=10.0
-    )
+    result = await sb.exec('python -c "import time; time.sleep(5)"', timeout=10.0)
     assert result.timed_out
 
 
