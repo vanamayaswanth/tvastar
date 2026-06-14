@@ -47,53 +47,54 @@ create_agent(...)
 ## Package layout
 
 ```
-tvastar/
-├── types.py          ← ALL core dataclasses live here (read this first)
-├── agent.py          ← AgentSpec dataclass + create_agent() factory
-├── harness.py        ← Harness class + HarnessFS
-├── session.py        ← Session + RunResult + the agent loop
-├── model/
-│   ├── base.py       ← Model ABC: generate(messages,...) → ModelResponse
-│   ├── anthropic.py  ← AnthropicModel — maps thinking_level → budget_tokens
-│   ├── openai.py     ← OpenAIModel — maps thinking_level → reasoning_effort
-│   └── mock.py       ← MockModel(script=[]) for tests
-├── tools/
-│   ├── base.py       ← Tool, ToolRegistry, ToolContext, ToolRetryPolicy, @tool
-│   ├── builtin.py    ← default_toolset() — bash, read/write/edit/grep/glob
-│   └── schema.py     ← Python signature → JSON schema auto-derivation
-├── skills/
-│   └── loader.py     ← Skill, SkillLibrary — Markdown file parser
-├── sandbox/
-│   ├── base.py       ← Sandbox ABC: start/stop/exec/fs
-│   ├── virtual.py    ← VirtualSandbox — in-memory, zero deps (default)
-│   └── local.py      ← LocalSandbox — real subprocess with SecurityPolicy
-├── memory/
-│   └── store.py      ← Store ABC, InMemoryStore, FileStore, Memory (scoped KV)
-├── profiles.py       ← AgentProfile, define_agent_profile(), MAX_TASK_DEPTH=4
-├── workflow.py       ← @workflow, Workflow, WorkflowContext, WorkflowHarness,
-│                       WorkflowRun, RunRegistry, RunEvent, RunStatus
-├── dispatch.py       ← dispatch(), dispatch_and_wait(), DispatchInput,
-│                       DispatchEvent, observe_dispatch(), cancel_dispatch()
-├── compaction.py     ← CompactionPolicy, should_compact(), compact_messages(),
-│                       compact_session()
-├── durable.py        ← Checkpointer — save/load session checkpoints
-├── observability.py  ← Tracer, Span, ConsoleExporter, JSONLExporter, OTelExporter
-├── detect/           ← Silent-failure detectors (Finding, Severity, RunContext)
-├── mcp/              ← MCPClient, connect_mcp_server() — MCP protocol client
-├── serving/
-│   ├── http.py       ← FastAPI app: POST /prompt, WS /stream, GET /stream (SSE)
-│   └── cli.py        ← tvastar chat|serve|run|info|logs
-├── deploy/           ← ASGI / Lambda / serverless / GitHub Action adapters
-├── fix/              ← tvastar-fix: auto-repair failing test suites
-├── outbound/         ← tvastar-outbound: AI outbound email campaign agent
-│   ├── leads.py      ← Lead dataclass, parse_csv(), parse_leads()
-│   ├── research.py   ← research_lead() — parallel TaskGraph per lead
-│   ├── score.py      ← score_lead() — ICP fit scoring (0.0–1.0)
-│   ├── email.py      ← write_draft() — personalised cold email generation
-│   ├── send.py       ← StdoutSender + EmailSender base class
-│   ├── campaign.py   ← run_campaign() — full pipeline orchestrator
-│   └── cli.py        ← tvastar-outbound CLI entry point
-└── __init__.py       ← re-exports everything public (see __all__)
+src/
+└── tvastar/
+    ├── types.py          ← ALL core dataclasses live here (read this first)
+    ├── agent.py          ← AgentSpec dataclass + create_agent() factory
+    ├── harness.py        ← Harness class + HarnessFS
+    ├── session.py        ← Session + RunResult + the agent loop
+    ├── model/
+    │   ├── base.py       ← Model ABC: generate(messages,...) → ModelResponse
+    │   ├── anthropic.py  ← AnthropicModel — maps thinking_level → budget_tokens
+    │   ├── openai.py     ← OpenAIModel — maps thinking_level → reasoning_effort
+    │   └── mock.py       ← MockModel(script=[]) for tests
+    ├── tools/
+    │   ├── base.py       ← Tool, ToolRegistry, ToolContext, ToolRetryPolicy, @tool
+    │   ├── builtin.py    ← default_toolset() — bash, read/write/edit/grep/glob
+    │   └── schema.py     ← Python signature → JSON schema auto-derivation
+    ├── skills/
+    │   └── loader.py     ← Skill, SkillLibrary — Markdown file parser
+    ├── sandbox/
+    │   ├── base.py       ← Sandbox ABC: start/stop/exec/fs
+    │   ├── virtual.py    ← VirtualSandbox — in-memory, zero deps (default)
+    │   └── local.py      ← LocalSandbox — real subprocess with SecurityPolicy
+    ├── memory/
+    │   └── store.py      ← Store ABC, InMemoryStore, FileStore, Memory (scoped KV)
+    ├── profiles.py       ← AgentProfile, define_agent_profile(), MAX_TASK_DEPTH=4
+    ├── workflow.py       ← @workflow, Workflow, WorkflowContext, WorkflowHarness,
+    │                       WorkflowRun, RunRegistry, RunEvent, RunStatus
+    ├── dispatch.py       ← dispatch(), dispatch_and_wait(), DispatchInput,
+    │                       DispatchEvent, observe_dispatch(), cancel_dispatch()
+    ├── compaction.py     ← CompactionPolicy, should_compact(), compact_messages(),
+    │                       compact_session()
+    ├── durable.py        ← Checkpointer — save/load session checkpoints
+    ├── observability.py  ← Tracer, Span, ConsoleExporter, JSONLExporter, OTelExporter
+    ├── detect/           ← Silent-failure detectors (Finding, Severity, RunContext)
+    ├── mcp/              ← MCPClient, connect_mcp_server() — MCP protocol client
+    ├── serving/
+    │   ├── http.py       ← FastAPI app: POST /prompt, WS /stream, GET /stream (SSE)
+    │   └── cli.py        ← tvastar chat|serve|run|info|logs
+    ├── deploy/           ← ASGI / Lambda / serverless / GitHub Action adapters
+    ├── fix/              ← tvastar-fix: auto-repair failing test suites
+    ├── outbound/         ← tvastar-outbound: AI outbound email campaign agent
+    │   ├── leads.py      ← Lead dataclass, parse_csv(), parse_leads()
+    │   ├── research.py   ← research_lead() — parallel TaskGraph per lead
+    │   ├── score.py      ← score_lead() — ICP fit scoring (0.0–1.0)
+    │   ├── email.py      ← write_draft() — personalised cold email generation
+    │   ├── send.py       ← StdoutSender + EmailSender base class
+    │   ├── campaign.py   ← run_campaign() — full pipeline orchestrator
+    │   └── cli.py        ← tvastar-outbound CLI entry point
+    └── __init__.py       ← re-exports everything public (see __all__)
 ```
 
 ---

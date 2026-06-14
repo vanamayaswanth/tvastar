@@ -29,10 +29,10 @@ jobs:
         run: uv pip install --system -e ".[all,dev]"
 
       - name: Lint
-        run: ruff check tvastar/ examples/ tests/
+        run: ruff check src/tvastar/ examples/ tests/
 
       - name: Format check
-        run: ruff format --check tvastar/ examples/ tests/
+        run: ruff format --check src/tvastar/ examples/ tests/
 
       - name: Tests
         run: pytest -q

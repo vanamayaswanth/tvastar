@@ -38,7 +38,7 @@ CI runs lint + format + tests on Python 3.10–3.13. Match it before you push.
 - **Tracing/masking/compaction must never break a run.** These wrap user code;
   if they raise, swallow it and continue (see the `try/except` + fallback in
   `observability.py`, `masking.py`, `session._maybe_compact`).
-- **Public API is `tvastar/__init__.py`.** New public symbols go in both the
+- **Public API is `src/tvastar/__init__.py`.** New public symbols go in both the
   imports and `__all__`. Add a test and a CHANGELOG entry.
 - **Tests are async-mode pytest** (`asyncio_mode = "auto"`). Use `MockModel` so
   the suite runs with no API keys. Set `model.name`/`model.system` on a mock when
@@ -50,17 +50,17 @@ See `CLAUDE.md` for the full map. Quick pointers:
 
 | Area | File |
 | --- | --- |
-| Core types | `tvastar/types.py` |
-| Agent spec + factory | `tvastar/agent.py` |
-| Agent loop | `tvastar/session.py` |
-| Tool masking | `tvastar/masking.py` |
-| Injection scan / content boundary | `tvastar/boundary.py` |
-| Failure detectors | `tvastar/detect/` |
-| Observability (OTel GenAI) | `tvastar/observability.py`, `session._genai_*` |
-| Trace viewer UI | `tvastar/ui/server.py`, `tvastar/ui/index.html` |
-| Benchmark runner | `tvastar/bench/core.py`, `tvastar/bench/swebench.py` |
-| DAG task execution | `tvastar/graph.py` |
-| Outbound email agent | `tvastar/outbound/` — `run_campaign()`, `Lead`, `research_lead()`, `score_lead()`, `write_draft()` |
+| Core types | `src/tvastar/types.py` |
+| Agent spec + factory | `src/tvastar/agent.py` |
+| Agent loop | `src/tvastar/session.py` |
+| Tool masking | `src/tvastar/masking.py` |
+| Injection scan / content boundary | `src/tvastar/boundary.py` |
+| Failure detectors | `src/tvastar/detect/` |
+| Observability (OTel GenAI) | `src/tvastar/observability.py`, `session._genai_*` |
+| Trace viewer UI | `src/tvastar/ui/server.py`, `src/tvastar/ui/index.html` |
+| Benchmark runner | `src/tvastar/bench/core.py`, `src/tvastar/bench/swebench.py` |
+| DAG task execution | `src/tvastar/graph.py` |
+| Outbound email agent | `src/tvastar/outbound/` — `run_campaign()`, `Lead`, `research_lead()`, `score_lead()`, `write_draft()` |
 
 ## Release flow
 
