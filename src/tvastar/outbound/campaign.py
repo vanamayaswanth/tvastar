@@ -126,6 +126,27 @@ async def run_campaign(
             errors.append(f"Research failed for {r.lead.display()}: {r.summary}")
     good_research = [r for r in research_results if r.ok]
 
+    # ── Injection guard: research data is untrusted (scraped from the web) ──
+    # Quarantine any lead whose research summary contains prompt-injection patterns.
+    # Wrap clean summaries with wrap_untrusted() so the scorer/writer treats them
+    # as opaque data, not instructions.
+    from ..boundary import scan_for_injection, wrap_untrusted
+
+    safe_research: list[ResearchResult] = []
+    for r in good_research:
+        hits = scan_for_injection(r.summary)
+        if hits:
+            errors.append(
+                f"[QUARANTINED] {r.lead.display()}: prompt-injection pattern "
+                f"detected in research data ({', '.join(hits)}). Lead skipped."
+            )
+            print(f"[outbound] WARNING: quarantined {r.lead.display()} (injection detected)")
+        else:
+            safe_research.append(
+                ResearchResult(lead=r.lead, summary=wrap_untrusted(r.summary), ok=True)
+            )
+    good_research = safe_research
+
     # ── 4. Score all researched leads ─────────────────────────────────────
     score_agent = create_agent(
         "outbound-scorer",

@@ -623,13 +623,22 @@ class Loop:
                 + "\n\nRewrite the instructions to prevent these failures. "
                 "Return ONLY the improved instructions."
             )
-            result = await Harness(meta_spec).run(prompt)
+            # Hard timeout: use loop's cancel_after budget if set, otherwise 120s.
+            # A hanging meta-agent must never block future loop iterations.
+            meta_timeout = min(self._config.cancel_after or 120.0, 120.0)
+            result = await asyncio.wait_for(
+                Harness(meta_spec).run(prompt),
+                timeout=meta_timeout,
+            )
 
             if result.ok and result.text.strip():
                 new_instructions = result.text.strip()
                 new_spec = dataclasses.replace(self._base_spec, instructions=new_instructions)
-                self._harness = Harness(new_spec, store=self._store, tracer=self._tracer)
-                self._current_instructions = new_instructions
+                new_harness = Harness(new_spec, store=self._store, tracer=self._tracer)
+                # Lock required: concurrent trigger() calls read self._harness
+                async with self._lock:
+                    self._harness = new_harness
+                    self._current_instructions = new_instructions
                 self._store.set(f"loop:{self.name}:meta_instructions", new_instructions)
                 self._emit(run, run.state, {"meta_improved": True, "gen": self._gen_counter})
         except Exception:

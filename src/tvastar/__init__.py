@@ -168,7 +168,7 @@ from .workflow import (
     cli_logs as workflow_logs,
 )
 
-__version__ = "0.12.0"
+__version__ = "0.12.1"
 
 __all__ = [
     "create_agent",

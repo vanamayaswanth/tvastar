@@ -102,6 +102,7 @@ class CISweeper(Loop):
 
     Default schedule: every 15 minutes.
     Default retries: 3 attempts with exponential backoff (30s → 60s → 120s).
+    Default cancel_after: 300s — enough for a full test run + fix cycle.
     """
 
     def __init__(
@@ -110,6 +111,7 @@ class CISweeper(Loop):
         *,
         schedule: str = "*/15 * * * *",
         max_iterations: int = 3,
+        cancel_after: float | None = 300.0,
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
@@ -126,6 +128,7 @@ class CISweeper(Loop):
             goal=_CI_GOAL,
             schedule=schedule,
             max_iterations=max_iterations,
+            cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
         super().__init__(spec, config)
@@ -161,6 +164,7 @@ class PRBabysitter(Loop):
     """Watches open PRs, resolves trivial conflicts, flags stale reviews.
 
     Default schedule: every 30 minutes.
+    Default cancel_after: 120s — PR review should be fast; escalate if stuck.
     """
 
     def __init__(
@@ -169,6 +173,7 @@ class PRBabysitter(Loop):
         *,
         schedule: str = "*/30 * * * *",
         max_iterations: int = 2,
+        cancel_after: float | None = 120.0,
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
@@ -185,6 +190,7 @@ class PRBabysitter(Loop):
             goal=_PR_GOAL,
             schedule=schedule,
             max_iterations=max_iterations,
+            cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
         super().__init__(spec, config)
@@ -220,6 +226,7 @@ class DailyTriage(Loop):
     """Categorises and prioritises new issues every morning at 9am UTC.
 
     Default schedule: 9am UTC daily.
+    Default cancel_after: 180s — reading and classifying a day's issues.
     """
 
     def __init__(
@@ -228,6 +235,7 @@ class DailyTriage(Loop):
         *,
         schedule: str = "0 9 * * *",
         max_iterations: int = 2,
+        cancel_after: float | None = 180.0,
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
@@ -244,6 +252,7 @@ class DailyTriage(Loop):
             goal=_TRIAGE_GOAL,
             schedule=schedule,
             max_iterations=max_iterations,
+            cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
         super().__init__(spec, config)
@@ -280,6 +289,7 @@ class DependencySweeper(Loop):
     """Keeps patch dependencies current; runs tests before committing.
 
     Default schedule: 3am UTC daily.
+    Default cancel_after: 600s — updating deps + running a full test suite.
     """
 
     def __init__(
@@ -288,6 +298,7 @@ class DependencySweeper(Loop):
         *,
         schedule: str = "0 3 * * *",
         max_iterations: int = 2,
+        cancel_after: float | None = 600.0,
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
@@ -304,6 +315,7 @@ class DependencySweeper(Loop):
             goal=_DEP_GOAL,
             schedule=schedule,
             max_iterations=max_iterations,
+            cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
         super().__init__(spec, config)
@@ -340,6 +352,7 @@ class PostMergeCleanup(Loop):
     """Reports cleanup opportunities after merges land on main.
 
     Default schedule: every 30 minutes.
+    Default cancel_after: 120s — reporting only, no heavy work.
     """
 
     def __init__(
@@ -348,6 +361,7 @@ class PostMergeCleanup(Loop):
         *,
         schedule: str = "*/30 * * * *",
         max_iterations: int = 2,
+        cancel_after: float | None = 120.0,
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
@@ -364,6 +378,7 @@ class PostMergeCleanup(Loop):
             goal=_CLEANUP_GOAL,
             schedule=schedule,
             max_iterations=max_iterations,
+            cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
         super().__init__(spec, config)
@@ -401,6 +416,7 @@ class ChangelogDrafter(Loop):
     """Drafts CHANGELOG entries from commit history every Monday at 9am UTC.
 
     Default schedule: Monday 9am UTC.
+    Default cancel_after: 180s — reading git history and writing a summary.
     """
 
     def __init__(
@@ -409,6 +425,7 @@ class ChangelogDrafter(Loop):
         *,
         schedule: str = "0 9 * * 1",
         max_iterations: int = 2,
+        cancel_after: float | None = 180.0,
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
@@ -425,6 +442,7 @@ class ChangelogDrafter(Loop):
             goal=_CHANGELOG_GOAL,
             schedule=schedule,
             max_iterations=max_iterations,
+            cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
         super().__init__(spec, config)

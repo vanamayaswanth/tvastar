@@ -6,6 +6,32 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.12.1] — 2026-06-16
+
+### Fixed
+
+- **Race condition in `_improve_instructions`** — the meta-agent harness replacement now
+  acquires `self._lock` before writing to `self._harness` and `self._current_instructions`,
+  preventing concurrent `trigger()` calls from reading a partially-replaced harness.
+
+- **Meta-agent timeout** — `_improve_instructions` now wraps the `Harness.run()` call with
+  `asyncio.wait_for(timeout=min(cancel_after or 120.0, 120.0))`. A hanging meta-agent can
+  no longer block future loop iterations indefinitely.
+
+- **`cancel_after` missing from all 6 loop patterns** — `CISweeper`, `PRBabysitter`,
+  `DailyTriage`, `DependencySweeper`, `PostMergeCleanup`, and `ChangelogDrafter` all
+  previously left `cancel_after=None` in their `LoopConfig`, meaning production loops
+  could hang forever. All six now expose `cancel_after=` as a constructor parameter with
+  sensible defaults (120s–600s depending on task complexity). Pass `cancel_after=None`
+  explicitly to disable.
+
+- **Prompt-injection in outbound research data** — `run_campaign()` now scans each
+  research summary with `scan_for_injection()` before it reaches the scorer or email
+  writer. Leads with detected injection patterns are quarantined (skipped + logged) rather
+  than passed to the LLM. Clean summaries are wrapped with `wrap_untrusted()` so the model
+  treats them as opaque data, not instructions. Closes the "Case A: Outbound Email
+  Lollapalooza" failure mode described in `munger_standards.md`.
+
 ## [0.12.0] — 2026-06-16
 
 ### Added
