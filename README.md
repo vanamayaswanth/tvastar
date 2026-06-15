@@ -227,6 +227,42 @@ pip install "tvastar[all]"              # everything
 
 ---
 
+## Environment variables
+
+Tvastar reads these from the environment — never pass credentials in code:
+
+| Variable | Used by | Example |
+|----------|---------|---------|
+| `ANTHROPIC_API_KEY` | `AnthropicModel` | `sk-ant-...` |
+| `OPENAI_API_KEY` | `OpenAIModel` | `sk-...` |
+| `ANTHROPIC_BASE_URL` | `AnthropicModel` — custom endpoint | `https://my-proxy.example.com` |
+| `OPENAI_BASE_URL` | `OpenAIModel` — custom endpoint / Groq / Ollama | `https://api.groq.com/openai/v1` |
+
+```bash
+# Claude
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# OpenAI
+export OPENAI_API_KEY="sk-..."
+
+# Ollama (local, no key needed)
+export OPENAI_BASE_URL="http://localhost:11434/v1"
+export OPENAI_API_KEY="ollama"
+```
+
+You can also pass `api_key` and `base_url` directly to the model constructor — useful when you need multiple providers in one process:
+
+```python
+from tvastar.model.anthropic import AnthropicModel
+from tvastar.model.openai import OpenAIModel
+
+claude = AnthropicModel("claude-sonnet-4-6", api_key="sk-ant-...")
+gpt4   = OpenAIModel("gpt-4o", api_key="sk-...", base_url="https://api.openai.com/v1")
+llama  = OpenAIModel("llama3.2", base_url="http://localhost:11434/v1", api_key="ollama")
+```
+
+---
+
 ## Core concepts
 
 **Agent layer:**
@@ -1365,10 +1401,144 @@ Products ship first. Framework features get added only when a product needs them
 
 ---
 
+## Testing
+
+`MockModel` makes agents fully testable without API calls. Pass a `script` list — one string per model turn:
+
+```python
+import asyncio
+import pytest
+from tvastar import create_agent, Harness
+from tvastar.tools.base import tool
+from tvastar.model.mock import MockModel
+
+# Tools under test
+@tool
+def add(a: int, b: int) -> int:
+    "Add two integers."
+    return a + b
+
+def test_agent_uses_tool():
+    # Script: first response requests the tool, second uses its result
+    spec = create_agent(
+        "calc",
+        model=MockModel(script=[
+            '{"type":"tool_use","name":"add","input":{"a":2,"b":3}}',
+            "The answer is 5.",
+        ]),
+        instructions="Use the add tool.",
+        tools=[add],
+    )
+    result = asyncio.run(Harness(spec).run("What is 2 + 3?"))
+    assert "5" in result.text
+    assert result.ok
+
+def test_structured_output():
+    from pydantic import BaseModel
+
+    class Answer(BaseModel):
+        value: int
+
+    spec = create_agent(
+        "q",
+        model=MockModel(script=['{"value": 42}']),
+        instructions="Return structured answers.",
+    )
+
+    async def run():
+        sess = Harness(spec).session()
+        result = await sess.prompt("What is the answer?", result=Answer)
+        assert result.data.value == 42
+
+    asyncio.run(run())
+```
+
+`MockModel` also works for loop tests:
+
+```python
+from tvastar.loop.patterns import CISweeper
+
+def test_loop_pass():
+    loop = CISweeper(
+        model=MockModel(script=["All CI checks passed."]),
+        schedule="@manual",
+    )
+    run = asyncio.run(loop.trigger())
+    assert run.state.value == "pass"
+```
+
+---
+
+## Troubleshooting
+
+**`ImportError: No module named 'anthropic'`**
+Install the extras:
+```bash
+pip install "tvastar[anthropic]"   # for Claude
+pip install "tvastar[openai]"      # for OpenAI / Groq / Ollama
+```
+
+**`AuthenticationError` / `401 Unauthorized`**
+Your API key is missing or wrong:
+```bash
+echo $ANTHROPIC_API_KEY   # should print your key (not empty)
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+**`result.ok` is `False`**
+Check what stopped the run and what detectors fired:
+```python
+print(result.stopped)   # "end_turn" | "max_steps" | "error"
+for f in result.findings:
+    print(f.severity.value, f.detector, f.message)
+```
+
+**Agent hits `max_steps` before finishing**
+Either increase the limit or split into two smaller tasks:
+```python
+spec = create_agent(..., max_steps=40)
+```
+
+**`thrash_loop` finding — agent calls the same tool repeatedly**
+The agent is stuck in a loop. Check the tool's return value — it may be returning an error the agent cannot make progress on. Also try:
+```python
+spec = create_agent(..., max_steps=15)  # lower ceiling forces earlier escalation
+```
+
+**Compaction fires too aggressively / not enough**
+Tune the policy:
+```python
+CompactionPolicy(
+    max_messages=60,   # compact only when > 60 messages
+    keep_last=10,      # always keep last 10
+    min_messages=20,   # never compact below 20 total
+)
+```
+
+**Loop stays `SUSPENDED` after fixing the root cause**
+The circuit breaker tripped after too many consecutive failures. Reset it:
+```python
+loop.reset()
+```
+
+**`LoopState.HANDOFF_FAILED` — handoff itself threw**
+The handoff handler (Slack, webhook, etc.) failed 3× with backoff. Check connectivity and credentials for your `HandoffPolicy` implementation. The run is still recorded — you won't lose data.
+
+**`TvastarError: Loop file not found`**
+The path you passed to `tvastar loop run` does not exist:
+```bash
+tvastar loop init CISweeper                    # creates the file
+tvastar loop run .tvastar/loops/ci_sweeper.py:loop
+```
+
+---
+
 ## Further reading
 
+- [Getting Started](docs/GETTING_STARTED.md) — install → first agent → first loop in 5 minutes
+- [Usage Guide](docs/USAGE.md) — decision trees for every API choice
 - [API Reference](docs/API.md) — every public symbol, fully typed
-- [Patterns Cookbook](docs/PATTERNS.md) — 20 copy-paste recipes
+- [Patterns Cookbook](docs/PATTERNS.md) — 25 copy-paste recipes
 - [12-Factor Agents map](docs/twelve-factor-agents.md) — how Tvastar maps to the production checklist (honest verdicts)
 - [AGENTS.md](AGENTS.md) — contributor guide for working in this repo
 - [CLAUDE.md](CLAUDE.md) — codebase map for AI assistants

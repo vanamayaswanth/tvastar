@@ -9,18 +9,20 @@ Copy-paste recipes for every major Tvastar feature. Each pattern is self-contain
 The simplest possible use: ask a question, get an answer.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
+import asyncio
+from tvastar import create_agent, Harness
 from tvastar.model.anthropic import AnthropicModel
 
-agent = Agent(
-    spec=AgentSpec(name="assistant", instructions="You are helpful."),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-haiku-20241022"),
+spec = create_agent(
+    "assistant",
+    model=AnthropicModel("claude-haiku-4-5-20251001"),
+    instructions="You are helpful.",
 )
 
-result = agent.run("What is the capital of France?")
-print(result.text)         # "Paris"
-print(result.stop_reason)  # "end_turn"
+result = asyncio.run(Harness(spec).run("What is the capital of France?"))
+print(result.text)     # "Paris"
+print(result.stopped)  # "end_turn"
+print(result.ok)       # True
 ```
 
 ---
@@ -30,25 +32,38 @@ print(result.stop_reason)  # "end_turn"
 Keep a session alive to maintain conversation history.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness, Session
+import asyncio
+from tvastar import create_agent, Harness
 from tvastar.model.anthropic import AnthropicModel
 
-agent = Agent(
-    spec=AgentSpec(name="tutor", instructions="You are a math tutor."),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-sonnet-20241022"),
+spec = create_agent(
+    "tutor",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    instructions="You are a math tutor.",
 )
 
-session = agent.session()
+async def main():
+    sess = Harness(spec).session()
 
-r1 = session.run("What is 12 × 12?")
-print(r1.text)  # "144"
+    r1 = await sess.prompt("What is 12 × 12?")
+    print(r1.text)  # "144"
 
-r2 = session.run("What about 13 × 13?")
-print(r2.text)  # "169" — model remembers context
+    r2 = await sess.prompt("What about 13 × 13?")
+    print(r2.text)  # "169" — model remembers context
 
-r3 = session.run("Explain why the pattern works.")
-print(r3.text)  # Explanation referencing both previous answers
+    r3 = await sess.prompt("Explain why the pattern works.")
+    print(r3.text)
+
+asyncio.run(main())
+```
+
+Use `async with sess:` to automatically close the session on exit:
+
+```python
+async def main():
+    async with Harness(spec).session() as sess:
+        r1 = await sess.prompt("step 1")
+        r2 = await sess.prompt("step 2")
 ```
 
 ---
@@ -58,37 +73,33 @@ print(r3.text)  # Explanation referencing both previous answers
 Register functions the agent can call during its loop.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.tools import tool
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.tools.base import tool
 from tvastar.model.anthropic import AnthropicModel
-import httpx
 
 @tool
 def get_weather(city: str) -> str:
     """Return current weather for a city."""
-    # In production, call a real weather API
     return f"Sunny, 22°C in {city}"
 
 @tool
 def convert_units(value: float, from_unit: str, to_unit: str) -> float:
-    """Convert between temperature units."""
+    """Convert between temperature units (celsius/fahrenheit)."""
     if from_unit == "celsius" and to_unit == "fahrenheit":
-        return value * 9/5 + 32
+        return value * 9 / 5 + 32
     if from_unit == "fahrenheit" and to_unit == "celsius":
-        return (value - 32) * 5/9
-    raise ValueError(f"Unsupported conversion: {from_unit} → {to_unit}")
+        return (value - 32) * 5 / 9
+    raise ValueError(f"Unsupported: {from_unit} → {to_unit}")
 
-agent = Agent(
-    spec=AgentSpec(
-        name="weather",
-        instructions="Help users with weather questions.",
-        tools=[get_weather, convert_units],
-    ),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-haiku-20241022"),
+spec = create_agent(
+    "weather",
+    model=AnthropicModel("claude-haiku-4-5-20251001"),
+    instructions="Help users with weather questions.",
+    tools=[get_weather, convert_units],
 )
 
-result = agent.run("What's the weather in Tokyo in Fahrenheit?")
+result = asyncio.run(Harness(spec).run("What's the weather in Tokyo in Fahrenheit?"))
 print(result.text)
 # Model calls get_weather("Tokyo"), then convert_units(22, "celsius", "fahrenheit")
 # → "It's 71.6°F and sunny in Tokyo."
@@ -101,10 +112,10 @@ print(result.text)
 Get typed results back instead of raw text.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
+import asyncio
+from tvastar import create_agent, Harness
 from tvastar.model.anthropic import AnthropicModel
 from pydantic import BaseModel
-from typing import List
 
 class Ingredient(BaseModel):
     name: str
@@ -116,27 +127,36 @@ class Recipe(BaseModel):
     servings: int
     prep_minutes: int
     cook_minutes: int
-    ingredients: List[Ingredient]
-    steps: List[str]
+    ingredients: list[Ingredient]
+    steps: list[str]
 
-agent = Agent(
-    spec=AgentSpec(
-        name="chef",
-        instructions="You are a professional chef. Return structured recipes.",
-        result_type=Recipe,
-    ),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-sonnet-20241022"),
+spec = create_agent(
+    "chef",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    instructions="You are a professional chef. Return structured recipes.",
 )
 
-result = agent.run("Give me a simple pasta carbonara recipe for 2 people.")
-recipe: Recipe = result.value
+async def main():
+    sess = Harness(spec).session()
+    result = await sess.prompt(
+        "Give me a simple pasta carbonara recipe for 2 people.",
+        result=Recipe,
+    )
+    recipe: Recipe = result.data
 
-print(recipe.title)           # "Pasta Carbonara"
-print(recipe.servings)        # 2
-print(recipe.prep_minutes)    # 10
-for ing in recipe.ingredients:
-    print(f"  {ing.amount} {ing.unit} {ing.name}")
+    print(recipe.title)    # "Pasta Carbonara"
+    print(recipe.servings) # 2
+    for ing in recipe.ingredients:
+        print(f"  {ing.amount} {ing.unit} {ing.name}")
+
+asyncio.run(main())
+```
+
+Plain dicts work too:
+
+```python
+result = await sess.prompt("Return the capital of France as JSON", result=dict)
+print(result.data)  # {"capital": "Paris"}
 ```
 
 ---
@@ -147,24 +167,22 @@ Run many prompts concurrently. Useful for batch processing, research, or multi-p
 
 ```python
 import asyncio
-from tvastar import Agent, AgentSpec, Harness
+from tvastar import create_agent, Harness
 from tvastar.model.anthropic import AnthropicModel
 
-agent = Agent(
-    spec=AgentSpec(name="analyst", instructions="Be concise."),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-haiku-20241022"),
+spec = create_agent(
+    "analyst",
+    model=AnthropicModel("claude-haiku-4-5-20251001"),
+    instructions="Be concise.",
 )
 
 companies = ["Apple", "Google", "Microsoft", "Amazon", "Meta"]
 
 async def main():
-    results = await agent.harness.fan_out(
-        prompts=[
-            f"In one sentence, what does {co} do?"
-            for co in companies
-        ],
-        concurrency=3,   # max 3 in-flight at once
+    harness = Harness(spec)
+    results = await harness.fan_out(
+        [f"In one sentence, what does {co} do?" for co in companies],
+        concurrency=3,  # max 3 in-flight at once
     )
     for company, result in zip(companies, results):
         print(f"{company}: {result.text}")
@@ -175,130 +193,110 @@ asyncio.run(main())
 Fan-out also accepts per-prompt overrides:
 
 ```python
-async def main():
-    results = await agent.harness.fan_out([
-        {"prompt": "Write a haiku about rain.", "thinking_level": "low"},
-        {"prompt": "Analyze quantum entanglement.", "thinking_level": "high", "max_steps": 10},
-        {"prompt": "What is 2+2?", "cancel_after": 5.0},  # timeout in seconds
-    ])
+results = await harness.fan_out([
+    {"prompt": "Write a haiku about rain.", "thinking_level": "low"},
+    {"prompt": "Analyze quantum entanglement.", "thinking_level": "high", "max_steps": 10},
+    {"prompt": "What is 2+2?", "cancel_after": 5.0},
+])
 ```
 
 ---
 
 ## 6. Agent Profiles and Sub-Tasks
 
-Define reusable agent profiles, then spin up child agents from within a session.
+Define reusable agent profiles, then delegate to specialist child agents from within a session.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.profiles import AgentProfile, define_agent_profile
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.profiles import AgentProfile
+from tvastar.tools.base import tool
 from tvastar.model.anthropic import AnthropicModel
-from tvastar.tools import tool
-
-# Define reusable profiles
-define_agent_profile(AgentProfile(
-    name="researcher",
-    instructions="You search and summarize information accurately.",
-    max_steps=5,
-))
-
-define_agent_profile(AgentProfile(
-    name="writer",
-    instructions="You write clear, engaging prose from bullet points.",
-    max_steps=3,
-))
 
 @tool
 def web_search(query: str) -> str:
     """Search the web."""
     return f"[Search results for: {query}]"  # replace with real search
 
-orchestrator = Agent(
-    spec=AgentSpec(
-        name="orchestrator",
-        instructions="""
-        To write a blog post:
-        1. Use the 'researcher' profile to gather facts
-        2. Use the 'writer' profile to turn facts into prose
-        """,
-        tools=[web_search],
-    ),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-sonnet-20241022"),
+spec = create_agent(
+    "orchestrator",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    instructions="Coordinate research and writing tasks.",
+    tools=[web_search],
+    subagents={
+        "researcher": AgentProfile(
+            name="researcher",
+            instructions="Search and summarise information accurately.",
+            max_steps=5,
+        ),
+        "writer": AgentProfile(
+            name="writer",
+            instructions="Write clear, engaging prose from bullet points.",
+            max_steps=3,
+        ),
+    },
 )
 
-session = orchestrator.session()
+async def main():
+    sess = Harness(spec).session()
 
-# session.task() spawns a child agent with the named profile
-research = session.task(
-    prompt="Research recent advances in fusion energy",
-    agent="researcher",
-)
-print(research.text)
+    # session.task() spawns a child agent with the named profile
+    research = await sess.task(
+        "Research recent advances in fusion energy",
+        agent="researcher",
+    )
+    print(research.text)
 
-article = session.task(
-    prompt=f"Write a 500-word blog post from these facts:\n{research.text}",
-    agent="writer",
-)
-print(article.text)
+    article = await sess.task(
+        f"Write a 500-word blog post from these facts:\n{research.text}",
+        agent="writer",
+    )
+    print(article.text)
+
+asyncio.run(main())
 ```
 
 ---
 
 ## 7. Workflow — Persistent Multi-Step Pipelines
 
-Workflows survive process restarts and record every step's output.
+Workflows record each step's output and can survive process restarts.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
+import asyncio
+from tvastar import create_agent, Harness
 from tvastar.workflow import workflow, WorkflowContext
 from tvastar.model.anthropic import AnthropicModel
 
-model = AnthropicModel("claude-3-5-haiku-20241022")
+model = AnthropicModel("claude-haiku-4-5-20251001")
+
+researcher_spec = create_agent("researcher", model=model, instructions="Research concisely.")
+writer_spec     = create_agent("writer",     model=model, instructions="Write engaging prose.")
+editor_spec     = create_agent("editor",     model=model, instructions="Improve clarity and flow.")
 
 @workflow
-async def content_pipeline(ctx: WorkflowContext, topic: str) -> str:
-    harness = Harness()
+async def content_pipeline(ctx: WorkflowContext) -> str:
+    topic = ctx.payload.get("topic", "AI")
 
-    # Step 1: Research
-    researcher = Agent(
-        spec=AgentSpec(name="researcher", instructions="Research concisely."),
-        harness=harness,
-        model=model,
-    )
-    facts = await ctx.step("research", researcher.arun, f"Key facts about {topic}")
+    researcher = await ctx.init(researcher_spec)
+    facts = await (await researcher.session()).prompt(f"Key facts about {topic}")
 
-    # Step 2: Draft
-    writer = Agent(
-        spec=AgentSpec(name="writer", instructions="Write engaging prose."),
-        harness=harness,
-        model=model,
-    )
-    draft = await ctx.step("draft", writer.arun, f"Write 200 words from: {facts.text}")
+    writer = await ctx.init(writer_spec)
+    draft = await (await writer.session()).prompt(f"Write 200 words from: {facts.text}")
 
-    # Step 3: Edit
-    editor = Agent(
-        spec=AgentSpec(name="editor", instructions="Improve clarity and flow."),
-        harness=harness,
-        model=model,
-    )
-    final = await ctx.step("edit", editor.arun, f"Edit this draft: {draft.text}")
+    editor = await ctx.init(editor_spec)
+    final = await (await editor.session()).prompt(f"Edit this draft: {draft.text}")
 
     return final.text
 
-import asyncio
-
 async def main():
-    run = await content_pipeline.start(topic="quantum computing")
-    print(f"Run ID: {run.id}")
+    run = await content_pipeline.run(payload={"topic": "quantum computing"})
+    print(f"Run ID: {run.run_id}")
+    print(f"Status: {run.status}")
+    print(f"Output: {run.output}")
 
-    result = await run.wait()
-    print(result)
-
-    # Retrieve history later
-    history = content_pipeline.history()
-    for past_run in history:
-        print(f"  {past_run.id}: {past_run.status}")
+    for past_run in content_pipeline.list_runs():
+        print(f"  {past_run.run_id}: {past_run.status}")
 
 asyncio.run(main())
 ```
@@ -307,45 +305,40 @@ asyncio.run(main())
 
 ## 8. Dispatch — Webhook and Chatbot Patterns
 
-`dispatch()` sends a prompt to an agent without blocking. Use for webhooks, chat UIs, async APIs.
+`dispatch()` sends a prompt to an agent without blocking. Use for webhooks, chat UIs, and async APIs.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.dispatch import dispatch, observe
+import asyncio
+from tvastar import create_agent
+from tvastar.dispatch import dispatch, dispatch_and_wait, observe_dispatch
 from tvastar.model.anthropic import AnthropicModel
 
-agent = Agent(
-    spec=AgentSpec(name="bot", instructions="Answer helpfully."),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-haiku-20241022"),
+spec = create_agent(
+    "bot",
+    model=AnthropicModel("claude-haiku-4-5-20251001"),
+    instructions="Answer helpfully.",
 )
 
-# Fire and forget
-session_id = dispatch(agent, "Tell me a joke")
+async def main():
+    # Observe all dispatches globally (hook fires before main() runs dispatches)
+    observe_dispatch(lambda event: print(f"[{event.type}] {event.dispatch_id}"))
 
-# Watch events as they arrive
-for event in observe(session_id):
-    if event.type == "text_delta":
-        print(event.data, end="", flush=True)
-    elif event.type == "done":
-        break
+    # Fire and forget — returns immediately
+    dispatch_id = await dispatch(
+        spec,
+        id="user_123",
+        text="Tell me a joke",
+        on_complete=lambda r: print("Done:", r.text),
+        on_error=lambda e: print("Error:", e),
+        cancel_after=30.0,
+    )
+    print(f"Dispatched: {dispatch_id}")
 
-print()  # newline after streaming output
-```
+    # Block until done — simpler for scripts
+    result = await dispatch_and_wait(spec, id="user_456", text="What is 2+2?")
+    print(result.text)
 
-Inject user input mid-run (for interactive chatbots):
-
-```python
-from tvastar.dispatch import dispatch, send_input, observe
-
-session_id = dispatch(agent, "I need help with my order.")
-
-for event in observe(session_id):
-    if event.type == "tool_call" and event.data["name"] == "ask_user":
-        # Agent asked for more info — send it
-        send_input(session_id, "Order #12345, placed yesterday")
-    elif event.type == "done":
-        break
+asyncio.run(main())
 ```
 
 ---
@@ -355,34 +348,31 @@ for event in observe(session_id):
 Automatically summarize old messages when context gets large, keeping sessions alive indefinitely.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
+import asyncio
+from tvastar import create_agent, Harness
 from tvastar.compaction import CompactionPolicy
 from tvastar.model.anthropic import AnthropicModel
 
-compaction = CompactionPolicy(
-    max_tokens=80_000,          # summarize when context exceeds this
-    target_tokens=20_000,       # compress down to this size
-    keep_last_n=10,             # always keep the 10 most recent messages
-    summary_model=None,         # use the same model for summarization
-)
-
-agent = Agent(
-    spec=AgentSpec(
-        name="analyst",
-        instructions="You are a long-running data analyst.",
-        compaction=compaction,
+spec = create_agent(
+    "analyst",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    instructions="You are a long-running data analyst.",
+    compaction=CompactionPolicy(
+        max_messages=60,           # compact when history exceeds 60 messages
+        max_tokens_estimate=80_000,
+        keep_last=10,              # always preserve 10 most-recent messages
+        min_messages=20,           # don't compact below this floor
     ),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-sonnet-20241022"),
 )
 
-session = agent.session()
+async def main():
+    sess = Harness(spec).session()
+    for i in range(200):
+        result = await sess.prompt(f"Analyze data point {i}: value={i * 3.14:.2f}")
+        if i % 10 == 0:
+            print(f"Turn {i}: {result.text[:60]}...")
 
-# Run hundreds of turns — compaction fires automatically
-for i in range(200):
-    result = session.run(f"Analyze data point {i}: value={i*3.14:.2f}")
-    if i % 10 == 0:
-        print(f"Turn {i}: {result.text[:60]}...")
+asyncio.run(main())
 ```
 
 Manual compaction on demand:
@@ -390,9 +380,9 @@ Manual compaction on demand:
 ```python
 from tvastar.compaction import compact_session, CompactionPolicy
 
-policy = CompactionPolicy(max_tokens=50_000, target_tokens=10_000)
-compact_session(session, policy=policy)
-print(f"Messages after compaction: {len(session.messages)}")
+policy = CompactionPolicy(max_messages=40, keep_last=5)
+await compact_session(sess, policy=policy)
+print(f"Messages after compaction: {len(sess.messages)}")
 ```
 
 ---
@@ -402,18 +392,17 @@ print(f"Messages after compaction: {len(session.messages)}")
 Automatically retry flaky tools (network calls, rate-limited APIs).
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.tools import tool, ToolRetryPolicy
+import asyncio, random
+from tvastar import create_agent, Harness
+from tvastar.tools.base import tool, ToolRetryPolicy
 from tvastar.model.anthropic import AnthropicModel
-import random
 
-# Per-tool retry policy
+# Per-tool retry — overrides the harness default
 flaky_retry = ToolRetryPolicy(
     max_attempts=4,
-    backoff_base=1.0,   # start with 1s delay
-    backoff_max=30.0,   # cap at 30s
-    jitter=True,        # add randomness to avoid thundering herd
-    retryable=(ConnectionError, TimeoutError, Exception),
+    backoff_base=1.0,   # sleep = base * 2^attempt + jitter
+    backoff_max=30.0,
+    jitter=0.1,         # seconds of random noise added to each sleep
 )
 
 @tool(retry=flaky_retry)
@@ -423,21 +412,15 @@ def fetch_stock_price(ticker: str) -> float:
         raise ConnectionError("API temporarily unavailable")
     return round(random.uniform(100, 500), 2)
 
-# Harness-wide default retry (applies to all tools without their own policy)
-harness_retry = ToolRetryPolicy(max_attempts=2, backoff_base=0.5, jitter=False)
-
-agent = Agent(
-    spec=AgentSpec(
-        name="trader",
-        instructions="Fetch prices and give investment advice.",
-        tools=[fetch_stock_price],
-        tool_retry=harness_retry,  # default for all tools
-    ),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-haiku-20241022"),
+spec = create_agent(
+    "trader",
+    model=AnthropicModel("claude-haiku-4-5-20251001"),
+    instructions="Fetch prices and give investment advice.",
+    tools=[fetch_stock_price],
+    tool_retry=ToolRetryPolicy(max_attempts=2, backoff_base=0.5),  # harness-wide default
 )
 
-result = agent.run("What's the current price of AAPL?")
+result = asyncio.run(Harness(spec).run("What's the current price of AAPL?"))
 print(result.text)
 ```
 
@@ -448,115 +431,96 @@ print(result.text)
 Give the model more reasoning budget for hard problems.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
+import asyncio
+from tvastar import create_agent, Harness
 from tvastar.model.anthropic import AnthropicModel
 
-agent = Agent(
-    spec=AgentSpec(
-        name="reasoner",
-        instructions="Solve problems step by step.",
-        thinking_level="high",   # "low" | "medium" | "high"
-        # Maps to budget_tokens: low=1024, medium=8000, high=16000
-    ),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-7-sonnet-20250219"),  # thinking-capable model
+spec = create_agent(
+    "reasoner",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    instructions="Solve problems step by step.",
+    thinking_level="high",  # "low" (1 024 tokens) | "medium" (8 000) | "high" (16 000)
 )
 
-result = agent.run(
-    "A farmer has 17 sheep. All but 9 die. How many are left? "
-    "Explain your reasoning carefully."
-)
+result = asyncio.run(Harness(spec).run(
+    "A farmer has 17 sheep. All but 9 die. How many are left? Explain your reasoning."
+))
 print(result.text)
-# Model uses extended thinking to avoid the classic trick question mistake
+# Extended thinking prevents the classic trick-question mistake
 ```
 
 Per-prompt thinking level via fan-out:
 
 ```python
+results = await harness.fan_out([
+    {"prompt": "2 + 2?", "thinking_level": "low"},
+    {"prompt": "Prove P≠NP", "thinking_level": "high"},
+])
+```
+
+---
+
+## 12. App-Level File Staging (HarnessFS)
+
+Stage input files before an agent run and retrieve output files after.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.model.anthropic import AnthropicModel
+from tvastar.tools.builtin import default_toolset
+
+spec = create_agent(
+    "data_agent",
+    model=AnthropicModel("claude-haiku-4-5-20251001"),
+    instructions="Analyze data files and produce reports.",
+    tools=default_toolset(),
+)
+
 async def main():
-    results = await agent.harness.fan_out([
-        {"prompt": "2 + 2?", "thinking_level": "low"},
-        {"prompt": "Prove P≠NP", "thinking_level": "high"},
-    ])
+    harness = Harness(spec)
+
+    # Stage input before running
+    await harness.fs.write_file("sales.csv", "product,revenue\nA,1000\nB,2000\nC,500\n")
+
+    result = await harness.run("Read sales.csv, find the top product, write report.txt")
+    print(result.text)
+
+    # Retrieve agent-written output
+    report = await harness.fs.read_file("report.txt")
+    print(report)
+
+asyncio.run(main())
 ```
 
 ---
 
-## 12. File System Access
+## 13. App-Level Shell
 
-Use `harness.fs` to read and write files from tool code.
-
-```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.tools import tool
-from tvastar.model.anthropic import AnthropicModel
-
-harness = Harness(workspace="/tmp/agent_workspace")
-
-@tool
-def read_csv(filename: str) -> str:
-    """Read a CSV file from the workspace."""
-    path = harness.fs.path(filename)
-    return path.read_text()
-
-@tool
-def write_report(filename: str, content: str) -> str:
-    """Write a report file to the workspace."""
-    path = harness.fs.path(filename)
-    path.write_text(content)
-    return f"Written to {filename}"
-
-agent = Agent(
-    spec=AgentSpec(
-        name="data_agent",
-        instructions="Analyze data files and produce reports.",
-        tools=[read_csv, write_report],
-    ),
-    harness=harness,
-    model=AnthropicModel("claude-3-5-haiku-20241022"),
-)
-
-result = agent.run("Read sales.csv, find the top 3 products, write a summary to report.txt")
-print(result.text)
-```
-
----
-
-## 13. Shell Access
-
-Run shell commands from a sandboxed environment.
+Run host shell commands from harness context (outside the agent sandbox).
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.tools import tool
+import asyncio
+from tvastar import create_agent, Harness
 from tvastar.model.anthropic import AnthropicModel
 
-harness = Harness()
-
-@tool
-def run_python(code: str) -> str:
-    """Execute Python code and return stdout."""
-    result = harness.shell.run(["python3", "-c", code], capture_output=True, timeout=10)
-    return result.stdout or result.stderr
-
-@tool
-def run_shell(command: str) -> str:
-    """Run a shell command."""
-    result = harness.shell.run(command, shell=True, capture_output=True, timeout=10)
-    return result.stdout or result.stderr
-
-agent = Agent(
-    spec=AgentSpec(
-        name="devtools",
-        instructions="Help with coding and system tasks.",
-        tools=[run_python, run_shell],
-    ),
-    harness=harness,
-    model=AnthropicModel("claude-3-5-sonnet-20241022"),
+spec = create_agent(
+    "devtools",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    instructions="Help with coding and system tasks.",
 )
 
-result = agent.run("Count the number of Python files in /tmp recursively.")
-print(result.text)
+async def main():
+    harness = Harness(spec)
+
+    # App-level shell — runs in the host environment, not the sandbox
+    py_count = harness.shell("find /tmp -name '*.py' | wc -l")
+    print(f"Python files in /tmp: {py_count.strip()}")
+
+    result = await harness.run("Summarize what Python files exist in /tmp.")
+    print(result.text)
+
+asyncio.run(main())
 ```
 
 ---
@@ -566,38 +530,41 @@ print(result.text)
 Connect to any MCP (Model Context Protocol) server to give the agent external tools.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.mcp import MCPServer
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.mcp import connect_mcp_server
 from tvastar.model.anthropic import AnthropicModel
 
-# Connect to a local MCP server (stdio transport)
-github_mcp = MCPServer(
-    name="github",
-    command=["npx", "-y", "@modelcontextprotocol/server-github"],
-    env={"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."},
-)
+async def main():
+    # Stdio transport (local process)
+    client = await connect_mcp_server(
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-github"],
+        env={"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."},
+    )
 
-# Connect to a remote MCP server (HTTP transport)
-remote_mcp = MCPServer(
-    name="mytools",
-    url="https://my-mcp-server.example.com/mcp",
-    api_key="sk-...",
-)
-
-harness = Harness(mcp_servers=[github_mcp, remote_mcp])
-
-agent = Agent(
-    spec=AgentSpec(
-        name="devbot",
+    spec = create_agent(
+        "devbot",
+        model=AnthropicModel("claude-sonnet-4-6"),
         instructions="Help with GitHub tasks.",
-        # MCP tools are automatically available — no extra registration needed
-    ),
-    harness=harness,
-    model=AnthropicModel("claude-3-5-sonnet-20241022"),
-)
+        tools=client.tools,  # MCP tools injected as regular Tool objects
+    )
 
-result = agent.run("List open issues in my-org/my-repo labeled 'bug'")
-print(result.text)
+    result = await Harness(spec).run("List open issues in my-org/my-repo labeled 'bug'")
+    print(result.text)
+
+    await client.close()
+
+asyncio.run(main())
+```
+
+Remote MCP (HTTP transport):
+
+```python
+client = await connect_mcp_server(
+    url="https://my-mcp-server.example.com/mcp",
+    headers={"Authorization": "Bearer sk-..."},
+)
 ```
 
 ---
@@ -607,212 +574,219 @@ print(result.text)
 Stream agent responses token-by-token over HTTP using Server-Sent Events.
 
 ```python
-# server.py
-from tvastar import Agent, AgentSpec, Harness
+# server.py — needs: pip install tvastar[serve]
+import uvicorn
+from tvastar import create_agent, Harness
 from tvastar.model.anthropic import AnthropicModel
 from tvastar.serving.http import create_app
-import uvicorn
 
-agent = Agent(
-    spec=AgentSpec(name="assistant", instructions="Be helpful."),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-haiku-20241022"),
+spec = create_agent(
+    "assistant",
+    model=AnthropicModel("claude-haiku-4-5-20251001"),
+    instructions="Be helpful.",
 )
-
-app = create_app(agent)
+harness = Harness(spec)
+app = create_app(harness)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
 ```bash
-# Start a session
-curl -X POST http://localhost:8000/sessions \
-     -H "Content-Type: application/json" \
-     -d '{"prompt": "Tell me a story"}'
-# → {"session_id": "sess_abc123", "status": "running"}
+# Create a session
+curl -X POST http://localhost:8000/sessions
+# → {"session_id": "sess_abc123"}
 
-# Stream the response (SSE)
-curl -N "http://localhost:8000/sessions/sess_abc123/stream"
-# → data: {"type": "text_delta", "data": "Once"}
-# → data: {"type": "text_delta", "data": " upon"}
-# → data: {"type": "text_delta", "data": " a time..."}
-# → data: [DONE]
+# Send a prompt and stream the response (SSE)
+curl -N "http://localhost:8000/sessions/sess_abc123/stream?text=Tell+me+a+story"
+# data: {"type":"text_delta","data":"Once"}
+# data: {"type":"text_delta","data":" upon"}
+# data: {"type":"turn_end","data":{...}}
+# data: [DONE]
+
+# Or POST to /sessions/{id}/prompt for a blocking response
+curl -X POST http://localhost:8000/sessions/sess_abc123/prompt \
+     -H "Content-Type: application/json" \
+     -d '{"text": "What is 2+2?"}'
 ```
 
 JavaScript client:
 
 ```javascript
-const source = new EventSource(`/sessions/${sessionId}/stream`);
+const source = new EventSource(`/sessions/${sessionId}/stream?text=Hello`);
 
 source.onmessage = (event) => {
-  if (event.data === "[DONE]") {
-    source.close();
-    return;
-  }
+  if (event.data === "[DONE]") { source.close(); return; }
   const { type, data } = JSON.parse(event.data);
-  if (type === "text_delta") {
-    document.getElementById("output").textContent += data;
-  }
+  if (type === "text_delta") document.getElementById("out").textContent += data;
 };
 ```
 
 ---
 
-## 16. Observability with Tracers
+## 16. Token Streaming (Python)
+
+Stream tokens directly in Python without the HTTP server.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.model.anthropic import AnthropicModel
+
+spec = create_agent(
+    "assistant",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    instructions="Be helpful.",
+)
+
+async def main():
+    sess = Harness(spec).session()
+    async for event in sess.stream("Tell me a short story about a robot."):
+        if event.type == "text_delta":
+            print(event.data.get("text", ""), end="", flush=True)
+        elif event.type == "turn_end":
+            print()  # newline at end
+
+asyncio.run(main())
+```
+
+---
+
+## 17. Observability with Tracers
 
 Capture every event in the agent loop for logging, debugging, or analytics.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.tracer import Tracer, TraceEvent
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.observability import Tracer, ConsoleExporter, JSONLExporter
 from tvastar.model.anthropic import AnthropicModel
-import json
-from datetime import datetime
 
-class JsonlTracer(Tracer):
-    def __init__(self, path: str):
-        self.f = open(path, "a")
-
-    def on_event(self, event: TraceEvent) -> None:
-        self.f.write(json.dumps({
-            "ts": datetime.utcnow().isoformat(),
-            "type": event.type,
-            "data": event.data,
-        }) + "\n")
-        self.f.flush()
-
-    def close(self):
-        self.f.close()
-
-tracer = JsonlTracer("/var/log/agent.jsonl")
-
-agent = Agent(
-    spec=AgentSpec(
-        name="assistant",
-        instructions="Help users.",
-        tracer=tracer,
-    ),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-haiku-20241022"),
+spec = create_agent(
+    "assistant",
+    model=AnthropicModel("claude-haiku-4-5-20251001"),
+    instructions="Help users.",
 )
 
-result = agent.run("Explain recursion in one sentence.")
-# All events written to /var/log/agent.jsonl:
-# {"ts": "...", "type": "run_start", "data": {...}}
-# {"ts": "...", "type": "model_request", "data": {...}}
-# {"ts": "...", "type": "model_response", "data": {...}}
-# {"ts": "...", "type": "run_end", "data": {...}}
+tracer = Tracer([ConsoleExporter(), JSONLExporter("/var/log/agent.jsonl")])
+harness = Harness(spec, tracer=tracer)
+
+result = asyncio.run(harness.run("Explain recursion in one sentence."))
+print(result.text)
+# Spans auto-emitted: model.generate, session.prompt, tool.invoke,
+# context_compacted, event.*, etc.
 ```
 
----
-
-## 17. Silent Failure Detection
-
-Detect when the model gives a low-quality response and take action.
+Export to OpenTelemetry:
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.detection import Detector, DetectionResult
-from tvastar.model.anthropic import AnthropicModel
+from tvastar.observability import OTelExporter
 
-class HallucinationDetector(Detector):
-    UNCERTAINTY_PHRASES = [
-        "I'm not sure", "I don't know", "I cannot", "I'm unable",
-        "I don't have access", "as of my knowledge cutoff",
-    ]
-
-    def detect(self, result) -> DetectionResult:
-        text = result.text.lower()
-        triggered = [p for p in self.UNCERTAINTY_PHRASES if p.lower() in text]
-        if triggered:
-            return DetectionResult(
-                triggered=True,
-                label="uncertainty",
-                details={"phrases": triggered},
-            )
-        return DetectionResult(triggered=False)
-
-class ShortResponseDetector(Detector):
-    def __init__(self, min_words: int = 20):
-        self.min_words = min_words
-
-    def detect(self, result) -> DetectionResult:
-        word_count = len(result.text.split())
-        if word_count < self.min_words:
-            return DetectionResult(
-                triggered=True,
-                label="too_short",
-                details={"word_count": word_count, "minimum": self.min_words},
-            )
-        return DetectionResult(triggered=False)
-
-agent = Agent(
-    spec=AgentSpec(
-        name="assistant",
-        instructions="Always give thorough, confident answers.",
-        detectors=[HallucinationDetector(), ShortResponseDetector(min_words=30)],
-    ),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-haiku-20241022"),
-)
-
-result = agent.run("Explain photosynthesis.")
-for detection in result.detections:
-    if detection.triggered:
-        print(f"⚠️  Detection: {detection.label} — {detection.details}")
+tracer = Tracer([OTelExporter(endpoint="http://localhost:4317")])
+harness = Harness(spec, tracer=tracer)
 ```
 
 ---
 
-## 18. Custom Model Adapter
+## 18. Silent Failure Detection
+
+Detect when the model gives a low-quality response and surface it as a Finding.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.detect import Finding, Severity, RunContext
+from tvastar.model.anthropic import AnthropicModel
+
+UNCERTAINTY_PHRASES = ["I'm not sure", "I don't know", "I cannot", "I'm unable"]
+
+def hallucination_detector(ctx: RunContext) -> list[Finding]:
+    text = ctx.final_text.lower()
+    triggered = [p for p in UNCERTAINTY_PHRASES if p.lower() in text]
+    if triggered:
+        return [Finding(
+            detector="hallucination",
+            severity=Severity.WARNING,
+            message="Model expressed uncertainty",
+            context={"phrases": triggered},
+        )]
+    return []
+
+def short_response_detector(ctx: RunContext) -> list[Finding]:
+    words = len(ctx.final_text.split())
+    if words < 20:
+        return [Finding(
+            detector="too_short",
+            severity=Severity.WARNING,
+            message=f"Response only {words} words (minimum 20)",
+            context={"word_count": words},
+        )]
+    return []
+
+spec = create_agent(
+    "assistant",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    instructions="Always give thorough, confident answers.",
+    detect=[hallucination_detector, short_response_detector],
+)
+
+result = asyncio.run(Harness(spec).run("Explain photosynthesis."))
+for finding in result.findings:
+    print(f"[{finding.severity.value.upper()}] {finding.message}")
+```
+
+---
+
+## 19. Custom Model Adapter
 
 Wrap any LLM in Tvastar's model interface.
 
 ```python
-from tvastar.model.base import Model, ModelResponse, StreamChunk
-from tvastar import Agent, AgentSpec, Harness
-from typing import Iterator, Optional, List
-import anthropic
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.model.base import Model, ModelResponse
+from tvastar.types import Message, Usage, StopReason
 
 class FineTunedModel(Model):
-    """Adapter for a fine-tuned or custom-hosted model."""
+    """Adapter for a fine-tuned or custom-hosted Anthropic-compatible model."""
 
     def __init__(self, base_url: str, api_key: str, model_id: str):
-        self.client = anthropic.Anthropic(base_url=base_url, api_key=api_key)
-        self.model_id = model_id
+        import anthropic
+        self.client = anthropic.AsyncAnthropic(base_url=base_url, api_key=api_key)
+        self._model_id = model_id
 
-    def generate(
+    @property
+    def name(self) -> str:
+        return self._model_id
+
+    async def generate(
         self,
-        messages: List[dict],
-        system: Optional[str] = None,
-        tools: Optional[List[dict]] = None,
-        max_tokens: int = 1024,
-        thinking_level: Optional[str] = None,
-        **kwargs,
+        messages: list[Message],
+        *,
+        system: str | None,
+        tools,
+        max_tokens: int,
+        temperature: float,
+        stop_sequences=None,
+        thinking_level=None,
     ) -> ModelResponse:
-        response = self.client.messages.create(
-            model=self.model_id,
-            messages=messages,
+        resp = await self.client.messages.create(
+            model=self._model_id,
+            messages=[{"role": m.role, "content": m.text} for m in messages],
             system=system or "",
-            tools=tools or [],
             max_tokens=max_tokens,
+            temperature=temperature,
         )
+        msg = Message(role="assistant", content=resp.content[0].text)
         return ModelResponse(
-            text=response.content[0].text if response.content else "",
-            stop_reason=response.stop_reason,
-            tool_calls=[...],  # parse tool use blocks
-            usage={"input": response.usage.input_tokens, "output": response.usage.output_tokens},
+            message=msg,
+            stop_reason=StopReason.END_TURN,
+            usage=Usage(
+                input_tokens=resp.usage.input_tokens,
+                output_tokens=resp.usage.output_tokens,
+            ),
+            raw=resp,
         )
-
-    def stream(self, messages, **kwargs) -> Iterator[StreamChunk]:
-        with self.client.messages.stream(
-            model=self.model_id,
-            messages=messages,
-            max_tokens=kwargs.get("max_tokens", 1024),
-        ) as stream:
-            for text in stream.text_stream:
-                yield StreamChunk(type="text_delta", data=text)
 
 my_model = FineTunedModel(
     base_url="https://my-llm.example.com",
@@ -820,211 +794,115 @@ my_model = FineTunedModel(
     model_id="my-fine-tuned-v1",
 )
 
-agent = Agent(
-    spec=AgentSpec(name="custom", instructions="Use custom model."),
-    harness=Harness(),
-    model=my_model,
-)
+spec = create_agent("custom", model=my_model, instructions="Use custom model.")
+result = asyncio.run(Harness(spec).run("Hello!"))
+print(result.text)
 ```
 
 ---
 
-## 19. Durable Execution
+## 20. Durable Execution
 
 Persist agent state so runs survive crashes and can be resumed.
 
 ```python
-from tvastar import Agent, AgentSpec, Harness
-from tvastar.durable import DurableStore, durable_session
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.memory.store import FileStore
 from tvastar.model.anthropic import AnthropicModel
 
-store = DurableStore(path="/var/tvastar/sessions")  # persists to disk
-
-agent = Agent(
-    spec=AgentSpec(name="analyst", instructions="Analyze data step by step."),
-    harness=Harness(),
-    model=AnthropicModel("claude-3-5-sonnet-20241022"),
+spec = create_agent(
+    "analyst",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    instructions="Analyze data step by step.",
 )
 
-# Create a durable session — state is checkpointed after each step
-with durable_session(agent, store, session_id="analysis-run-001") as session:
-    r1 = session.run("Load the dataset and describe its structure.")
-    r2 = session.run("Find outliers in the price column.")
-    r3 = session.run("Produce a summary report.")
+store = FileStore("/var/tvastar/sessions")
+
+async def first_run():
+    harness = Harness(spec, store=store)
+    sess = harness.session("analysis-run-001")
+    r1 = await sess.prompt("Load the dataset and describe its structure.")
+    r2 = await sess.prompt("Find outliers in the price column.")
+    r3 = await sess.prompt("Produce a summary report.")
     print(r3.text)
 
-# If the process crashes mid-run, restart with the same session_id:
-with durable_session(agent, store, session_id="analysis-run-001") as session:
-    # Resumes from last checkpoint — no repeated work
-    session.run("Continue from where we left off.")
+async def resume():
+    harness = Harness(spec, store=store)
+    # Resume from the last checkpoint — no work is repeated
+    sess = harness.resume("analysis-run-001") or harness.session("analysis-run-001")
+    result = await sess.prompt("Continue from where we left off.")
+    print(result.text)
+
+asyncio.run(first_run())
+# asyncio.run(resume())
 ```
 
 ---
 
-## 20. Full Production Stack
+## 21. Full Production Stack
 
-Everything together: structured output, compaction, retry, tracing, governance, and SSE serving.
+Structured output, compaction, retry, tracing, and SSE serving — all together.
 
 ```python
-import asyncio, logging, uvicorn
+import asyncio, logging
+import uvicorn
 from pydantic import BaseModel
-from tvastar import (
-    create_agent, Harness,
-    CompactionPolicy, GovernancePolicy,
-    ToolRetryPolicy, ModelRetryPolicy,
-    Tracer, ConsoleExporter, JSONLExporter,
-    default_detectors,
-    tool,
-)
+from tvastar import create_agent, Harness
+from tvastar.compaction import CompactionPolicy
+from tvastar.tools.base import tool, ToolRetryPolicy
+from tvastar.observability import Tracer, ConsoleExporter, JSONLExporter
 from tvastar.model.anthropic import AnthropicModel
 from tvastar.serving.http import create_app
 
 log = logging.getLogger(__name__)
 
-# --- Retry-capable tool ---
 @tool(retry=ToolRetryPolicy(max_attempts=3, backoff_base=1.0))
 def search_knowledge_base(query: str) -> str:
     """Search internal knowledge base."""
     return f"Results for: {query}"
 
-# --- Structured output schema ---
 class AnalysisResult(BaseModel):
     summary: str
     key_points: list[str]
     confidence: float
-    sources: list[str]
 
-# --- Governance: only allow search tool during 'research' phase ---
-gov = GovernancePolicy(
-    phases={"research": ["search_knowledge_base"], "done": ["*"]},
-    current_phase="research",
-)
-
-# --- Agent ---
-agent = create_agent(
+spec = create_agent(
     "production_assistant",
-    model=AnthropicModel(
-        "claude-sonnet-4-6",
-        retry=ModelRetryPolicy(max_attempts=4),
-    ),
+    model=AnthropicModel("claude-sonnet-4-6"),
     instructions="You are a thorough research assistant.",
     tools=[search_knowledge_base],
     compaction=CompactionPolicy(max_messages=60, keep_last=10),
     tool_retry=ToolRetryPolicy(max_attempts=2),
     thinking_level="medium",
-    detect=default_detectors(),
-    governance=gov,
 )
 
-# --- Tracer ---
 tracer = Tracer([ConsoleExporter(), JSONLExporter("trace.jsonl")])
-
-# --- HTTP server with SSE ---
-harness = Harness(agent, tracer=tracer)
+harness = Harness(spec, tracer=tracer)
 app = create_app(harness)
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-# --- Or run one-shot from CLI ---
 async def main():
-    result = await harness.run(
-        "Analyse the latest trends in LLM tooling",
-        # result=AnalysisResult,   # uncomment for structured output
-    )
+    result = await harness.run("Analyse the latest trends in LLM tooling")
     print(result.text)
     for f in result.findings:
         log.warning("finding: %s %s", f.severity, f.message)
 
-asyncio.run(main())
-```
-
----
-
-## 21. Dynamic Capability Governance
-
-Enforce least-privilege at invocation time — after the model has already decided to
-call a tool. Tamper-proof against prompt injection because it runs in Python, not
-as a prompt instruction.
-
-```python
-import asyncio
-from tvastar import create_agent, Harness, GovernancePolicy, default_toolset
-from tvastar.model import AnthropicModel
-
-gov = GovernancePolicy(
-    phases={
-        "read":  {"grep", "read_file", "glob"},
-        "write": {"grep", "read_file", "glob", "write_file", "bash"},
-    },
-    current_phase="read",
-)
-
-# Wire both masking and governance from the same object:
-agent = create_agent(
-    "secure-agent",
-    model=AnthropicModel(),
-    tools=default_toolset(),
-    governance=gov,
-    tool_policy=gov.as_tool_policy(),   # masking mirrors the current phase live
-)
-
-harness = Harness(agent)
-sess = harness.session()
-
-async def run():
-    # Phase "read" — write_file and bash are both masked and governance-blocked
-    r1 = await sess.prompt("List all Python files")
-    print(r1.text)
-
-    # Elevate to write — all concurrent sessions are isolated (each has a copy)
-    sess.spec.governance.set_phase("write")
-    r2 = await sess.prompt("Add a type hint to utils.py")
-    print(r2.text)
-
-asyncio.run(run())
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
 ---
 
 ## 22. Transactional Sandbox
 
-Wrap any session step in `harness.transaction()` to guarantee atomic rollback
-if the step raises an exception.
-
-```python
-import asyncio
-from tvastar import create_agent, Harness, default_toolset
-from tvastar.model import AnthropicModel
-
-agent = create_agent("coder", model=AnthropicModel(), tools=default_toolset())
-harness = Harness(agent)
-
-async def run():
-    sess = harness.session()
-
-    try:
-        async with harness.transaction(sess) as s:
-            # Snapshot taken before entering
-            result = await s.prompt("Refactor auth.py and make sure tests pass")
-            if not result.ok:
-                raise RuntimeError("agent reported failure")
-            # Clean exit → snapshot discarded, workspace keeps the changes
-    except RuntimeError:
-        # Exception escaped → sandbox automatically restored to pre-prompt state
-        print("Refactor failed — workspace rolled back")
-
-asyncio.run(run())
-```
-
-Manual snapshot / restore without the context manager:
+Use `VirtualSandbox.snapshot()` / `restore()` for atomic file rollback.
 
 ```python
 from tvastar.sandbox.virtual import VirtualSandbox
 
 sb = VirtualSandbox({"main.py": "print('hello')"})
-snap = sb.snapshot()   # dict[str, str]
+snap = sb.snapshot()  # dict[str, str]
 
 sb.fs.write("main.py", "CORRUPTED")
 sb.restore(snap)
@@ -1034,91 +912,106 @@ assert sb.fs.read("main.py") == "print('hello')"
 
 ---
 
-## 23. Long-Term Memory (LTM)
+## 23. Loop — Recurring Automation
 
-Consolidate knowledge from each session into a persistent store and inject it
-back into the system prompt on subsequent sessions.
+`Loop = Agent + Schedule + Verify + Handoff`. Use for CI sweeps, daily triage, PR babysitters, and any scheduled AI job.
 
 ```python
 import asyncio
-from tvastar import create_agent, Harness
-from tvastar.contrib.ltm import LTMStore
-from tvastar.memory.store import FileStore
-from tvastar.model import AnthropicModel
+from tvastar.loop.patterns import CISweeper
+from tvastar.model.anthropic import AnthropicModel
 
-ltm = LTMStore(FileStore(".ltm"))
-model = AnthropicModel()
-
-agent = create_agent(
-    "assistant",
-    model=model,
-    instructions="You are an expert Python engineer.",
-    system_prompt_hook=ltm.as_hook(),   # retrieved memories injected per turn
+loop = CISweeper(
+    model=AnthropicModel("claude-sonnet-4-6"),
+    schedule="*/15 * * * *",  # every 15 minutes
+    cancel_after=300.0,         # fail-safe timeout
 )
-harness = Harness(agent)
 
-async def run_and_consolidate(prompt: str, session_id: str):
-    result = await harness.run(prompt, session_id=session_id)
-    # After session completes, extract and persist facts
-    nodes = await ltm.consolidate(result, model, session_id=session_id)
-    print(f"Consolidated {len(nodes)} memory nodes")
-    return result
-
-async def main():
-    # First session — agent learns about the codebase
-    await run_and_consolidate("Explore the auth module and fix the flaky test", "s1")
-
-    # Second session — agent recalls relevant facts without re-reading the code
-    result = await harness.run("The auth test broke again — what did we learn last time?")
-    print(result.text)
-
-asyncio.run(main())
+# One-shot trigger (blocking)
+run = asyncio.run(loop.trigger())
+print(run.state)        # LoopState.PASS or LoopState.FAIL
+print(run.result_text)
 ```
 
-Semantic retrieval (optional — install `sentence-transformers`):
+CLI equivalent:
 
-```python
-ltm = LTMStore(FileStore(".ltm"), semantic=True)   # cosine similarity, model cached on first load
+```bash
+tvastar loop init CISweeper --name my-ci
+tvastar loop audit .tvastar/loops/my_ci.py:loop
+tvastar loop run   .tvastar/loops/my_ci.py:loop
 ```
+
+Available patterns: `CISweeper`, `PRBabysitter`, `DailyTriage`, `DependencySweeper`,
+`PostMergeCleanup`, `ChangelogDrafter`, `MakerChecker`.
 
 ---
 
-## 24. System Prompt Hook
+## 24. MakerChecker — Two-Agent Verification
 
-Augment the system prompt dynamically before each model call — inject retrieved
-context, tenant configuration, or any per-call data without subclassing.
+Maker proposes; Checker independently verifies before PASS is declared. REJECTED feeds feedback back to Maker for another round.
 
 ```python
 import asyncio
-from tvastar import create_agent, Harness
-from tvastar.model import AnthropicModel
+from tvastar.loop.patterns import MakerChecker
+from tvastar.model.anthropic import AnthropicModel
 
-# Basic hook — no access to the current user message
-def add_date(system_prompt: str) -> str:
-    from datetime import date
-    return f"{system_prompt}\n\nToday's date: {date.today()}"
-
-# Extended hook — receives the most-recent user message for context-aware retrieval
-def retrieval_hook(system_prompt: str, *, last_user_text: str = "") -> str:
-    query = last_user_text or system_prompt
-    docs = my_vector_search(query, k=3)   # your retrieval logic
-    if not docs:
-        return system_prompt
-    block = "\n".join(f"- {d}" for d in docs)
-    return f"{system_prompt}\n\n## Retrieved Context\n{block}"
-
-agent = create_agent(
-    "rag-agent",
-    model=AnthropicModel(),
-    instructions="You are a helpful assistant.",
-    system_prompt_hook=retrieval_hook,
+loop = MakerChecker(
+    maker_model=AnthropicModel("claude-haiku-4-5-20251001"),  # fast + cheap
+    checker_model=AnthropicModel("claude-sonnet-4-6"),         # strong + thorough
+    goal="Review the diff in /tmp/changes.patch for security vulnerabilities",
+    max_rounds=3,       # Maker+Checker cycles before HANDOFF
+    cancel_after=600.0,
 )
 
-asyncio.run(Harness(agent).run("What are our SLA commitments?"))
+run = asyncio.run(loop.trigger())
+if run.state.value == "pass":
+    print("Checker approved:", run.result_text)
+else:
+    print("Rejected after", run.iterations, "rounds:", run.error or run.result_text)
 ```
 
-Hook failures emit a `UserWarning` and fall back to the original prompt —
-they cannot crash a live session.
+Key design properties:
+- Checker error → counted against round limit (fail-safe, not silent-pass)
+- No verdict from Checker → REJECTED (fail-safe default)
+- `retry_backoff_base=0.0` — feedback is addressed immediately, no sleep between rounds
+
+---
+
+## 25. Loop Readiness Audit (L0 → L3)
+
+Score a loop's production readiness before deploying it.
+
+```python
+from tvastar.loop.audit import audit_loop
+from tvastar.loop.patterns import CISweeper
+from tvastar.model.anthropic import AnthropicModel
+
+loop = CISweeper(
+    model=AnthropicModel("claude-sonnet-4-6"),
+    schedule="*/15 * * * *",
+    cancel_after=120.0,
+)
+
+report = audit_loop(loop)
+print(f"Level: L{report.level} — {report.name}")  # e.g. "L2 — GATED"
+print("Passes:", report.passes)
+print("Gaps:  ", report.gaps)                      # must fix to advance
+print("Warnings:", report.warnings)               # advisory only
+print("Production-ready:", report.is_production_ready)
+```
+
+| Level | Name | Requirement |
+|-------|------|-------------|
+| L0 | MANUAL | Loop exists |
+| L1 | OBSERVE | Schedule + handoff configured |
+| L2 | GATED | cancel_after set (human can stop) |
+| L3 | AUTONOMOUS | Detectors + circuit_breaker_limit (safe to run unattended) |
+
+CI gate (exits 0 only at L3):
+
+```bash
+tvastar loop audit .tvastar/loops/ci.py:loop || exit 1
+```
 
 ---
 
@@ -1126,23 +1019,23 @@ they cannot crash a live session.
 
 | Goal | Key API |
 |---|---|
-| One-shot answer | `harness.run(prompt)` |
-| Multi-turn chat | `sess = harness.session(); sess.prompt(...)` |
-| Typed output | `sess.prompt(..., result=MyModel)` |
-| Parallel runs | `harness.fan_out(prompts, concurrency=8)` |
-| Child agent | `sess.task(prompt, agent="profile_name")` |
-| Persistent pipeline | `@workflow; ctx.init(spec); sess.prompt(...)` |
-| Async fire-and-forget | `dispatch(agent, id=user_id, text=msg)` |
+| One-shot answer | `asyncio.run(Harness(spec).run(prompt))` |
+| Multi-turn chat | `sess = Harness(spec).session(); await sess.prompt(...)` |
+| Typed output | `await sess.prompt(..., result=MyModel)` → `result.data` |
+| Parallel runs | `await harness.fan_out(prompts, concurrency=8)` |
+| Child agent | `await sess.task(prompt, agent="profile_name")` |
+| Persistent pipeline | `@workflow; ctx.init(spec); (await h.session()).prompt(...)` |
+| Async fire-and-forget | `await dispatch(spec, id=user_id, text=msg)` |
 | Long sessions | `create_agent(..., compaction=CompactionPolicy(...))` |
 | Flaky tools | `@tool(retry=ToolRetryPolicy(...))` |
 | Deep reasoning | `create_agent(..., thinking_level="high")` |
-| External tools (MCP) | `connect_mcp_server(command="python", args=["server.py"])` |
-| Token streaming | `GET /sessions/{id}/stream` (SSE) |
-| Audit trail | `Harness(agent, tracer=JSONLExporter("trace.jsonl"))` |
-| Quality guard | `create_agent(..., detect=[*default_detectors(), my_detector])` |
-| Crash recovery | `Harness(agent, store=FileStore(".state")); harness.resume(sid)` |
-| Phase-based governance | `create_agent(..., governance=GovernancePolicy(...))` |
-| Atomic rollback | `async with harness.transaction(session) as sess: ...` |
-| Cross-session memory | `LTMStore(FileStore(".ltm")); ltm.as_hook()` |
-| Dynamic system prompt | `create_agent(..., system_prompt_hook=my_hook)` |
-| Session memory limit | `create_agent(..., memory_cap_mb=50)` |
+| External tools (MCP) | `connect_mcp_server(command="npx", args=[...])` |
+| Token streaming (Python) | `async for event in sess.stream(text)` |
+| Token streaming (HTTP) | `GET /sessions/{id}/stream?text=...` (SSE) |
+| Audit trail | `Harness(spec, tracer=Tracer([JSONLExporter(...)]))` |
+| Quality guard | `create_agent(..., detect=[my_detector, ...])` |
+| Crash recovery | `Harness(spec, store=FileStore(...)); harness.resume(sid)` |
+| File staging | `await harness.fs.write_file(...); harness.run(...)` |
+| Recurring automation | `CISweeper(model=..., schedule="...", cancel_after=...)` |
+| Two-agent verification | `MakerChecker(maker_model=..., checker_model=..., goal=...)` |
+| Readiness gate | `audit_loop(loop).is_production_ready` |
