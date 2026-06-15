@@ -1,6 +1,10 @@
-"""Tvastar — a programmable agent harness framework for Python.
+"""Tvastar — the framework for loop engineering.
 
     Agent = Model + Harness
+    Loop  = Agent + Schedule + Verify + Handoff
+
+Build agents that run once or loops that run forever,
+with the same reliable harness underneath.
 
 Quick start::
 
@@ -77,6 +81,16 @@ from .eval import (
 )
 from .graph import GraphResult, TaskGraph
 from .harness import Harness
+from .loop import FailureKind, Loop, LoopConfig, LoopEvent, LoopRun, LoopState
+from .loop.handoff import CallbackHandoff, HandoffPolicy, LogHandoff, MultiHandoff
+from .loop.patterns import (
+    ChangelogDrafter,
+    CISweeper,
+    DailyTriage,
+    DependencySweeper,
+    PostMergeCleanup,
+    PRBabysitter,
+)
 from .masking import GovernancePolicy, MaskContext, ToolPolicy, allow_only, deny, phases
 from .mcp import MCPClient, connect_mcp_server
 from .memory import FileStore, InMemoryStore, Memory, Store
@@ -152,7 +166,7 @@ from .workflow import (
     cli_logs as workflow_logs,
 )
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 
 __all__ = [
     "create_agent",
@@ -291,6 +305,23 @@ __all__ = [
     # DAG-based parallel task execution
     "TaskGraph",
     "GraphResult",
+    # loop engineering
+    "Loop",
+    "LoopConfig",
+    "LoopState",
+    "LoopRun",
+    "LoopEvent",
+    "FailureKind",
+    "HandoffPolicy",
+    "LogHandoff",
+    "CallbackHandoff",
+    "MultiHandoff",
+    "CISweeper",
+    "PRBabysitter",
+    "DailyTriage",
+    "DependencySweeper",
+    "PostMergeCleanup",
+    "ChangelogDrafter",
     # outbound sales agent
     "run_campaign",
     "CampaignResult",
