@@ -36,6 +36,9 @@ if TYPE_CHECKING:
 from ...tools import default_toolset
 from .. import FailureKind, Loop, LoopConfig
 
+_REJECTION_HISTORY_KEY = "loop:{name}:rejection_history"
+_MAX_REJECTION_HISTORY = 5
+
 # ---------------------------------------------------------------------------
 # Shared instructions suffix (every pattern ends with this)
 # ---------------------------------------------------------------------------
@@ -659,7 +662,8 @@ class MakerChecker(Loop):
                 self._store.set(_CIRCUIT_BREAKER_KEY.format(name=self.name), "0")
                 return
 
-            # REJECTED — store feedback in context so next Maker round sees it
+            # REJECTED — persist to cross-run history, store in context for next Maker round
+            self._append_rejection(checker_result.text)
             run.context["checker_feedback"] = checker_result.text
             run.context["maker_output"] = maker_result.text
             run.failure_kind = FailureKind.LOGIC_ERROR
@@ -672,8 +676,18 @@ class MakerChecker(Loop):
             await self._handle_fail(run)
 
     def _build_maker_prompt(self, context: dict) -> str:
-        """Build the Maker's prompt, including Checker feedback when retrying."""
+        """Build the Maker's prompt, including Checker feedback and cross-run rejection history."""
         parts = [f"Goal: {self._config.goal}"]
+
+        # Cross-run rejection history — teach the Maker from past sessions
+        past_rejections = self._load_rejection_history()
+        if past_rejections:
+            parts.append(
+                f"\n─── Cross-Run Rejection History (Last {len(past_rejections)}) ───────────────\n"
+                + "\n".join(f"• {r}" for r in past_rejections)
+                + "\n─────────────────────────────────────────────────────────────────────────────\n"
+                "Do not repeat these mistakes."
+            )
 
         feedback = context.get("checker_feedback")
         if feedback:
@@ -687,6 +701,32 @@ class MakerChecker(Loop):
             parts.append(f"This is attempt {self._iteration}. Previous attempt was rejected.")
 
         return "\n".join(parts)
+
+    def _append_rejection(self, feedback: str) -> None:
+        """Persist a checker REJECTED verdict to the cross-run rejection history."""
+        try:
+            import json
+
+            key = _REJECTION_HISTORY_KEY.format(name=self.name)
+            raw = self._store.get(key)
+            history: list[str] = json.loads(raw) if raw else []
+            truncated = feedback[:500] + ("…" if len(feedback) > 500 else "")
+            history.append(truncated)
+            if len(history) > _MAX_REJECTION_HISTORY:
+                history = history[-_MAX_REJECTION_HISTORY:]
+            self._store.set(key, json.dumps(history))
+        except Exception:
+            pass  # history write failure must never crash the loop
+
+    def _load_rejection_history(self) -> list[str]:
+        """Load cross-run rejection verdicts from the store."""
+        try:
+            import json
+
+            raw = self._store.get(_REJECTION_HISTORY_KEY.format(name=self.name))
+            return json.loads(raw) if raw else []
+        except Exception:
+            return []
 
     # Hide base _build_prompt — MakerChecker uses _build_maker_prompt instead
     def _build_prompt(self, context: dict) -> str:

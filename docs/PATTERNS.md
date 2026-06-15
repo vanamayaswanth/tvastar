@@ -1015,6 +1015,115 @@ tvastar loop audit .tvastar/loops/ci.py:loop || exit 1
 
 ---
 
+## 26. Self-Improving Loop (meta_model)
+
+Inspired by Hyperagents: set `meta_model` on a `LoopConfig` and the loop rewrites its own
+agent instructions after each FAIL. Improvements are persisted to `FileStore` and applied
+to every subsequent run — the loop gets better without human intervention.
+
+```python
+import asyncio
+from tvastar.loop import Loop, LoopConfig
+from tvastar.loop.patterns import _make_agent
+from tvastar.memory.store import FileStore
+from tvastar.model.anthropic import AnthropicModel
+
+worker_model = AnthropicModel("claude-haiku-4-5-20251001")  # fast, runs the actual task
+meta_model   = AnthropicModel("claude-sonnet-4-6")           # stronger, improves instructions
+
+spec = _make_agent(
+    "self-improving-ci",
+    worker_model,
+    instructions=(
+        "You are a CI agent. Fix failing tests. Commit and push when green. "
+        "Report FAILURE if you cannot fix within 5 minutes."
+    ),
+    tools=None,
+)
+
+config = LoopConfig(
+    name="self-improving-ci",
+    goal="Keep the build green.",
+    schedule="*/15 * * * *",
+    cancel_after=300.0,
+    meta_model=meta_model,   # ← enables self-improvement
+)
+
+store = FileStore(".tvastar-state")   # persist improvements across restarts
+loop = Loop(spec, config, store=store)
+
+# After each FAIL, meta_model rewrites `spec.instructions` and the next
+# retry uses the improved version automatically.
+run = asyncio.run(loop.trigger())
+print(run.state)          # LoopState.PASS or LoopState.FAIL
+
+# Inspect the generational archive
+for gen in loop.generation_archive:
+    print(f"Gen {gen.gen_id}: {gen.state} (score={gen.score})")
+
+best = loop.best_generation()
+if best:
+    print(f"Best generation: gen {best.gen_id}, score {best.score}")
+    print("Instructions that produced it:")
+    print(best.instructions_snapshot[:200])
+```
+
+The meta-improvement fires as a background task immediately after the FAIL is recorded.
+The next retry (after backoff) runs with the improved instructions. A meta-improvement
+failure is silently ignored — it must never crash the loop.
+
+---
+
+## 27. MakerChecker with Persistent Rejection Memory
+
+Standard `MakerChecker` feeds checker feedback back within a session. This pattern shows
+how persistent rejection memory across sessions prevents the Maker from repeating the
+same class of mistakes run after run.
+
+```python
+import asyncio
+from tvastar.loop.patterns import MakerChecker
+from tvastar.memory.store import FileStore
+from tvastar.model.anthropic import AnthropicModel
+
+# FileStore makes rejection history survive across process restarts
+store = FileStore(".tvastar-state")
+
+loop = MakerChecker(
+    maker_model=AnthropicModel("claude-haiku-4-5-20251001"),
+    checker_model=AnthropicModel("claude-sonnet-4-6"),
+    goal="Write a SQL migration that adds a non-null column to the users table safely",
+    max_rounds=3,
+    cancel_after=600.0,
+    store=store,  # ← enables cross-run persistence
+)
+
+# Run 1 — Checker rejects: "missing default value for existing rows"
+run1 = asyncio.run(loop.trigger())
+print(run1.state)  # LoopState.FAIL or PASS
+
+# Run 2 (next day / next trigger) — Maker now sees the rejection from Run 1
+# in its "Cross-Run Rejection History" and avoids the same mistake
+run2 = asyncio.run(loop.trigger())
+print(run2.state)
+
+# Inspect stored rejection history
+import json
+raw = store.get(f"loop:{loop.name}:rejection_history")
+if raw:
+    for entry in json.loads(raw):
+        print("Past rejection:", entry[:120])
+```
+
+Key properties:
+- Last 5 REJECTED checker verdicts are stored (truncated to 500 chars each to avoid context bloat)
+- History is scoped by `loop.name` — different loops never share history
+- APPROVED runs do not write to rejection history
+- History is prepended to the Maker prompt as a "Cross-Run Rejection History" block
+- Combine with `meta_model` for both instruction evolution AND rejection memory
+
+---
+
 ## Pattern Quick-Reference
 
 | Goal | Key API |
@@ -1039,3 +1148,6 @@ tvastar loop audit .tvastar/loops/ci.py:loop || exit 1
 | Recurring automation | `CISweeper(model=..., schedule="...", cancel_after=...)` |
 | Two-agent verification | `MakerChecker(maker_model=..., checker_model=..., goal=...)` |
 | Readiness gate | `audit_loop(loop).is_production_ready` |
+| Self-improving loop | `LoopConfig(..., meta_model=AnthropicModel(...))` |
+| Cross-run MakerChecker | `MakerChecker(..., store=FileStore(...))` — rejection history persists |
+| Generation archive | `loop.generation_archive` / `loop.best_generation()` |

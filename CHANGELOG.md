@@ -6,6 +6,65 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-06-16
+
+### Added
+
+- **Self-Improving Loops** (`LoopConfig.meta_model`) — Hyperagents-inspired prompt evolution.
+  Set `meta_model=` on any `LoopConfig` and the loop will run a meta-agent after each FAIL
+  to rewrite its own instructions based on failure evidence. The improved instructions are
+  persisted to `FileStore` and applied to every subsequent run automatically.
+
+  ```python
+  loop = CISweeper(
+      model=AnthropicModel("claude-haiku-4-5-20251001"),
+      schedule="*/15 * * * *",
+      cancel_after=300.0,
+  )
+  # Override the LoopConfig after construction to enable meta-improvement:
+  from tvastar.loop import LoopConfig
+  loop._config = LoopConfig(
+      name=loop._config.name,
+      goal=loop._config.goal,
+      schedule=loop._config.schedule,
+      cancel_after=loop._config.cancel_after,
+      meta_model=AnthropicModel("claude-sonnet-4-6"),
+  )
+  ```
+
+  Or pass it directly to any custom Loop:
+  ```python
+  config = LoopConfig(
+      name="my-loop",
+      goal="Keep the build green.",
+      schedule="*/15 * * * *",
+      cancel_after=300.0,
+      meta_model=AnthropicModel("claude-sonnet-4-6"),
+  )
+  ```
+
+  Design: meta-improvement fires as a background task after the FAIL is recorded, so the
+  next retry (already scheduled after backoff) benefits. Never raises — a meta-improvement
+  failure must not affect the main loop lifecycle.
+
+- **Generational Archive** (`loop.generation_archive`, `loop.best_generation()`) — every
+  `LoopRun` is recorded as a `LoopGeneration` with a fitness score (1.0 = PASS, 0.0 = FAIL)
+  and the instructions snapshot that produced it. The archive persists to `FileStore` across
+  restarts (last 100 generations kept).
+
+  ```python
+  archive = loop.generation_archive   # list[LoopGeneration]
+  best = loop.best_generation()       # LoopGeneration with highest score
+  print(f"Best run: gen {best.gen_id} scored {best.score} ({best.state})")
+  ```
+
+  New public type: `LoopGeneration` (exported from `tvastar`).
+
+- **`MakerChecker` persistent rejection memory** — Checker `REJECTED` verdicts are now
+  persisted to `FileStore` across runs (last 5 kept). The Maker's prompt on the next
+  `trigger()` includes a "Cross-Run Rejection History" section so it learns from patterns
+  that caused rejection in previous sessions — not just the current round.
+
 ## [0.11.0] — 2026-06-15
 
 ### Added

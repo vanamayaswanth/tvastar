@@ -540,6 +540,34 @@ run = await loop.trigger()
 # Only APPROVED advances to PASS
 ```
 
+### Self-Improving Loops (`meta_model`)
+
+Set `meta_model` on any `LoopConfig` and the loop will rewrite its own agent instructions after each FAIL — inspired by [Hyperagents](https://github.com/facebookresearch/Hyperagents). No code execution: improvement is pure prompt evolution, persisted across restarts.
+
+```python
+from tvastar.loop import Loop, LoopConfig
+from tvastar.memory.store import FileStore
+from tvastar.model.anthropic import AnthropicModel
+
+config = LoopConfig(
+    name="self-improving-ci",
+    goal="Keep the build green.",
+    schedule="*/15 * * * *",
+    cancel_after=300.0,
+    meta_model=AnthropicModel("claude-sonnet-4-6"),  # stronger model improves the worker
+)
+loop = Loop(spec, config, store=FileStore(".tvastar-state"))
+
+# After each FAIL, meta_model rewrites the worker's instructions and the next
+# retry uses the improved version. Every run is recorded as a LoopGeneration.
+run = await loop.trigger()
+
+best = loop.best_generation()   # highest-scoring generation on record
+print(f"Best: gen {best.gen_id}, score={best.score}")
+```
+
+`MakerChecker` with a `FileStore` also persists checker rejection verdicts across runs so the Maker learns from patterns that caused rejection in previous sessions.
+
 ### L0→L3 Readiness Audit
 
 Score any loop before deploying it. Never discover failure modes at 2am.
@@ -1389,6 +1417,7 @@ Products ship first. Framework features get added only when a product needs them
 | **tvastar-outbound** | Outbound sales agent — research → score → email → send | ✅ v0.9.0 |
 | **SOTA safety** | Governance, transactions, LTM, memory cap, OpenAI retry | ✅ v0.10.0 |
 | **Loop Engineering** | `Loop`, 7 patterns, CLI, MakerChecker, L0→L3 audit | ✅ v0.11.0 |
+| **Self-Improving Loops** | `meta_model` prompt evolution, generational archive, MakerChecker cross-run memory | ✅ v0.12.0 |
 | **SlackHandoff + Webhooks** | Built-in Slack escalation + event-driven loop triggers | 📋 v0.12.0 |
 | **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.12.1 |
 | **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |

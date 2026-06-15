@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
     from ..agent import AgentSpec
     from ..memory.store import Store
+    from ..model.base import Model
     from ..observability import Tracer
     from .handoff import HandoffPolicy
 
@@ -97,6 +98,23 @@ class LoopRun:
 
 
 @dataclass
+class LoopGeneration:
+    """A single archived generation — run result, fitness score, and instructions snapshot."""
+
+    gen_id: int
+    run_id: str
+    loop_name: str
+    state: LoopState
+    score: float  # 1.0 = PASS, 0.0 = FAIL
+    started_at: float
+    instructions_snapshot: str
+
+    @property
+    def passed(self) -> bool:
+        return self.state == LoopState.PASS
+
+
+@dataclass
 class LoopConfig:
     name: str
     goal: str
@@ -106,6 +124,7 @@ class LoopConfig:
     retry_backoff_base: float = 30.0  # seconds: 30 → 60 → 120 before HANDOFF
     circuit_breaker_limit: int = 5  # consecutive HANDOFF cycles → SUSPENDED
     handoff: "HandoffPolicy | None" = None
+    meta_model: "Model | None" = None  # if set, rewrites instructions after each FAIL
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -161,19 +180,25 @@ class Loop:
         from ..harness import Harness
         from ..memory.store import InMemoryStore
 
-        self._harness = Harness(spec, store=store, tracer=tracer)
+        self._base_spec = spec  # original spec — kept for instruction rebuilds
+        self._tracer = tracer
+        self._store = store or InMemoryStore()
+        self._harness = Harness(spec, store=self._store, tracer=tracer)
         self._config = config
         self._state = LoopState.IDLE
         self._history: list[LoopRun] = []
         self._task: asyncio.Task | None = None
         self._listeners: list[Callable[[LoopEvent], None]] = []
-        self._store = store or InMemoryStore()
         self._iteration = 0
         self._consecutive_failures = 0
+        self._gen_counter = 0
+        self._current_instructions: str = spec.instructions
         self._lock = asyncio.Lock()
 
         # Crash recovery: detect orphaned RUNNING runs from a previous process
         self._recover()
+        # Restore any meta-improved instructions from a previous process
+        self._load_meta_instructions()
 
     # ------------------------------------------------------------------
     # Public API
@@ -196,6 +221,37 @@ class Loop:
 
     def last_run(self) -> LoopRun | None:
         return self._history[-1] if self._history else None
+
+    @property
+    def generation_archive(self) -> list[LoopGeneration]:
+        """All recorded generations, oldest first. Persisted across restarts."""
+        try:
+            import json
+
+            raw = self._store.get(f"loop:{self.name}:archive")
+            if not raw:
+                return []
+            return [
+                LoopGeneration(
+                    gen_id=g["gen_id"],
+                    run_id=g["run_id"],
+                    loop_name=self.name,
+                    state=LoopState(g["state"]),
+                    score=g["score"],
+                    started_at=g["started_at"],
+                    instructions_snapshot=g["instructions_snapshot"],
+                )
+                for g in json.loads(raw)
+            ]
+        except Exception:
+            return []
+
+    def best_generation(self) -> LoopGeneration | None:
+        """Return the highest-scoring generation on record (most recent PASS preferred)."""
+        archive = self.generation_archive
+        if not archive:
+            return None
+        return max(archive, key=lambda g: (g.score, g.started_at))
 
     def on_event(self, fn: Callable[[LoopEvent], None]) -> None:
         """Register a listener called on every state transition."""
@@ -256,6 +312,15 @@ class Loop:
         finally:
             run.ended_at = time.time()
             self._checkpoint(run)
+            self._record_generation(run)
+
+        # Self-improvement: after any non-PASS run, fire meta-improvement asynchronously
+        # so the next retry (already scheduled after backoff) benefits from improved instructions
+        if (
+            run.state not in (LoopState.PASS, LoopState.SUSPENDED)
+            and self._config.meta_model is not None
+        ):
+            asyncio.create_task(self._improve_instructions(run))
 
         return run
 
@@ -477,6 +542,99 @@ class Loop:
     # Internal: helpers
     # ------------------------------------------------------------------
 
+    def _load_meta_instructions(self) -> None:
+        """On startup, restore any meta-improved instructions from a previous run."""
+        try:
+            raw = self._store.get(f"loop:{self.name}:meta_instructions")
+            if not raw:
+                return
+            from ..harness import Harness
+            import dataclasses
+
+            self._current_instructions = raw
+            new_spec = dataclasses.replace(self._base_spec, instructions=raw)
+            self._harness = Harness(new_spec, store=self._store, tracer=self._tracer)
+        except Exception:
+            pass  # restoration failure must not crash startup
+
+    def _record_generation(self, run: LoopRun) -> None:
+        """Append this run to the generational archive. Keeps last 100 entries."""
+        try:
+            import json
+
+            self._gen_counter += 1
+            entry = {
+                "gen_id": self._gen_counter,
+                "run_id": run.run_id,
+                "state": run.state,
+                "score": 1.0 if run.state == LoopState.PASS else 0.0,
+                "started_at": run.started_at,
+                "instructions_snapshot": self._current_instructions,
+            }
+            key = f"loop:{self.name}:archive"
+            raw = self._store.get(key)
+            archive = json.loads(raw) if raw else []
+            archive.append(entry)
+            if len(archive) > 100:
+                archive = archive[-100:]
+            self._store.set(key, json.dumps(archive))
+        except Exception:
+            pass  # archive failure must not crash the run
+
+    async def _improve_instructions(self, run: LoopRun) -> None:
+        """Run a meta-agent to rewrite the loop's instructions based on failure evidence.
+
+        Fires asynchronously after a FAIL so the next retry (after backoff) benefits.
+        Never raises — a meta-improvement failure must not affect the loop lifecycle.
+        """
+        failure_lines: list[str] = []
+        if run.error:
+            failure_lines.append(f"Error: {run.error}")
+        for f in run.findings[:5]:
+            detector = getattr(f, "detector", "?")
+            message = getattr(f, "message", str(f))
+            failure_lines.append(f"[{detector}] {message}")
+
+        if not failure_lines:
+            return  # no evidence to improve from
+
+        try:
+            import dataclasses
+
+            from ..agent import create_agent
+            from ..harness import Harness
+
+            meta_spec = create_agent(
+                f"{self.name}:meta",
+                model=self._config.meta_model,
+                instructions=(
+                    "You are an expert prompt engineer specialising in AI agent reliability. "
+                    "You will receive agent instructions and failure evidence from a production loop. "
+                    "Your job: rewrite the instructions to prevent these failures. "
+                    "Preserve all existing rules and safety constraints. "
+                    "Add specific, actionable guidance to address each failure. "
+                    "Return ONLY the improved instructions — no preamble, no commentary, no quotes."
+                ),
+            )
+            prompt = (
+                f"Current agent instructions:\n{self._current_instructions}\n\n"
+                f"Failure evidence from run {run.run_id}:\n"
+                + "\n".join(failure_lines)
+                + "\n\nRewrite the instructions to prevent these failures. "
+                "Return ONLY the improved instructions."
+            )
+            result = await Harness(meta_spec).run(prompt)
+
+            if result.ok and result.text.strip():
+                new_instructions = result.text.strip()
+                new_spec = dataclasses.replace(self._base_spec, instructions=new_instructions)
+                self._harness = Harness(new_spec, store=self._store, tracer=self._tracer)
+                self._current_instructions = new_instructions
+                self._store.set(f"loop:{self.name}:meta_instructions", new_instructions)
+                self._emit(run, run.state, {"meta_improved": True, "gen": self._gen_counter})
+        except Exception:
+            pass  # meta-improvement failure must never crash the loop
+
     def _build_prompt(self, context: dict) -> str:
         parts = [f"Goal: {self._config.goal}"]
         if context:
@@ -543,6 +701,7 @@ __all__ = [
     "LoopState",
     "LoopRun",
     "LoopEvent",
+    "LoopGeneration",
     "FailureKind",
     "_CIRCUIT_BREAKER_KEY",
 ]

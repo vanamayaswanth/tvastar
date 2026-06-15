@@ -279,6 +279,47 @@ harness = Harness(spec, tracer=Tracer([ConsoleExporter(), JSONLExporter("trace.j
 
 ---
 
+## Self-Improving Loops (`meta_model`)
+
+Set `meta_model` on a `LoopConfig` to enable Hyperagents-style prompt evolution. After each
+FAIL the meta-agent reads the failure evidence and rewrites the loop's agent instructions.
+The improved instructions are persisted and used from the very next retry.
+
+```python
+config = LoopConfig(
+    name="ci-sweeper",
+    goal="Keep the build green.",
+    schedule="*/15 * * * *",
+    cancel_after=300.0,
+    meta_model=AnthropicModel("claude-sonnet-4-6"),  # stronger model improves the worker
+)
+```
+
+| Question | Answer |
+|----------|--------|
+| When does it fire? | Asynchronously after each non-PASS run, before the retry backoff expires |
+| What does it improve? | The agent's `instructions` string — never code |
+| How do improvements persist? | Stored under `loop:{name}:meta_instructions` in `FileStore` |
+| What if meta-improvement fails? | Silently ignored — loop continues on previous instructions |
+| Which model for `meta_model`? | Stronger than the worker (e.g. Sonnet for a Haiku worker) |
+| Does it affect PASS runs? | No — only fires after FAIL/RETRY/HANDOFF |
+
+### Generational Archive
+
+Every run is recorded as a `LoopGeneration` with a fitness score.
+
+```python
+archive = loop.generation_archive     # list[LoopGeneration], oldest first
+best    = loop.best_generation()      # highest score (most recent PASS wins ties)
+print(f"Best: gen {best.gen_id}, score={best.score}")
+print(best.instructions_snapshot)     # instructions that produced this result
+```
+
+`LoopGeneration` fields: `gen_id`, `run_id`, `loop_name`, `state`, `score` (1.0=PASS / 0.0=FAIL),
+`started_at`, `instructions_snapshot`.
+
+---
+
 ## Loop readiness checklist (L0 → L3)
 
 Before deploying a loop to production, check its readiness level:

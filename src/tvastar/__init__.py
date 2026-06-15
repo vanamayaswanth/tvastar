@@ -81,7 +81,7 @@ from .eval import (
 )
 from .graph import GraphResult, TaskGraph
 from .harness import Harness
-from .loop import FailureKind, Loop, LoopConfig, LoopEvent, LoopRun, LoopState
+from .loop import FailureKind, Loop, LoopConfig, LoopEvent, LoopGeneration, LoopRun, LoopState
 from .loop.audit import ReadinessLevel, audit_loop
 from .loop.handoff import CallbackHandoff, HandoffPolicy, LogHandoff, MultiHandoff
 from .loop.patterns import (
@@ -168,7 +168,7 @@ from .workflow import (
     cli_logs as workflow_logs,
 )
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 
 __all__ = [
     "create_agent",
@@ -313,6 +313,7 @@ __all__ = [
     "LoopState",
     "LoopRun",
     "LoopEvent",
+    "LoopGeneration",
     "FailureKind",
     "HandoffPolicy",
     "LogHandoff",
