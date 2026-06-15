@@ -44,11 +44,13 @@ async def score_lead(
     except ImportError:
         use_pydantic = False
 
+    from ..boundary import wrap_untrusted
+
     prompt = (
         f"Score how well this lead matches our Ideal Customer Profile (ICP).\n\n"
         f"## ICP\n{icp}\n\n"
-        f"## Lead\n{research.lead.display()}\n\n"
-        f"## Research Brief\n{research.summary}\n\n"
+        f"## Lead\n{wrap_untrusted(research.lead.display())}\n\n"
+        f"## Research Brief\n{wrap_untrusted(research.summary)}\n\n"
         f"Return a score from 0.0 (terrible fit) to 1.0 (perfect fit) "
         f"and a 2-3 sentence rationale explaining the score."
     )

@@ -6,6 +6,45 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.12.2] — 2026-06-16
+
+### Fixed (Munger standards deep audit — 4 gaps)
+
+- **`score.py` injection vectors** — `research.summary` and `lead.display()` are now
+  wrapped with `wrap_untrusted()` before being embedded in the scoring prompt. Web-scraped
+  research data was previously inserted raw, allowing a malicious web page to inject
+  instructions into the scorer.
+
+- **`email.py` injection vectors (critical)** — `scored.research.summary`,
+  `scored.rationale`, and `lead.display()` are now all wrapped with `wrap_untrusted()`
+  before being inserted into the email-writing prompt. `scored.rationale` is model output
+  that itself processed web-scraped content — wrapping it prevents second-order injection.
+  This completes the Case A prompt-injection defense started in v0.12.1.
+
+- **Async fire-and-forget task orphan** — `asyncio.create_task(self._improve_instructions(run))`
+  previously returned a task with no stored reference, which Python's GC could collect
+  before it completed (especially if the calling context exited quickly). The task is now
+  added to `self._bg_tasks` (a set) and removed via `add_done_callback` when it finishes,
+  following the standard Python idiom for safe fire-and-forget.
+
+- **`CredentialFilter` pattern gaps** — Added `*_URL`, `*_URI`, `*_DSN`, `PGPASSWORD`,
+  and `PGPASSFILE` to the default strip patterns. Previously `DATABASE_URL`, `REDIS_URL`,
+  `MONGO_URI`, `SENTRY_DSN`, and `PGPASSWORD` were not covered.
+
+### Not fixed (architectural decisions — require discussion)
+
+- **`cancel_after` optional everywhere** — No default timeout on `sess.prompt()`,
+  `sess.task()`, or `harness.run()`. Rule 1 says mandatory; current design leaves it to
+  callers. Recommendation: document as a required caller responsibility.
+- **`budget` optional** — `BudgetPolicy` is `None` by default, meaning unlimited spend.
+  Rule 1 requires budget declaration. Recommendation: add `BudgetPolicy` to the
+  production-agent quickstart guide with a hard ceiling.
+- **`SecurityPolicy` is denylist-based** — Only 4 commands denied by default; everything
+  else is allowed. An allowlist model would be safer for untrusted agents.
+- **No budget reduction by task depth** — `sess.task()` child sessions inherit the
+  parent's full `max_steps` with no reduction. At MAX_TASK_DEPTH=4 with default 20 steps,
+  worst-case exponential cost is 20^4 = 160,000 steps.
+
 ## [0.12.1] — 2026-06-16
 
 ### Fixed

@@ -49,6 +49,8 @@ async def write_draft(
     except ImportError:
         use_pydantic = False
 
+    from ..boundary import wrap_untrusted
+
     lead = scored.research.lead
     prompt = (
         f"Write a concise, personalised cold email from {sender_name} at {sender_company}.\n\n"
@@ -56,9 +58,9 @@ async def write_draft(
         f"Name: {sender_name}\n"
         f"Company: {sender_company}\n"
         f"Email: {sender_email}\n\n"
-        f"## Recipient\n{lead.display()}\n\n"
-        f"## Research Brief\n{scored.research.summary}\n\n"
-        f"## Why they scored {scored.score:.0%}\n{scored.rationale}\n\n"
+        f"## Recipient\n{wrap_untrusted(lead.display())}\n\n"
+        f"## Research Brief\n{wrap_untrusted(scored.research.summary)}\n\n"
+        f"## Why they scored {scored.score:.0%}\n{wrap_untrusted(scored.rationale)}\n\n"
         + (f"## Extra context\n{context}\n\n" if context else "")
         + "## Rules\n"
         "- Subject: short, specific, no clickbait or ALL CAPS\n"

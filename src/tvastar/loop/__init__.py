@@ -194,6 +194,7 @@ class Loop:
         self._gen_counter = 0
         self._current_instructions: str = spec.instructions
         self._lock = asyncio.Lock()
+        self._bg_tasks: set = set()  # keeps fire-and-forget tasks alive until done
 
         # Crash recovery: detect orphaned RUNNING runs from a previous process
         self._recover()
@@ -320,7 +321,9 @@ class Loop:
             run.state not in (LoopState.PASS, LoopState.SUSPENDED)
             and self._config.meta_model is not None
         ):
-            asyncio.create_task(self._improve_instructions(run))
+            t = asyncio.create_task(self._improve_instructions(run))
+            self._bg_tasks.add(t)         # prevent GC before completion
+            t.add_done_callback(self._bg_tasks.discard)
 
         return run
 

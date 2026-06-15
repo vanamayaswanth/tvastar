@@ -66,6 +66,7 @@ class CredentialFilter:
 
     patterns: list[str] = field(
         default_factory=lambda: [
+            # Common suffix patterns
             "*_KEY",
             "*_TOKEN",
             "*_SECRET",
@@ -73,6 +74,13 @@ class CredentialFilter:
             "*_PASS",
             "*_CREDENTIAL",
             "*_CREDENTIALS",
+            # Connection string patterns (DATABASE_URL, REDIS_URL, MONGO_URI, SENTRY_DSN …)
+            "*_URL",
+            "*_URI",
+            "*_DSN",
+            # Bare names that don't fit a suffix pattern
+            "PGPASSWORD",
+            "PGPASSFILE",
         ]
     )
 
