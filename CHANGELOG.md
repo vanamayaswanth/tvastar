@@ -6,6 +6,100 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-06-15
+
+### Added
+
+- **Loop Engineering layer** — `Loop`, `LoopConfig`, `LoopState`, `LoopRun`, `LoopEvent`,
+  `FailureKind`. A first-class primitive for agents that run on a schedule with
+  automatic verify, retry, and handoff.
+
+  ```python
+  loop = CISweeper(
+      model=AnthropicModel("claude-sonnet-4-6"),
+      schedule="*/15 * * * *",
+      cancel_after=300.0,
+  )
+  await loop.start()   # runs forever — trigger → run → verify → handoff if stuck
+  ```
+
+  Lifecycle: `IDLE → TRIGGERED → RUNNING → VERIFYING → PASS/FAIL → RETRY/HANDOFF → IDLE`
+
+  Werner-hardened failure modes:
+  - Crash recovery: `_recover()` on startup detects orphaned RUNNING runs → `INTERRUPTED`
+  - Exponential backoff: `base * 2^(iteration-1)` between retries (default: 30s → 60s → 120s)
+  - Circuit breaker: N consecutive HANDOFF cycles → `SUSPENDED`; `loop.reset()` to resume
+  - Handoff durability: persisted to store before firing, retried 3× → `HANDOFF_FAILED` if all fail
+  - Scheduler watchdog: `add_done_callback` restarts dead scheduler task automatically
+  - Memory-safe history: `LoopRun` stores metadata only, never full message history
+  - Config validated at construction: `LoopConfig.__post_init__` checks cron schedule before 2am
+
+- **7 pre-built loop patterns** in `tvastar.loop.patterns`:
+  - `CISweeper` — fixes red builds every 15 minutes; escalates if unfixable
+  - `PRBabysitter` — resolves trivial merge conflicts, flags stale PRs every 30 minutes
+  - `DailyTriage` — classifies new issues by severity at 9am UTC daily
+  - `DependencySweeper` — bumps patch versions, runs tests, commits if green at 3am UTC daily
+  - `PostMergeCleanup` — reports TODOs + stale references after merges land
+  - `ChangelogDrafter` — drafts CHANGELOG entries from commit history every Monday
+  - `MakerChecker` — two-agent verification (see below)
+
+  Every pattern ships with `_VERIFY_FOOTER` requiring explicit SUCCESS/PARTIAL/FAILURE
+  and `extra_instructions=` for project-specific customisation without replacing the base prompt.
+
+- **MakerChecker pattern** (`tvastar.loop.patterns.MakerChecker`) — two-agent verification loop:
+  Maker proposes a change, Checker independently reviews it. Only `APPROVED` from the Checker
+  advances to `PASS`. `REJECTED` feeds structured feedback back to Maker for the next round.
+
+  ```python
+  loop = MakerChecker(
+      maker_model=AnthropicModel("claude-haiku-4-5-20251001"),
+      checker_model=AnthropicModel("claude-sonnet-4-6"),
+      goal="Fix the failing test in tests/test_auth.py",
+      max_rounds=3,
+      cancel_after=600.0,
+  )
+  ```
+
+  Failure modes: Checker timeout/error → `MODEL_ERROR` (not swallowed); no verdict in
+  output → treated as `REJECTED` (fail safe); `retry_backoff_base=0.0` so feedback is
+  addressed immediately.
+
+- **Handoff policies** (`tvastar.loop.handoff`):
+  - `LogHandoff` — structured report to stderr with full run history
+  - `CallbackHandoff` — async function `fn(run, history)`
+  - `MultiHandoff` — fires all policies, reports all failures independently
+
+- **L0→L3 Readiness Audit** (`tvastar.loop.audit`):
+  `audit_loop(loop)` is a pure function that scores any Loop against 5 production-readiness
+  checks and returns a `ReadinessLevel` (level 0–3, name, description, passes, gaps, warnings).
+
+  | Level | Name | Gate conditions |
+  |-------|------|----------------|
+  | L0 | MANUAL | Loop exists |
+  | L1 | OBSERVE | + schedule + handoff |
+  | L2 | GATED | + cancel_after timeout |
+  | L3 | AUTONOMOUS | + detectors + circuit breaker |
+
+- **`tvastar loop` CLI subcommands** (Phase 3):
+  - `tvastar loop init <Pattern>` — scaffold `.tvastar/loops/<name>.py` from any pattern
+  - `tvastar loop run  <ref>` — trigger once, blocking; exit 0=PASS / 1=FAIL (CI-safe)
+  - `tvastar loop status <ref>` — show state + last run + next scheduled time
+  - `tvastar loop audit <ref>` — L0→L3 score; exits 0 only at L3 (pre-deploy gate)
+
+- **Zero-dependency cron evaluator** (`tvastar.loop.schedule.next_run_time`):
+  Supports `@yearly/@monthly/@weekly/@daily/@hourly` aliases and full 5-field cron
+  (`MIN HOUR DOM MON DOW`) including ranges, steps, and comma lists. Pure stdlib.
+
+### Changed
+
+- `tvastar.__init__` docstring updated to the loop engineering tagline:
+  *"Tvastar — the framework for loop engineering. Agent = Model + Harness / Loop = Agent + Schedule + Verify + Handoff"*
+- `__version__` bumped to `"0.11.0"`
+- New public exports: `Loop`, `LoopConfig`, `LoopState`, `LoopRun`, `LoopEvent`,
+  `FailureKind`, `HandoffPolicy`, `LogHandoff`, `CallbackHandoff`, `MultiHandoff`,
+  `CISweeper`, `PRBabysitter`, `DailyTriage`, `DependencySweeper`, `PostMergeCleanup`,
+  `ChangelogDrafter`, `MakerChecker`, `ReadinessLevel`, `audit_loop`
+
 ## [0.10.0] — 2026-06-15
 
 ### Added

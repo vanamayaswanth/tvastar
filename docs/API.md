@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.10.0. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.11.0. Every public symbol, field, and signature.
 
 ---
 
@@ -1263,3 +1263,303 @@ def serverless_handler(spec: AgentSpec) -> Callable
 def run_github_action(spec: AgentSpec) -> None
 # Reads INPUT_PROMPT env var, runs agent, writes step outputs — call in __main__
 ```
+
+---
+
+## Loop Engineering (`tvastar/loop/`)
+
+> **v0.11.0+**  `Loop = Agent + Schedule + Verify + Handoff`
+
+---
+
+### `LoopState` — lifecycle enum
+
+```python
+class LoopState(str, Enum):
+    IDLE          = "idle"          # waiting for next trigger
+    TRIGGERED     = "triggered"     # trigger() called, run not yet started
+    RUNNING       = "running"       # agent is executing
+    VERIFYING     = "verifying"     # checking result against detectors
+    PASS          = "pass"          # goal met; resets to IDLE
+    FAIL          = "fail"          # goal not met; may retry or handoff
+    RETRY         = "retry"         # backing off before next attempt
+    HANDOFF       = "handoff"       # retries exhausted; escalating
+    HANDOFF_FAILED = "handoff_failed"  # handoff policy itself threw
+    INTERRUPTED   = "interrupted"   # process crashed while RUNNING (crash recovery)
+    SUSPENDED     = "suspended"     # circuit breaker: too many consecutive failures
+```
+
+---
+
+### `FailureKind` — why a run failed
+
+```python
+class FailureKind(str, Enum):
+    TIMEOUT      = "timeout"       # cancel_after fired
+    MODEL_ERROR  = "model_error"   # provider API error
+    LOGIC_ERROR  = "logic_error"   # agent ran but goal not met (result.ok False)
+    DETECTION    = "detection"     # silent-failure detector fired
+    UNKNOWN      = "unknown"       # unexpected exception
+```
+
+---
+
+### `LoopRun` — one iteration's record
+
+```python
+@dataclass
+class LoopRun:
+    run_id: str
+    loop_name: str
+    state: LoopState
+    iteration: int             # which attempt within this handoff cycle
+    started_at: float          # unix timestamp
+    ended_at: float | None
+    result_text: str | None    # final assistant text (metadata only — not full messages)
+    result_steps: int | None
+    result_stopped: str | None
+    findings: list             # from silent-failure detectors
+    failure_kind: FailureKind | None
+    retry_after: float | None  # unix timestamp: honour backoff before retrying
+    error: str | None          # exception message if run errored
+    context: dict              # arbitrary key=value carried between retries
+
+    @property
+    def ok(self) -> bool           # True iff state == PASS
+    @property
+    def duration(self) -> float | None
+```
+
+---
+
+### `LoopEvent` — emitted on every state transition
+
+```python
+@dataclass
+class LoopEvent:
+    loop_name: str
+    run_id: str
+    state: LoopState
+    at: float
+    data: dict
+```
+
+---
+
+### `LoopConfig` — validated at construction
+
+```python
+@dataclass
+class LoopConfig:
+    name: str                        # loop identity key for checkpointing
+    goal: str                        # plain-language objective passed to agent each run
+    schedule: str = "@manual"        # cron expr | @daily | @hourly | … | @manual
+    max_iterations: int = 3          # retries before HANDOFF (per cycle)
+    cancel_after: float | None = None  # per-run timeout in seconds (strongly recommended)
+    retry_backoff_base: float = 30.0 # seconds: 30 → 60 → 120 with exponential growth
+    circuit_breaker_limit: int = 5   # consecutive HANDOFF cycles → SUSPENDED
+    handoff: HandoffPolicy | None = None
+    metadata: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None
+    # Validates: name non-empty, goal non-empty, max_iterations >= 1,
+    # retry_backoff_base >= 0, and the cron schedule parses correctly.
+    # Raises ValueError at construction time — never at 2am.
+```
+
+---
+
+### `Loop` — the core primitive
+
+```python
+class Loop:
+    def __init__(
+        self,
+        spec: AgentSpec,
+        config: LoopConfig,
+        store: Store | None = None,   # default: InMemoryStore; use FileStore for durability
+        tracer: Tracer | None = None,
+    ) -> None
+
+    # Properties
+    @property
+    def name(self) -> str
+    @property
+    def state(self) -> LoopState
+    @property
+    def config(self) -> LoopConfig
+
+    # Public API
+    async def trigger(self, context: dict | None = None) -> LoopRun
+    # Run one iteration now (regardless of schedule).
+    # Raises RuntimeError if SUSPENDED, already RUNNING, or inside backoff window.
+
+    async def start(self) -> None
+    # Start the background cron scheduler (no-op for @manual loops).
+
+    async def stop(self) -> None
+    # Cancel the background scheduler gracefully.
+
+    def reset(self) -> None
+    # Clear SUSPENDED state and reset circuit breaker counter. Manual intervention.
+
+    def on_event(self, fn: Callable[[LoopEvent], None]) -> None
+    # Register a listener called on every state transition.
+
+    def history(self, limit: int = 50) -> list[LoopRun]
+    def last_run(self) -> LoopRun | None
+
+    # Werner-hardened internals (overridable in subclasses)
+    async def _run_iteration(self, run: LoopRun, context: dict) -> None
+    def _build_prompt(self, context: dict) -> str
+```
+
+---
+
+### Handoff policies (`tvastar/loop/handoff.py`)
+
+```python
+class HandoffPolicy(ABC):
+    @abstractmethod
+    async def escalate(self, run: LoopRun, history: list[LoopRun]) -> None: ...
+
+class LogHandoff(HandoffPolicy):
+    # Prints a structured escalation report to stderr.
+    # Default when no handoff is configured.
+
+class CallbackHandoff(HandoffPolicy):
+    def __init__(self, fn: Callable[[LoopRun, list[LoopRun]], Awaitable[None]]) -> None
+    # Calls an async function with (run, history).
+
+class MultiHandoff(HandoffPolicy):
+    def __init__(self, policies: list[HandoffPolicy]) -> None
+    # Fires all policies. Collects and re-raises all failures after all run.
+```
+
+---
+
+### Cron scheduler (`tvastar/loop/schedule.py`)
+
+```python
+def next_run_time(expr: str, after: datetime) -> datetime
+# Returns the next UTC datetime when expr fires strictly after `after`.
+# Supports @yearly @annually @monthly @weekly @daily @midnight @hourly aliases.
+# Supports full 5-field cron: MIN HOUR DOM MON DOW (with ranges, steps, comma lists).
+# Raises ValueError for @manual or malformed expressions.
+```
+
+---
+
+### Readiness audit (`tvastar/loop/audit.py`)
+
+```python
+@dataclass
+class ReadinessLevel:
+    level: int                    # 0–3
+    name: str                     # MANUAL | OBSERVE | GATED | AUTONOMOUS
+    description: str
+    passes: list[str]             # checks that pass
+    gaps: list[str]               # blocking gaps (fix to advance level)
+    warnings: list[str]           # non-blocking advisories
+
+    @property
+    def is_production_ready(self) -> bool   # True iff level >= 3
+
+def audit_loop(loop: Loop) -> ReadinessLevel
+# Pure function — does not start or run the loop.
+# Checks: schedule, handoff, cancel_after, detectors, circuit_breaker_limit.
+# Raises TypeError if loop is not a Loop instance.
+```
+
+| Level | Name | Gate checks |
+|-------|------|------------|
+| L0 | MANUAL | Loop object exists |
+| L1 | OBSERVE | + schedule != @manual + handoff configured |
+| L2 | GATED | + cancel_after is not None |
+| L3 | AUTONOMOUS | + detectors non-empty + circuit_breaker_limit > 0 |
+
+---
+
+### Pre-built patterns (`tvastar/loop/patterns/`)
+
+All patterns inherit from `Loop`. All ship with hardened instructions and `_VERIFY_FOOTER`
+requiring explicit SUCCESS/PARTIAL/FAILURE in every run.
+
+```python
+class CISweeper(Loop):
+    def __init__(
+        self,
+        model: Model,
+        *,
+        schedule: str = "*/15 * * * *",
+        max_iterations: int = 3,
+        handoff: HandoffPolicy | None = None,    # default: LogHandoff
+        tools: list | None = None,               # default: default_toolset()
+        extra_instructions: str = "",
+    ) -> None
+
+class PRBabysitter(Loop):
+    def __init__(self, model, *, schedule="*/30 * * * *", max_iterations=2, ...)
+
+class DailyTriage(Loop):
+    def __init__(self, model, *, schedule="0 9 * * *", max_iterations=2, ...)
+
+class DependencySweeper(Loop):
+    def __init__(self, model, *, schedule="0 3 * * *", max_iterations=2, ...)
+
+class PostMergeCleanup(Loop):
+    def __init__(self, model, *, schedule="*/30 * * * *", max_iterations=2, ...)
+
+class ChangelogDrafter(Loop):
+    def __init__(self, model, *, schedule="0 9 * * 1", max_iterations=2, ...)
+
+class MakerChecker(Loop):
+    """Two-agent verification: Maker proposes, Checker independently verifies."""
+    def __init__(
+        self,
+        maker_model: Model,
+        checker_model: Model,
+        goal: str,
+        *,
+        name: str = "maker-checker",
+        schedule: str = "@manual",
+        max_rounds: int = 3,             # Maker+Checker cycles before HANDOFF
+        handoff: HandoffPolicy | None = None,
+        cancel_after: float | None = None,
+        maker_tools: list | None = None,
+        checker_tools: list | None = None,
+        extra_maker_instructions: str = "",
+        extra_checker_instructions: str = "",
+        store: Store | None = None,
+        tracer: Tracer | None = None,
+    ) -> None
+    # Checker must respond with APPROVED or REJECTED (fail-safe: no verdict = REJECTED).
+    # retry_backoff_base=0.0 so checker feedback is addressed immediately.
+    # Checker timeout/error → MODEL_ERROR (counted against round limit, not swallowed).
+```
+
+---
+
+### Loop CLI (`tvastar loop`)
+
+```
+tvastar loop init <Pattern> [--name NAME] [--out PATH]
+tvastar loop run  <ref>
+tvastar loop status <ref>
+tvastar loop audit <ref>
+```
+
+`<ref>` format: `path/to/file.py:loop_var` or `module.path:loop_var` (defaults `attr` to `loop`).
+
+```python
+# Equivalent Python API (all commands are also callable functions)
+from tvastar.loop.cli import cmd_init, cmd_run, cmd_status, cmd_audit
+
+cmd_init("CISweeper", name=None, out=None)      # → int exit code
+cmd_run(".tvastar/loops/ci_sweeper.py:loop")    # → int exit code
+cmd_status(".tvastar/loops/ci_sweeper.py:loop") # → int exit code
+cmd_audit(".tvastar/loops/ci_sweeper.py:loop")  # → int exit code (0 only at L3)
+```
+
+**Exit codes:** `run` and `audit` return 0 on success (PASS / L3), 1 on failure — safe for
+use as CI gates: `tvastar loop audit .tvastar/loops/ci.py:loop || exit 1`
