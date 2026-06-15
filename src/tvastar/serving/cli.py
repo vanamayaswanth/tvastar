@@ -73,7 +73,50 @@ def main(argv: list[str] | None = None) -> int:
     bench_p.add_argument("--concurrency", type=int, default=2, help="parallel tasks (default 2)")
     bench_p.add_argument("--out", default=None, help="write JSON report to this file")
 
+    # ── tvastar loop <subcommand> ──────────────────────────────────────────
+    loop_p = sub.add_parser("loop", help="loop engineering commands")
+    loop_sub = loop_p.add_subparsers(dest="loop_cmd", required=True)
+
+    # tvastar loop init <Pattern> [--name NAME] [--out PATH]
+    loop_init = loop_sub.add_parser("init", help="scaffold a loop from a pattern")
+    loop_init.add_argument(
+        "pattern",
+        help=(
+            "Pattern class name: CISweeper | PRBabysitter | DailyTriage | "
+            "DependencySweeper | PostMergeCleanup | ChangelogDrafter | MakerChecker"
+        ),
+    )
+    loop_init.add_argument("--name", default=None, help="loop name (default: pattern slug)")
+    loop_init.add_argument(
+        "--out", default=None, help="output file path (default: .tvastar/loops/<name>.py)"
+    )
+
+    # tvastar loop run <ref>
+    loop_run = loop_sub.add_parser("run", help="trigger a loop once (blocking)")
+    loop_run.add_argument("ref", help="loop reference, e.g. .tvastar/loops/ci.py:loop")
+
+    # tvastar loop status <ref>
+    loop_status = loop_sub.add_parser("status", help="show loop state and last run")
+    loop_status.add_argument("ref", help="loop reference, e.g. .tvastar/loops/ci.py:loop")
+
+    # tvastar loop audit <ref>
+    loop_audit = loop_sub.add_parser("audit", help="score loop readiness (L0→L3)")
+    loop_audit.add_argument("ref", help="loop reference, e.g. .tvastar/loops/ci.py:loop")
+
     args = parser.parse_args(argv)
+
+    if args.cmd == "loop":
+        from ..loop.cli import cmd_audit, cmd_init, cmd_run, cmd_status
+
+        if args.loop_cmd == "init":
+            return cmd_init(args.pattern, args.name, args.out)
+        if args.loop_cmd == "run":
+            return cmd_run(args.ref)
+        if args.loop_cmd == "status":
+            return cmd_status(args.ref)
+        if args.loop_cmd == "audit":
+            return cmd_audit(args.ref)
+        return 1
 
     if args.cmd == "ui":
         from tvastar.ui import run_ui

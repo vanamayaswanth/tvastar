@@ -544,4 +544,5 @@ __all__ = [
     "LoopRun",
     "LoopEvent",
     "FailureKind",
+    "_CIRCUIT_BREAKER_KEY",
 ]

@@ -82,12 +82,14 @@ from .eval import (
 from .graph import GraphResult, TaskGraph
 from .harness import Harness
 from .loop import FailureKind, Loop, LoopConfig, LoopEvent, LoopRun, LoopState
+from .loop.audit import ReadinessLevel, audit_loop
 from .loop.handoff import CallbackHandoff, HandoffPolicy, LogHandoff, MultiHandoff
 from .loop.patterns import (
     ChangelogDrafter,
     CISweeper,
     DailyTriage,
     DependencySweeper,
+    MakerChecker,
     PostMergeCleanup,
     PRBabysitter,
 )
@@ -322,6 +324,10 @@ __all__ = [
     "DependencySweeper",
     "PostMergeCleanup",
     "ChangelogDrafter",
+    "MakerChecker",
+    # loop readiness audit
+    "ReadinessLevel",
+    "audit_loop",
     # outbound sales agent
     "run_campaign",
     "CampaignResult",

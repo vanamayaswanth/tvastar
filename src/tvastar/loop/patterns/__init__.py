@@ -23,14 +23,18 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ...memory.store import Store
     from ...model.base import Model
+    from ...observability import Tracer
     from ..handoff import HandoffPolicy
+    from .. import LoopRun
 
 from ...tools import default_toolset
-from .. import Loop, LoopConfig
+from .. import FailureKind, Loop, LoopConfig
 
 # ---------------------------------------------------------------------------
 # Shared instructions suffix (every pattern ends with this)
@@ -423,6 +427,272 @@ class ChangelogDrafter(Loop):
         super().__init__(spec, config)
 
 
+# ---------------------------------------------------------------------------
+# Maker / Checker
+# ---------------------------------------------------------------------------
+
+_MAKER_INSTRUCTIONS = """You are the Maker. Your job is to accomplish the goal using available tools.
+
+Rules:
+- Read the goal carefully. If there is feedback from a previous Checker review,
+  address every point raised before proceeding.
+- Use tools to do real work: read files, write code, run tests.
+- After completing your work, summarise:
+  1. What you did (concrete actions taken).
+  2. Why it satisfies the goal.
+  3. How a Checker can verify it (files changed, commands to run, etc.).
+"""
+
+_CHECKER_INSTRUCTIONS = """You are the Checker. Your job is to independently verify the Maker's work.
+
+Rules:
+- You are adversarial. Try to find flaws. Do not rubber-stamp the work.
+- Read the goal. Read the Maker's output. Run verification commands (tests,
+  linters, reads) as needed. Do NOT modify any files — you are reviewing only.
+- Check: does the work actually satisfy the goal? Are there bugs or gaps?
+  Did tests pass? Are there edge cases the Maker missed?
+- If you have any doubt, issue REJECTED with specific feedback.
+
+End your response with exactly one of:
+  APPROVED — the goal is fully met, no issues found.
+  REJECTED — specific description of what is wrong or missing.
+
+A clear REJECTED with actionable feedback is more valuable than a false APPROVED.
+"""
+
+_CHECKER_PROMPT_TEMPLATE = """\
+Goal: {goal}
+
+─── Maker's Output ───────────────────────────────────────────────────────────
+{maker_output}
+─────────────────────────────────────────────────────────────────────────────
+
+Review the Maker's work. Verify it achieves the goal above.
+Remember: end with APPROVED or REJECTED (with specific feedback).
+"""
+
+
+class MakerChecker(Loop):
+    """Two-agent verification: Maker proposes, Checker independently verifies.
+
+    Each round = one Maker run + one Checker run.
+    Only APPROVED from the Checker declares PASS.
+    REJECTED feeds back to the Maker for the next round.
+
+    Werner failure modes handled:
+    - Checker can't APPROVE after max_rounds → HANDOFF (not silent hang)
+    - Maker times out → TIMEOUT → standard retry path
+    - Checker errors → MODEL_ERROR counted against round limit (not swallowed)
+    - Thrash loop (Maker ↔ Checker cycle same mistake) → thrash_loop detector fires
+    - Neither APPROVED nor REJECTED in checker output → treated as REJECTED (fail safe)
+
+    Args:
+        maker_model: Model used by the Maker agent.
+        checker_model: Model used by the Checker agent (can differ from maker).
+        goal: Plain-language description of what should be made and verified.
+        name: Loop name for checkpointing and status display.
+        schedule: Cron expression or @manual (default: @manual).
+        max_rounds: Maker+Checker cycles allowed before HANDOFF (default: 3).
+        handoff: Escalation policy on exhausted rounds (default: LogHandoff).
+        cancel_after: Per-run timeout in seconds (strongly recommended).
+        maker_tools: Tool list for the Maker (default: default_toolset()).
+        checker_tools: Tool list for the Checker (default: default_toolset()).
+        extra_maker_instructions: Appended to Maker system prompt.
+        extra_checker_instructions: Appended to Checker system prompt.
+        store: Persistence store for checkpointing (default: InMemoryStore).
+        tracer: Observability tracer.
+    """
+
+    def __init__(
+        self,
+        maker_model: "Model",
+        checker_model: "Model",
+        goal: str,
+        *,
+        name: str = "maker-checker",
+        schedule: str = "@manual",
+        max_rounds: int = 3,
+        handoff: "HandoffPolicy | None" = None,
+        cancel_after: float | None = None,
+        maker_tools: list | None = None,
+        checker_tools: list | None = None,
+        extra_maker_instructions: str = "",
+        extra_checker_instructions: str = "",
+        store: "Store | None" = None,
+        tracer: "Tracer | None" = None,
+    ) -> None:
+        from ...agent import create_agent
+        from ...detect import default_detectors
+        from ...harness import Harness
+        from ..handoff import LogHandoff
+
+        # Build Maker agent
+        maker_instr = _MAKER_INSTRUCTIONS
+        if extra_maker_instructions:
+            maker_instr += f"\n\nProject-specific notes:\n{extra_maker_instructions}"
+
+        maker_spec = create_agent(
+            f"{name}-maker",
+            model=maker_model,
+            instructions=maker_instr,
+            tools=maker_tools or default_toolset(),
+            detect=default_detectors(),
+        )
+
+        # Build Checker agent — same tools so it can run tests, but instructions say no writes
+        checker_instr = _CHECKER_INSTRUCTIONS
+        if extra_checker_instructions:
+            checker_instr += f"\n\nProject-specific notes:\n{extra_checker_instructions}"
+
+        checker_spec = create_agent(
+            f"{name}-checker",
+            model=checker_model,
+            instructions=checker_instr,
+            tools=checker_tools or default_toolset(),
+            detect=default_detectors(),
+        )
+
+        config = LoopConfig(
+            name=name,
+            goal=goal,
+            schedule=schedule,
+            max_iterations=max_rounds,
+            cancel_after=cancel_after,
+            retry_backoff_base=0.0,  # no sleep between rounds — feedback is immediate
+            handoff=handoff or LogHandoff(),
+        )
+
+        # Call Loop.__init__ with the Maker spec (sets self._harness to Maker)
+        super().__init__(maker_spec, config, store=store, tracer=tracer)
+
+        # Checker harness — separate session per round so it can't reuse Maker context
+        self._checker_harness = Harness(checker_spec, store=store, tracer=tracer)
+
+    # ------------------------------------------------------------------
+    # Override: two-phase run (Maker → Checker)
+    # ------------------------------------------------------------------
+
+    async def _run_iteration(self, run: "LoopRun", context: dict) -> None:
+        from .. import LoopState
+
+        # ── Phase 1: Maker ────────────────────────────────────────────────
+        async with self._lock:
+            self._set(run, LoopState.RUNNING)
+
+        maker_prompt = self._build_maker_prompt(context)
+
+        try:
+            if self._config.cancel_after:
+                maker_result = await asyncio.wait_for(
+                    self._harness.run(maker_prompt),
+                    timeout=self._config.cancel_after,
+                )
+            else:
+                maker_result = await self._harness.run(maker_prompt)
+        except asyncio.TimeoutError:
+            run.error = f"Maker timed out after {self._config.cancel_after}s"
+            run.failure_kind = FailureKind.TIMEOUT
+            async with self._lock:
+                self._set(run, LoopState.FAIL)
+                await self._handle_fail(run)
+            return
+        except Exception as exc:
+            run.error = f"Maker error: {exc}"
+            run.failure_kind = FailureKind.MODEL_ERROR
+            async with self._lock:
+                self._set(run, LoopState.FAIL)
+                await self._handle_fail(run)
+            return
+
+        # ── Phase 2: Checker ─────────────────────────────────────────────
+        async with self._lock:
+            self._set(run, LoopState.VERIFYING)
+
+        checker_prompt = _CHECKER_PROMPT_TEMPLATE.format(
+            goal=self._config.goal,
+            maker_output=maker_result.text,
+        )
+
+        try:
+            if self._config.cancel_after:
+                checker_result = await asyncio.wait_for(
+                    self._checker_harness.run(checker_prompt),
+                    timeout=self._config.cancel_after,
+                )
+            else:
+                checker_result = await self._checker_harness.run(checker_prompt)
+        except asyncio.TimeoutError:
+            run.error = f"Checker timed out after {self._config.cancel_after}s"
+            run.failure_kind = FailureKind.TIMEOUT
+            async with self._lock:
+                self._set(run, LoopState.FAIL)
+                await self._handle_fail(run)
+            return
+        except Exception as exc:
+            run.error = f"Checker error: {exc}"
+            run.failure_kind = FailureKind.MODEL_ERROR
+            async with self._lock:
+                self._set(run, LoopState.FAIL)
+                await self._handle_fail(run)
+            return
+
+        # ── Outcome: parse APPROVED / REJECTED ───────────────────────────
+        # Store Maker metadata (the meaningful work result)
+        run.result_text = maker_result.text
+        run.result_steps = maker_result.steps
+        run.result_stopped = maker_result.stopped
+        # Merge findings from both agents
+        run.findings = list(maker_result.findings) + list(checker_result.findings)
+
+        checker_text = checker_result.text.upper()
+        approved = "APPROVED" in checker_text
+        # Explicit REJECTED or no verdict → fail safe
+        rejected = "REJECTED" in checker_text or not approved
+
+        async with self._lock:
+            if approved and not rejected:
+                self._set(run, LoopState.PASS)
+                self._iteration = 0
+                self._consecutive_failures = 0
+                from .. import _CIRCUIT_BREAKER_KEY
+
+                self._store.set(_CIRCUIT_BREAKER_KEY.format(name=self.name), "0")
+                return
+
+            # REJECTED — store feedback in context so next Maker round sees it
+            run.context["checker_feedback"] = checker_result.text
+            run.context["maker_output"] = maker_result.text
+            run.failure_kind = FailureKind.LOGIC_ERROR
+            if run.findings and any(
+                getattr(f.severity, "value", f.severity) in ("ERROR", "WARNING")
+                for f in run.findings
+            ):
+                run.failure_kind = FailureKind.DETECTION
+            self._set(run, LoopState.FAIL)
+            await self._handle_fail(run)
+
+    def _build_maker_prompt(self, context: dict) -> str:
+        """Build the Maker's prompt, including Checker feedback when retrying."""
+        parts = [f"Goal: {self._config.goal}"]
+
+        feedback = context.get("checker_feedback")
+        if feedback:
+            parts.append(
+                f"\n─── Checker Feedback (Round {self._iteration}) ─────────────────────────────\n"
+                f"{feedback}\n"
+                "─────────────────────────────────────────────────────────────────────────────\n"
+                "Address every point above before marking your work complete."
+            )
+        elif self._iteration > 1:
+            parts.append(f"This is attempt {self._iteration}. Previous attempt was rejected.")
+
+        return "\n".join(parts)
+
+    # Hide base _build_prompt — MakerChecker uses _build_maker_prompt instead
+    def _build_prompt(self, context: dict) -> str:
+        return self._build_maker_prompt(context)
+
+
 __all__ = [
     "CISweeper",
     "PRBabysitter",
@@ -430,4 +700,5 @@ __all__ = [
     "DependencySweeper",
     "PostMergeCleanup",
     "ChangelogDrafter",
+    "MakerChecker",
 ]
