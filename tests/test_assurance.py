@@ -71,10 +71,11 @@ def _make_receipt(
     score: int = 90,
     grade: str = "PASS",
     stopped: str = "end_turn",
+    findings: list = None,
 ) -> ExecutionReceipt:
     t = time.time()
     return ExecutionReceipt.from_run_result(
-        _FakeResult(text, stopped, score=score, grade=grade),
+        _FakeResult(text, stopped, findings=findings, score=score, grade=grade),
         agent=agent,
         prompt=prompt,
         started_at=t,
@@ -829,3 +830,217 @@ class TestUglyInputs:
         r1 = _make_receipt(prompt="same")
         r2 = _make_receipt(prompt="same")
         assert r1.content_hash != r2.content_hash  # different run_ids
+
+
+# ===========================================================================
+# Audit report — to_audit_report()
+# ===========================================================================
+
+
+class TestAuditReport:
+    def test_text_contains_run_id(self):
+        r = _make_receipt(prompt="Deny loan for customer #4821")
+        report = r.to_audit_report()
+        assert r.run_id in report
+
+    def test_text_contains_agent_name(self):
+        r = _make_receipt()
+        assert r.agent in r.to_audit_report()
+
+    def test_text_contains_prompt(self):
+        r = _make_receipt(prompt="Transfer $1000 to account 999")
+        assert "Transfer $1000 to account 999" in r.to_audit_report()
+
+    def test_text_contains_final_answer(self):
+        r = _make_receipt(text="Done. Transfer complete.")
+        assert "Done. Transfer complete." in r.to_audit_report()
+
+    def test_text_contains_quality_grade(self):
+        r = _make_receipt(score=91, grade="PASS")
+        report = r.to_audit_report()
+        assert "PASS" in report
+        assert "91" in report
+
+    def test_text_contains_content_hash(self):
+        r = _make_receipt()
+        assert r.content_hash in r.to_audit_report()
+
+    def test_text_contains_signature_when_signed(self):
+        r = _make_receipt(key="signing-key")
+        report = r.to_audit_report()
+        assert "hmac-sha256:" in report
+
+    def test_text_unsigned_shows_unsigned(self):
+        r = _make_receipt()  # no key
+        assert "(unsigned)" in r.to_audit_report()
+
+    def test_text_first_entry_chain_display(self):
+        r = _make_receipt()  # prev_hash=""
+        assert "(first entry)" in r.to_audit_report()
+
+    def test_text_chain_link_shows_prev_hash(self):
+        r = _make_receipt(prev_hash="sha256:abc123xyz")
+        assert "prev=sha256:abc1" in r.to_audit_report()
+
+    def test_text_tool_calls_listed(self):
+        r = _make_receipt_with_tools()
+        report = r.to_audit_report()
+        assert "check_credit" in report
+
+    def test_text_no_tool_section_when_empty(self):
+        r = _make_receipt()  # no tool calls
+        assert "DECISIONS MADE" not in r.to_audit_report()
+
+    def test_text_findings_listed(self):
+        r = _make_receipt(findings=[
+            Finding("thrash_loop", Severity.WARNING, "looping detected", {})
+        ])
+        report = r.to_audit_report()
+        assert "thrash_loop" in report
+        assert "looping detected" in report
+
+    def test_text_no_findings_section_when_empty(self):
+        r = _make_receipt()
+        assert "FINDINGS" not in r.to_audit_report()
+
+    def test_text_fail_grade(self):
+        r = _make_receipt(score=30, grade="FAIL")
+        report = r.to_audit_report()
+        assert "FAIL" in report
+        assert "30" in report
+
+    def test_text_default_fmt_is_text(self):
+        r = _make_receipt()
+        assert r.to_audit_report() == r.to_audit_report("text")
+
+    # HTML format
+
+    def test_html_is_valid_html(self):
+        r = _make_receipt()
+        html = r.to_audit_report("html")
+        assert html.startswith("<!DOCTYPE html>")
+        assert "</html>" in html
+
+    def test_html_contains_run_id(self):
+        r = _make_receipt(prompt="Check account balance")
+        html = r.to_audit_report("html")
+        assert r.run_id in html
+
+    def test_html_contains_agent_name(self):
+        r = _make_receipt()
+        assert r.agent in r.to_audit_report("html")
+
+    def test_html_contains_prompt(self):
+        r = _make_receipt(prompt="Approve insurance claim #77")
+        assert "Approve insurance claim #77" in r.to_audit_report("html")
+
+    def test_html_contains_final_answer(self):
+        r = _make_receipt(text="Claim approved.")
+        assert "Claim approved." in r.to_audit_report("html")
+
+    def test_html_contains_content_hash(self):
+        r = _make_receipt()
+        assert r.content_hash in r.to_audit_report("html")
+
+    def test_html_escapes_xss(self):
+        r = _make_receipt(prompt="<script>alert('xss')</script>")
+        html = r.to_audit_report("html")
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+
+    def test_html_escapes_ampersand(self):
+        r = _make_receipt(prompt="Charge customer A & B")
+        html = r.to_audit_report("html")
+        assert "A &amp; B" in html
+
+    def test_html_tool_calls_in_table(self):
+        r = _make_receipt_with_tools()
+        html = r.to_audit_report("html")
+        assert "check_credit" in html
+        assert "<table" in html
+
+    def test_html_no_tool_table_when_empty(self):
+        r = _make_receipt()
+        html = r.to_audit_report("html")
+        # No tool section header when no tool calls
+        assert "Decisions Made" not in html
+
+    def test_html_findings_when_present(self):
+        r = _make_receipt(findings=[
+            Finding("ignored_tool_error", Severity.ERROR, "tool error ignored", {})
+        ])
+        html = r.to_audit_report("html")
+        assert "ignored_tool_error" in html
+        assert "tool error ignored" in html
+
+    def test_html_grade_pass_green(self):
+        r = _make_receipt(score=95, grade="PASS")
+        html = r.to_audit_report("html")
+        assert "#1a7f37" in html  # green for PASS
+
+    def test_html_grade_fail_red(self):
+        r = _make_receipt(score=20, grade="FAIL")
+        html = r.to_audit_report("html")
+        assert "#cf222e" in html  # red for FAIL
+
+    def test_html_grade_warn_yellow(self):
+        r = _make_receipt(score=60, grade="WARN")
+        html = r.to_audit_report("html")
+        assert "#d1a000" in html  # yellow for WARN
+
+    def test_html_unsigned_shows_unsigned(self):
+        r = _make_receipt()
+        assert "(unsigned)" in r.to_audit_report("html")
+
+    def test_html_signed_shows_hmac(self):
+        r = _make_receipt(key="my-key")
+        assert "hmac-sha256:" in r.to_audit_report("html")
+
+    def test_roundtrip_text_report_after_json_serialise(self):
+        r = _make_receipt(prompt="Do something important")
+        r2 = ExecutionReceipt.from_json(r.to_json())
+        assert r2.to_audit_report() == r.to_audit_report()
+
+    def test_empty_prompt_renders_safely(self):
+        r = _make_receipt(prompt="")
+        report = r.to_audit_report()
+        assert "INSTRUCTION GIVEN TO AGENT" in report
+
+    def test_multiline_answer_renders(self):
+        r = _make_receipt(text="Line 1\nLine 2\nLine 3")
+        report = r.to_audit_report()
+        assert "Line 1" in report
+        assert "Line 2" in report
+
+    def test_unicode_in_prompt_renders(self):
+        r = _make_receipt(prompt="顧客への請求: ¥10,000")
+        report = r.to_audit_report()
+        assert "¥10,000" in report
+
+
+# ---------------------------------------------------------------------------
+# Helpers for audit report tests
+# ---------------------------------------------------------------------------
+
+
+def _make_receipt_with_tools() -> ExecutionReceipt:
+    tc = [{"id": "tc_1", "name": "check_credit", "input": {"customer_id": 4821}}]
+    r = _make_receipt()
+    # Rebuild with tool_calls injected — use from_dict so hash is consistent
+    d = r.to_dict()
+    d["tool_calls"] = tc
+    # Recompute hash so verify() passes
+    from tvastar.assurance.receipt import _canonical_payload
+    import hashlib
+    payload = _canonical_payload(
+        run_id=d["run_id"], agent=d["agent"], prompt=d["prompt"],
+        tool_calls=tc, final_text=d["final_text"],
+        quality_score=d["quality_score"], quality_grade=d["quality_grade"],
+        findings=d["findings"], usage_input=d["usage_input"],
+        usage_output=d["usage_output"], stopped=d["stopped"],
+        started_at=d["started_at"], completed_at=d["completed_at"],
+        prev_hash=d["prev_hash"], version=d["version"],
+    )
+    d["content_hash"] = "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
+    d["signature"] = ""
+    return ExecutionReceipt.from_dict(d)

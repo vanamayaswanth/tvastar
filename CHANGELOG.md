@@ -6,6 +6,29 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-06-20
+
+### Added
+
+- **`receipt.to_audit_report(fmt="text"|"html")`** — human-readable audit
+  document for lawyers, regulators, and auditors. No dependencies, no
+  infrastructure. Two formats:
+  - `"text"` (default) — plain text, printable as-is. Contains run ID, agent
+    name, timestamp, duration, the instruction given, every decision made (tool
+    calls in order), the final answer, quality grade, cryptographic proof block.
+  - `"html"` — self-contained HTML with inline CSS; print to PDF from any
+    browser. Fully XSS-safe (all user content HTML-escaped). Grade
+    colour-coded green/yellow/red.
+
+  ```python
+  result = await harness.run("Deny loan for customer #4821")
+  print(result.receipt.to_audit_report())
+  Path("audit.html").write_text(result.receipt.to_audit_report("html"), encoding="utf-8")
+  ```
+
+- 36 new tests in `TestAuditReport` — text/HTML formats, XSS escaping, grade
+  colours, findings, tool calls, empty/unicode inputs, JSON round-trip.
+
 ## [0.15.0] — 2026-06-20
 
 ### Added
@@ -900,7 +923,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.12.2...v0.13.0
