@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tvastar.types import Message, TextBlock, ToolUseBlock, ToolResultBlock, ToolSpec
+from tvastar.types import Message, ToolSpec
 
 
 def _fake_resp(content="Hello", finish_reason="stop", tool_calls=None, tokens=(10, 5)):
