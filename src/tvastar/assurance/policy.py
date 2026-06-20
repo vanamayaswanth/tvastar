@@ -78,6 +78,7 @@ class AssurancePolicy:
     on_fail: Literal["ignore", "raise", "escalate"] = "ignore"
     on_escalate: Optional[Callable[["ExecutionReceipt"], None]] = None
     sanitize: Optional[Any] = None  # SanitizationPolicy | None
+    vault: Optional[Any] = None  # TokenVault | None — auto-tokenize prompts, rehydrate outputs
 
     def enforce_sla(self, receipt: "ExecutionReceipt") -> None:
         """Check SLA and take action if breached. Called synchronously."""

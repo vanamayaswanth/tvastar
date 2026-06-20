@@ -176,6 +176,11 @@ class TaskGraph:
 
         self._validate()
 
+        # Resolve tracer — harness exposes it as .tracer (public) or ._tracer (fallback)
+        _tracer = getattr(self._harness, "tracer", None) or getattr(
+            self._harness, "_tracer", None
+        )
+
         completed: dict[str, "RunResult"] = {}
         errors: dict[str, BaseException] = {}
         done_events: dict[str, asyncio.Event] = {n: asyncio.Event() for n in self._nodes}
@@ -212,11 +217,19 @@ class TaskGraph:
                 # Acquire the concurrency semaphore only around the model call,
                 # not the dependency-wait above, so waiting tasks don't hold slots.
                 async def _execute() -> "RunResult":
-                    async with sess:
-                        coro = sess.prompt(prompt, **kwargs)
-                        if node.cancel_after is not None:
-                            return await asyncio.wait_for(coro, timeout=node.cancel_after)
-                        return await coro
+                    from contextlib import nullcontext
+
+                    _task_ctx = (
+                        _tracer.span("graph.task", task=name)
+                        if _tracer is not None
+                        else nullcontext()
+                    )
+                    with _task_ctx:
+                        async with sess:
+                            coro = sess.prompt(prompt, **kwargs)
+                            if node.cancel_after is not None:
+                                return await asyncio.wait_for(coro, timeout=node.cancel_after)
+                            return await coro
 
                 if _sem is not None:
                     async with _sem:
@@ -232,7 +245,15 @@ class TaskGraph:
                 self._harness._release(sess.id)
                 done_events[name].set()
 
-        await asyncio.gather(*[_run_one(n) for n in self._nodes])
+        from contextlib import nullcontext
+
+        _graph_ctx = (
+            _tracer.span("graph.run")
+            if _tracer is not None
+            else nullcontext()
+        )
+        with _graph_ctx:
+            await asyncio.gather(*[_run_one(n) for n in self._nodes])
 
         # Re-raise the first real task failure (not downstream propagation noise).
         real_errors = {k: v for k, v in errors.items() if v is not None}

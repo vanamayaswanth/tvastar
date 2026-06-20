@@ -81,6 +81,7 @@ async def auto_topology(
         asyncio.TimeoutError: If planning exceeds *cancel_after*.
     """
     import asyncio
+    from contextlib import nullcontext
 
     instructions = _PLANNER_INSTRUCTIONS.format(max_subtasks=max_subtasks)
 
@@ -91,10 +92,17 @@ async def auto_topology(
         "Return ONLY the JSON object."
     )
 
-    result = await asyncio.wait_for(
-        harness.run(prompt, system=instructions),
-        timeout=cancel_after,
+    _tracer = getattr(harness, "tracer", None) or getattr(harness, "_tracer", None)
+    _plan_ctx = (
+        _tracer.span("topology.plan", max_subtasks=max_subtasks)
+        if _tracer is not None
+        else nullcontext()
     )
+    with _plan_ctx:
+        result = await asyncio.wait_for(
+            harness.run(prompt, system=instructions),
+            timeout=cancel_after,
+        )
 
     raw = result.text.strip()
     # Strip accidental markdown fences

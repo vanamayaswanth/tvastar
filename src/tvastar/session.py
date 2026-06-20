@@ -229,6 +229,12 @@ class Session:
         prompt_text = text
         if result is not None:
             prompt_text = _inject_schema_instruction(text, result)
+        # auto-tokenize via assurance.vault so model never sees raw PII
+        _vault = None
+        _policy = getattr(self.spec, "assurance", None)
+        if _policy is not None and getattr(_policy, "vault", None) is not None:
+            _vault = _policy.vault
+            prompt_text = _vault.tokenize(prompt_text, getattr(_policy, "sanitize", None))
         if images:
             self.messages.append(Message("user", [TextBlock(text=prompt_text), *images]))
         else:
@@ -239,8 +245,14 @@ class Session:
         self._approval_records = []  # reset per-run approval audit trail
         with self.tracer.span("session.prompt", session=self.id, agent=self.spec.name):
             if cancel_after is not None:
-                return await asyncio.wait_for(self._run_with_schema(result), timeout=cancel_after)
-            return await self._run_with_schema(result)
+                _run_result = await asyncio.wait_for(
+                    self._run_with_schema(result), timeout=cancel_after
+                )
+            else:
+                _run_result = await self._run_with_schema(result)
+        if _vault is not None:
+            _run_result.text = _vault.rehydrate(_run_result.text)
+        return _run_result
 
     async def skill(
         self,
@@ -357,13 +369,19 @@ class Session:
         ):
             if cancel_after is not None:
                 try:
-                    return await asyncio.wait_for(_run_child(), timeout=cancel_after)
+                    _task_result = await asyncio.wait_for(_run_child(), timeout=cancel_after)
                 except asyncio.TimeoutError:
                     raise asyncio.TimeoutError(
                         f"Task cancelled after {cancel_after}s "
                         f"(agent={agent or 'anonymous'}, prompt={prompt[:60]!r})"
                     )
-            return await _run_child()
+            else:
+                _task_result = await _run_child()
+        # auto-update pruner so slow/failing agents are demoted before the next routing decision
+        _pruner = getattr(self.spec, "pruner", None)
+        if _pruner is not None and agent is not None:
+            _pruner.update(agent, _task_result)
+        return _task_result
 
     def _build_child_spec(
         self,
@@ -477,6 +495,7 @@ class Session:
         spec = self.spec
         _budget_approved = False
         _run_started_at = time.time()
+        _budget_warnings: list["Finding"] = []
 
         while steps < spec.max_steps:
             steps += 1
@@ -535,6 +554,21 @@ class Session:
             budget = getattr(spec, "budget", None)
             if budget is not None and not _budget_approved:
                 running = Cost(total.input_tokens, total.output_tokens, spec.model.name)
+                if budget.should_warn(running):
+                    from .detect import Finding, Severity
+
+                    warn_finding = Finding(
+                        "budget_warning",
+                        Severity.WARNING,
+                        f"Spend ${running.usd:.4f} approaching limit ${budget.max_usd:.4f}",
+                        {},
+                    )
+                    # Only record once per threshold crossing per run
+                    if not any(
+                        getattr(f, "detector", None) == "budget_warning"
+                        for f in _budget_warnings
+                    ):
+                        _budget_warnings.append(warn_finding)
                 if running.usd >= budget.max_usd:
                     if budget.on_exceed == "raise":
                         raise BudgetExceeded(spent=running.usd, limit=budget.max_usd)
@@ -608,6 +642,8 @@ class Session:
             cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
         )
         result.findings = self._detect(result)
+        if _budget_warnings:
+            result.findings = list(result.findings) + _budget_warnings
         result.receipt = self._assure(result, started_at=_run_started_at)
         return result
 
@@ -637,21 +673,23 @@ class Session:
 
         prev_hash = policy.log.tail_hash if policy.log is not None else ""
         model_name = getattr(self.spec.model, "name", "")
-        receipt = ExecutionReceipt.from_run_result(
-            result,
-            agent=self.spec.name,
-            model_name=model_name,
-            prompt=self._last_user_text,
-            started_at=started_at,
-            completed_at=time.time(),
-            key=policy.key,
-            prev_hash=prev_hash,
-            sanitize=getattr(policy, "sanitize", None),
-            approvals=list(self._approval_records),
-        )
+        with self.tracer.span("assurance.receipt"):
+            receipt = ExecutionReceipt.from_run_result(
+                result,
+                agent=self.spec.name,
+                model_name=model_name,
+                prompt=self._last_user_text,
+                started_at=started_at,
+                completed_at=time.time(),
+                key=policy.key,
+                prev_hash=prev_hash,
+                sanitize=getattr(policy, "sanitize", None),
+                approvals=list(self._approval_records),
+            )
         if policy.log is not None:
             policy.log.append(receipt)
-        policy.enforce_sla(receipt)
+        with self.tracer.span("assurance.sla_check"):
+            policy.enforce_sla(receipt)
         return receipt
 
     async def _execute_tools(self, uses: list[ToolUseBlock]) -> list[ToolResultBlock]:

@@ -223,11 +223,12 @@ class Harness:
             result: Optional schema for structured output (see Session.prompt).
             cancel_after: Optional timeout in seconds.
         """
-        s = self.session(session_id=session_id)
-        async with s:
-            run_result = await s.prompt(prompt, result=result, cancel_after=cancel_after)
-        if session_id is None:
-            self._release(s.id)  # prune anonymous one-shot sessions
+        with self.tracer.span("harness.run", agent=self.spec.name):
+            s = self.session(session_id=session_id)
+            async with s:
+                run_result = await s.prompt(prompt, result=result, cancel_after=cancel_after)
+            if session_id is None:
+                self._release(s.id)  # prune anonymous one-shot sessions
         return run_result
 
     @asynccontextmanager
@@ -308,6 +309,17 @@ class Harness:
                  "cancel_after": 30.0},
             ])
         """
+        with self.tracer.span(
+            "harness.fan_out", agent=self.spec.name, n_prompts=len(prompts)
+        ):
+            return await self._fan_out_inner(prompts, concurrency=concurrency)
+
+    async def _fan_out_inner(
+        self,
+        prompts: list,
+        *,
+        concurrency: Optional[int] = 8,
+    ) -> list[RunResult]:
         import asyncio as _asyncio
 
         async def _run_one(item) -> RunResult:

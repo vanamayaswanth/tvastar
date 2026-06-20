@@ -115,6 +115,8 @@ class CISweeper(Loop):
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
+        tracer: "Tracer | None" = None,
+        store: "Store | None" = None,
     ) -> None:
         from ..handoff import LogHandoff
 
@@ -131,7 +133,7 @@ class CISweeper(Loop):
             cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
-        super().__init__(spec, config)
+        super().__init__(spec, config, tracer=tracer, store=store)
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +179,8 @@ class PRBabysitter(Loop):
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
+        tracer: "Tracer | None" = None,
+        store: "Store | None" = None,
     ) -> None:
         from ..handoff import LogHandoff
 
@@ -193,7 +197,7 @@ class PRBabysitter(Loop):
             cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
-        super().__init__(spec, config)
+        super().__init__(spec, config, tracer=tracer, store=store)
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +243,8 @@ class DailyTriage(Loop):
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
+        tracer: "Tracer | None" = None,
+        store: "Store | None" = None,
     ) -> None:
         from ..handoff import LogHandoff
 
@@ -255,7 +261,7 @@ class DailyTriage(Loop):
             cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
-        super().__init__(spec, config)
+        super().__init__(spec, config, tracer=tracer, store=store)
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +308,8 @@ class DependencySweeper(Loop):
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
+        tracer: "Tracer | None" = None,
+        store: "Store | None" = None,
     ) -> None:
         from ..handoff import LogHandoff
 
@@ -318,7 +326,7 @@ class DependencySweeper(Loop):
             cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
-        super().__init__(spec, config)
+        super().__init__(spec, config, tracer=tracer, store=store)
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +373,8 @@ class PostMergeCleanup(Loop):
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
+        tracer: "Tracer | None" = None,
+        store: "Store | None" = None,
     ) -> None:
         from ..handoff import LogHandoff
 
@@ -381,7 +391,7 @@ class PostMergeCleanup(Loop):
             cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
-        super().__init__(spec, config)
+        super().__init__(spec, config, tracer=tracer, store=store)
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +439,8 @@ class ChangelogDrafter(Loop):
         handoff: "HandoffPolicy | None" = None,
         tools: list | None = None,
         extra_instructions: str = "",
+        tracer: "Tracer | None" = None,
+        store: "Store | None" = None,
     ) -> None:
         from ..handoff import LogHandoff
 
@@ -445,7 +457,7 @@ class ChangelogDrafter(Loop):
             cancel_after=cancel_after,
             handoff=handoff or LogHandoff(),
         )
-        super().__init__(spec, config)
+        super().__init__(spec, config, tracer=tracer, store=store)
 
 
 # ---------------------------------------------------------------------------

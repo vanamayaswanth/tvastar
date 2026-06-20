@@ -61,6 +61,9 @@ class AgentSpec:
     #: optional verifiable-execution policy — produces a signed ExecutionReceipt
     #: on every run and optionally enforces a Loop Quality SLA.
     assurance: Optional[Any] = None  # AssurancePolicy
+    #: optional agent pruner — auto-updated after sess.task() completes so slow/failing
+    #: agents are demoted before the next routing decision.
+    pruner: Optional[Any] = None  # AgentPruner
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self, *, last_user_text: str = "") -> str:
@@ -124,6 +127,7 @@ def create_agent(
     system_prompt_hook: Optional[Callable[..., str]] = None,
     memory_cap_mb: Optional[float] = None,
     assurance: Optional[Any] = None,
+    pruner: Optional[Any] = None,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -198,5 +202,6 @@ def create_agent(
         system_prompt_hook=system_prompt_hook,
         memory_cap_mb=memory_cap_mb,
         assurance=assurance,
+        pruner=pruner,
         metadata=metadata,
     )

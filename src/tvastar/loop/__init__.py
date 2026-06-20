@@ -128,6 +128,7 @@ class LoopConfig:
     optimizer: "Any | None" = (
         None  # Callable[[str, list[LoopRun]], str] — takes precedence over meta_model
     )
+    budget: "Any | None" = None  # BudgetPolicy — cumulative cost cap across all runs
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -198,6 +199,7 @@ class Loop:
         self._current_instructions: str = spec.instructions
         self._lock = asyncio.Lock()
         self._bg_tasks: set = set()  # keeps fire-and-forget tasks alive until done
+        self._cumulative_usd: float = 0.0  # accumulated cost across all runs
 
         # Crash recovery: detect orphaned RUNNING runs from a previous process
         self._recover()
@@ -361,6 +363,17 @@ class Loop:
     # ------------------------------------------------------------------
 
     async def _run_iteration(self, run: LoopRun, context: dict) -> None:
+        from contextlib import nullcontext
+
+        _tracer_ctx = (
+            self._tracer.span("loop.run", loop=self.name)
+            if self._tracer is not None
+            else nullcontext()
+        )
+        with _tracer_ctx:
+            await self._run_iteration_inner(run, context)
+
+    async def _run_iteration_inner(self, run: LoopRun, context: dict) -> None:
         async with self._lock:
             self._set(run, LoopState.RUNNING)
 
@@ -394,6 +407,14 @@ class Loop:
         run.result_steps = result.steps
         run.result_stopped = result.stopped
         run.findings = list(result.findings)
+
+        # cumulative budget: suspend the loop when total spend across runs exceeds cap
+        if self._config.budget is not None and hasattr(result, "cost"):
+            self._cumulative_usd += result.cost.usd
+            if self._cumulative_usd >= self._config.budget.max_usd:
+                async with self._lock:
+                    self._set(run, LoopState.SUSPENDED)
+                return
 
         async with self._lock:
             self._set(run, LoopState.VERIFYING)
@@ -610,9 +631,29 @@ class Loop:
 
             # ── optimizer path (DSPyOptimizer or any callable) ──────────────
             if self._config.optimizer is not None:
-                all_runs: list[LoopRun] = list(self._store.get(f"loop:{self.name}:runs") or []) + [
-                    run
+                import json as _json
+
+                _runs_key = f"loop:{self.name}:runs"
+                _raw_runs = self._store.get(_runs_key)
+                _stored_runs: list[LoopRun] = _json.loads(_raw_runs) if _raw_runs else []
+                all_runs: list[LoopRun] = _stored_runs + [run]
+                # Persist updated run list (capped at 50)
+                _serialisable = [
+                    {
+                        "run_id": r.run_id if hasattr(r, "run_id") else r.get("run_id", ""),
+                        "state": r.state if hasattr(r, "state") else r.get("state", ""),
+                        "started_at": r.started_at if hasattr(r, "started_at") else r.get("started_at", 0),
+                        "result_text": r.result_text if hasattr(r, "result_text") else r.get("result_text"),
+                        "failure_kind": (
+                            r.failure_kind.value
+                            if hasattr(r, "failure_kind") and r.failure_kind is not None
+                            else (r.get("failure_kind") if isinstance(r, dict) else None)
+                        ),
+                        "error": r.error if hasattr(r, "error") else r.get("error"),
+                    }
+                    for r in all_runs[-50:]
                 ]
+                self._store.set(_runs_key, _json.dumps(_serialisable))
                 new_instructions = self._config.optimizer(self._current_instructions, all_runs)
 
             # ── meta_model path (legacy one-shot rewrite) ───────────────────
