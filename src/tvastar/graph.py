@@ -236,7 +236,7 @@ class TaskGraph:
                     run_result = await _execute()
 
                 completed[name] = run_result
-            except Exception as exc:
+            except BaseException as exc:
                 errors[name] = exc
             finally:
                 # Always signal completion and release the one-shot session.

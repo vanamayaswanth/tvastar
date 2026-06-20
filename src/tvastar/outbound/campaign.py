@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -84,14 +85,14 @@ async def run_campaign(
     from ..tools import web_toolset
 
     # ── 1. Parse leads ────────────────────────────────────────────────────
-    if isinstance(leads, str):
+    if isinstance(leads, (str, Path)):
         lead_list = parse_csv(leads)
     elif leads and isinstance(leads[0], dict):
         lead_list = parse_leads(list(leads))
     else:
         lead_list = list(leads)
 
-    if max_leads:
+    if max_leads is not None:
         lead_list = lead_list[:max_leads]
 
     errors: list[str] = []

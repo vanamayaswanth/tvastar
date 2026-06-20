@@ -83,9 +83,11 @@ def _group_into_runs(spans: list[dict]) -> list[dict]:
                         "status": child.get("status", "ok"),
                         "input_tokens": attrs.get("gen_ai.usage.input_tokens", 0),
                         "output_tokens": attrs.get("gen_ai.usage.output_tokens", 0),
-                        "stop_reason": attrs.get("gen_ai.response.finish_reasons", [None])[0]
-                        if isinstance(attrs.get("gen_ai.response.finish_reasons"), list)
-                        else attrs.get("gen_ai.response.finish_reasons"),
+                        "stop_reason": (
+                            lambda r: r[0]
+                            if isinstance(r, list) and r
+                            else (r if isinstance(r, str) else None)
+                        )(attrs.get("gen_ai.response.finish_reasons")),
                     }
                 )
             elif name == "tool.invoke":
@@ -192,7 +194,15 @@ def create_ui_app(trace_path: str = "tvastar-trace.jsonl") -> Any:
         spans = _load_spans(_trace_path)
         runs = _group_into_runs(spans)
         if not runs:
-            return JSONResponse({"total_runs": 0})
+            return JSONResponse(
+                {
+                    "total_runs": 0,
+                    "total_input_tokens": 0,
+                    "total_output_tokens": 0,
+                    "avg_steps": 0.0,
+                    "warnings": 0,
+                }
+            )
         total_in = sum(r["total_input_tokens"] for r in runs)
         total_out = sum(r["total_output_tokens"] for r in runs)
         return JSONResponse(

@@ -158,6 +158,8 @@ class EvalSuite:
     """
 
     def __init__(self, agent_or_harness: Any, *, concurrency: int = 4) -> None:
+        if concurrency < 1:
+            raise ValueError(f"concurrency must be >= 1, got {concurrency}")
         self._agent_or_harness = agent_or_harness
         self._concurrency = concurrency
         self._cases: list[Case] = []

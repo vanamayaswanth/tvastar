@@ -120,9 +120,8 @@ def _parse_arg_docs(doc: str) -> dict[str, str]:
             in_args = True
             continue
         if in_args:
-            if not line or low.endswith(":") and " " not in low:
-                if not line:
-                    in_args = False
+            if not line or (low.endswith(":") and " " not in low):
+                in_args = False
                 continue
             if ":" in line:
                 name, _, desc = line.partition(":")

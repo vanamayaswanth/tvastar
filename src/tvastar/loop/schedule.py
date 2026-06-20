@@ -31,6 +31,8 @@ def _parse_field(field: str, lo: int, hi: int) -> list[int]:
         if "/" in part:
             base, step_s = part.split("/", 1)
             step = int(step_s)
+            if step <= 0:
+                raise ValueError(f"Cron step must be positive, got {step!r}")
             if base == "*":
                 start, end = lo, hi
             elif "-" in base:
@@ -72,7 +74,7 @@ def next_run_time(expr: str, after: datetime) -> datetime:
     if len(parts) != 5:
         raise ValueError(
             f"Invalid cron expression {expr!r}: expected 5 space-separated fields "
-            "(MIN HOUR DOM MON DOW). Got {len(parts)}."
+            f"(MIN HOUR DOM MON DOW). Got {len(parts)} fields."
         )
 
     mins = _parse_field(parts[0], 0, 59)

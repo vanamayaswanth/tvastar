@@ -277,7 +277,10 @@ class VirtualSandbox(Sandbox):
         rest = [a for a in args if not a.startswith("-")]
         if not rest:
             return ExecResult(2, "", "wc: missing file")
-        text = self.fs.read(self._resolve(rest[0]))
+        path = self._resolve(rest[0])
+        if not self.fs.exists(path):
+            return ExecResult(1, "", f"wc: {rest[0]}: No such file")
+        text = self.fs.read(path)
         lines = len(text.splitlines())
         words = len(text.split())
         chars = len(text)
@@ -304,7 +307,11 @@ class VirtualSandbox(Sandbox):
                 files.append(a)
         if not files:
             return ExecResult(2, "", "missing file")
-        lines = self.fs.read(self._resolve(files[0])).splitlines()
+        path = self._resolve(files[0])
+        if not self.fs.exists(path):
+            cmd = "head" if head else "tail"
+            return ExecResult(1, "", f"{cmd}: {files[0]}: No such file")
+        lines = self.fs.read(path).splitlines()
         sel = lines[:n] if head else lines[-n:]
         return ExecResult(0, "\n".join(sel))
 

@@ -230,4 +230,4 @@ class GovernancePolicy:
         """
         import dataclasses
 
-        return dataclasses.replace(self)
+        return dataclasses.replace(self, phases={k: set(v) for k, v in self.phases.items()})

@@ -66,7 +66,8 @@ class LocalSandbox(Sandbox):
 
         # Resource limits: caller timeout wins if tighter than resource policy
         cpu_limit = self.resources.max_cpu_seconds
-        effective_timeout = min(t for t in [timeout, self.policy.timeout_seconds, cpu_limit] if t)
+        candidates = [t for t in [timeout, self.policy.timeout_seconds, cpu_limit] if t is not None]
+        effective_timeout = min(candidates) if candidates else None
         workdir = self.root if not cwd else (self.root / cwd).resolve()
 
         run_env = dict(os.environ)
@@ -105,7 +106,7 @@ class LocalSandbox(Sandbox):
             return ExecResult(124, "", f"timed out after {effective_timeout}s", timed_out=True)
 
         elapsed = round((time.monotonic() - t0) * 1000, 1)
-        exit_code = proc.returncode or 0
+        exit_code = proc.returncode if proc.returncode is not None else 0
         self.audit.append(AuditEntry.executed(cmd, exit_code=exit_code, duration_ms=elapsed))
 
         limit = self.resources.max_output_chars

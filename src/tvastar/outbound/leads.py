@@ -31,7 +31,7 @@ class Lead:
 def parse_csv(path: str | Path) -> list[Lead]:
     """Load leads from a CSV file. Column names are flexible (case-insensitive)."""
     rows: list[dict] = []
-    with open(path, newline="", encoding="utf-8") as f:
+    with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
             rows.append({k.lower().strip(): str(v).strip() for k, v in row.items()})
