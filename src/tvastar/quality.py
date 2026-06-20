@@ -52,6 +52,8 @@ def score_run(result: "RunResult") -> LoopQualityReport:
     score -= len(warnings) * _WARNING_PENALTY
     if result.stopped == "max_steps":
         score -= _MAX_STEPS_PENALTY
+    elif result.stopped == "budget":
+        score -= _MAX_STEPS_PENALTY  # same weight as step limit
     elif result.stopped == "error":
         score -= _ERROR_STOP_PENALTY
     score = max(0, score)
@@ -70,14 +72,19 @@ def score_run(result: "RunResult") -> LoopQualityReport:
         parts.append(f"{len(warnings)} warning{'s' if len(warnings) != 1 else ''}")
     if result.stopped == "max_steps":
         parts.append("hit step limit")
+    elif result.stopped == "budget":
+        parts.append("hit token budget")
     elif result.stopped == "error":
         parts.append("stopped on error")
 
     if not parts:
         summary = "No issues detected."
+    elif errors:
+        summary = ", ".join(parts) + f" — {errors[0].message}"
+    elif warnings:
+        summary = ", ".join(parts) + f" — {warnings[0].message}"
     else:
-        lead = errors[0] if errors else warnings[0]
-        summary = ", ".join(parts) + f" — {lead.message}"
+        summary = ", ".join(parts)
 
     return LoopQualityReport(
         score=score,
