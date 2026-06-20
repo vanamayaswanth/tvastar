@@ -19,3 +19,6 @@ tvastar-trace.jsonl
 .claude/
 .vscode/
 .idea/
+
+*.log
+.agent/

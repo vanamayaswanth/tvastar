@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Callable, Iterator, List, Optional
 
 from .receipt import ExecutionReceipt
 
@@ -55,13 +55,25 @@ class TrustLog:
     """Append-only, chain-linked ledger of ExecutionReceipts.
 
     Args:
-        path: Path to a JSONL file (one receipt per line). Pass ``None``
-              (default) for an in-memory-only log.
+        path:      Path to a JSONL file (one receipt per line). Pass ``None``
+                   (default) for an in-memory-only log.
+        on_breach: Callable invoked when ``verify_chain()`` detects tampering.
+                   Receives the first corrupted receipt. Use this to alert,
+                   quarantine, or notify — satisfying regulatory incident-
+                   response requirements. Can be sync or async.
     """
 
-    def __init__(self, path: Optional[str] = None):
+    def __init__(
+        self,
+        path: Optional[str] = None,
+        *,
+        on_breach: Optional[Callable[[ExecutionReceipt], None]] = None,
+        can_read: Optional[Callable[[str], bool]] = None,
+    ):
         self._path: Optional[Path] = Path(path) if path else None
         self._entries: List[ExecutionReceipt] = []
+        self._on_breach = on_breach
+        self._can_read = can_read  # callable(role: str) -> bool; None = open access
         if self._path and self._path.exists():
             self._load()
 
@@ -87,25 +99,66 @@ class TrustLog:
 
         Walks every receipt in order, recomputing its content_hash and checking
         that its prev_hash matches the preceding receipt's content_hash.
-        Returns False on the first discrepancy.
+        On the first discrepancy, fires ``on_breach(receipt)`` (if configured)
+        before returning False — satisfying regulatory incident-response
+        requirements.
         """
         prev_hash = ""
         for receipt in self._entries:
-            if not receipt.verify():
-                return False
-            if receipt.prev_hash != prev_hash:
+            if not receipt.verify() or receipt.prev_hash != prev_hash:
+                self._fire_breach(receipt)
                 return False
             prev_hash = receipt.content_hash
         return True
 
+    def _fire_breach(self, receipt: ExecutionReceipt) -> None:
+        """Invoke on_breach callback synchronously or schedule if async."""
+        if self._on_breach is None:
+            return
+        import inspect
+
+        if inspect.iscoroutinefunction(self._on_breach):
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._on_breach(receipt))
+            except RuntimeError:
+                # No running loop — run synchronously
+                asyncio.run(self._on_breach(receipt))
+        else:
+            self._on_breach(receipt)
+
     # ------------------------------------------------------------------ read
 
-    def get(self, run_id: str) -> Optional[ExecutionReceipt]:
-        """Return the receipt with the given run_id, or None."""
+    def _check_read(self, role: str = "") -> None:
+        """Raise PermissionError if *role* is not allowed to read this log."""
+        if self._can_read is not None and not self._can_read(role):
+            raise PermissionError(
+                f"Role {role!r} is not permitted to read this TrustLog. "
+                "Configure can_read= to grant access."
+            )
+
+    def get(self, run_id: str, *, role: str = "") -> Optional[ExecutionReceipt]:
+        """Return the receipt with the given run_id, or None.
+
+        Args:
+            run_id: The run identifier to look up.
+            role:   Caller's role string. Checked against ``can_read`` if set.
+        """
+        self._check_read(role)
         for r in self._entries:
             if r.run_id == run_id:
                 return r
         return None
+
+    def iter_as(self, role: str) -> Iterator[ExecutionReceipt]:
+        """Iterate entries as a specific role (access-controlled).
+
+        Args:
+            role: Caller's role string. Checked against ``can_read``.
+        """
+        self._check_read(role)
+        return iter(list(self._entries))
 
     @property
     def tail_hash(self) -> str:
@@ -113,6 +166,7 @@ class TrustLog:
         return self._entries[-1].content_hash if self._entries else ""
 
     def __iter__(self) -> Iterator[ExecutionReceipt]:
+        """Iterate all entries (no access control — use iter_as() for gated access)."""
         return iter(list(self._entries))
 
     def __len__(self) -> int:

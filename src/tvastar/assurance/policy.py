@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Literal, Optional
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
 
 if TYPE_CHECKING:  # pragma: no cover
     from .log import TrustLog
@@ -78,6 +78,7 @@ class AssurancePolicy:
     min_score: int = 0
     on_fail: Literal["ignore", "raise", "escalate"] = "ignore"
     on_escalate: Optional[Callable[["ExecutionReceipt"], None]] = None
+    sanitize: Optional[Any] = None  # SanitizationPolicy | None
 
     def enforce_sla(self, receipt: "ExecutionReceipt") -> None:
         """Check SLA and take action if breached. Called synchronously."""

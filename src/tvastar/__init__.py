@@ -25,7 +25,7 @@ Quick start::
 from __future__ import annotations
 
 from .agent import AgentSpec, create_agent
-from .assurance import AssurancePolicy, ExecutionReceipt, SLABreached, TrustLog
+from .assurance import AssurancePolicy, ExecutionReceipt, SLABreached, SanitizationPolicy, TrustLog
 from .approval import (
     ApprovalDenied,
     ApprovalGate,
@@ -171,7 +171,7 @@ from .workflow import (
 )
 from .wrap import WrappedResult, wrap
 
-__version__ = "0.15.1"
+__version__ = "0.15.2"
 
 __all__ = [
     "create_agent",
@@ -341,6 +341,7 @@ __all__ = [
     # verifiable execution — signed receipts + SLA enforcement
     "AssurancePolicy",
     "ExecutionReceipt",
+    "SanitizationPolicy",
     "TrustLog",
     "SLABreached",
     # outbound sales agent

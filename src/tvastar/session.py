@@ -112,6 +112,7 @@ class Session:
     _cancel_event: Optional[asyncio.Event] = None
     _last_compact_at: float = 0.0  # monotonic time of last compaction attempt
     _last_user_text: str = ""  # most-recent user message text (for LTM hook)
+    _approval_records: list = field(default_factory=list)  # [{tool, approved_by, approved_at, message}]
 
     # ---- lifecycle ----------------------------------------------------------
 
@@ -232,6 +233,7 @@ class Session:
         # Track the raw user text so _system_prompt() can forward it to hooks
         # that want the current intent (e.g. LTMStore.as_hook()).
         self._last_user_text = text
+        self._approval_records = []  # reset per-run approval audit trail
         with self.tracer.span("session.prompt", session=self.id, agent=self.spec.name):
             if cancel_after is not None:
                 return await asyncio.wait_for(self._run_with_schema(result), timeout=cancel_after)
@@ -624,14 +626,18 @@ class Session:
         from .assurance.receipt import ExecutionReceipt
 
         prev_hash = policy.log.tail_hash if policy.log is not None else ""
+        model_name = getattr(self.spec.model, "name", "")
         receipt = ExecutionReceipt.from_run_result(
             result,
             agent=self.spec.name,
+            model_name=model_name,
             prompt=self._last_user_text,
             started_at=started_at,
             completed_at=time.time(),
             key=policy.key,
             prev_hash=prev_hash,
+            sanitize=getattr(policy, "sanitize", None),
+            approvals=list(self._approval_records),
         )
         if policy.log is not None:
             policy.log.append(receipt)
@@ -652,11 +658,18 @@ class Session:
                 self.tracer_event("governance_blocked", tool=use.name, phase=gov.current_phase)
                 if gov.approval_gate is not None:
                     try:
-                        await gov.approval_gate.request(
+                        _approval_msg = (
                             f"Tool '{use.name}' is restricted in phase '{gov.current_phase}'.\n"
                             f"Input: {use.input!r}\n"
-                            "Policy 'least_privilege' requires elevation to proceed.",
+                            "Policy 'least_privilege' requires elevation to proceed."
                         )
+                        await gov.approval_gate.request(_approval_msg)
+                        self._approval_records.append({
+                            "tool": use.name,
+                            "approved_by": getattr(gov.approval_gate, "_last_approver", ""),
+                            "approved_at": time.time(),
+                            "message": _approval_msg[:200],
+                        })
                         # Human approved — fall through to normal execution below.
                     except (ApprovalDenied, ApprovalTimeout) as e:
                         return ToolResultBlock(use.id, f"[governance] {e}", is_error=True)

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from tvastar.assurance import AssurancePolicy, ExecutionReceipt, SLABreached, TrustLog
+from tvastar.assurance import AssurancePolicy, ExecutionReceipt, SLABreached, SanitizationPolicy, TrustLog
 from tvastar.detect import Finding, Severity
 from tvastar.quality import LoopQualityReport
 from tvastar.types import Message, TextBlock, ToolResultBlock, ToolUseBlock, Usage
@@ -68,6 +68,7 @@ def _make_receipt(
     prev_hash: str = "",
     prompt: str = "fix tests",
     agent: str = "test-agent",
+    model_name: str = "mock-model",
     score: int = 90,
     grade: str = "PASS",
     stopped: str = "end_turn",
@@ -77,6 +78,7 @@ def _make_receipt(
     return ExecutionReceipt.from_run_result(
         _FakeResult(text, stopped, findings=findings, score=score, grade=grade),
         agent=agent,
+        model_name=model_name,
         prompt=prompt,
         started_at=t,
         completed_at=t + 0.1,
@@ -137,7 +139,7 @@ class TestExecutionReceiptBuild:
 
     def test_version_field_is_1(self):
         r = _make_receipt()
-        assert r.version == "1"
+        assert r.version == "2"
 
     def test_prev_hash_defaults_to_empty(self):
         r = _make_receipt()
@@ -833,6 +835,523 @@ class TestUglyInputs:
 
 
 # ===========================================================================
+# Gap 1: Model name tracking
+# ===========================================================================
+
+
+class TestModelTracking:
+    def test_model_name_stored_in_receipt(self):
+        r = _make_receipt(model_name="claude-sonnet-4-6")
+        assert r.model_name == "claude-sonnet-4-6"
+
+    def test_model_name_included_in_hash(self):
+        r1 = _make_receipt(model_name="gpt-4o")
+        r2 = _make_receipt(model_name="claude-sonnet-4-6")
+        assert r1.content_hash != r2.content_hash
+
+    def test_model_name_verify_detects_tamper(self):
+        r = _make_receipt(model_name="claude-sonnet-4-6")
+        d = r.to_dict()
+        d["model_name"] = "gpt-4o"
+        r2 = ExecutionReceipt.from_dict(d)
+        assert r2.verify() is False
+
+    def test_model_name_roundtrip_json(self):
+        r = _make_receipt(model_name="claude-opus-4-8")
+        r2 = ExecutionReceipt.from_json(r.to_json())
+        assert r2.model_name == "claude-opus-4-8"
+        assert r2.verify() is True
+
+    def test_model_name_empty_string_is_valid(self):
+        r = _make_receipt(model_name="")
+        assert r.model_name == ""
+        assert r.verify() is True
+
+    def test_model_name_in_text_audit_report(self):
+        r = _make_receipt(model_name="claude-sonnet-4-6")
+        assert "claude-sonnet-4-6" in r.to_audit_report()
+
+    def test_model_name_in_html_audit_report(self):
+        r = _make_receipt(model_name="claude-sonnet-4-6")
+        assert "claude-sonnet-4-6" in r.to_audit_report("html")
+
+    def test_no_model_name_shows_not_recorded_in_html(self):
+        r = _make_receipt(model_name="")
+        assert "not recorded" in r.to_audit_report("html")
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_model_name_from_mock_model(self):
+        from tvastar import Harness, create_agent
+        from tvastar.model import MockModel
+
+        model = MockModel(script=["done"])
+        agent = create_agent("bot", model=model, assurance=AssurancePolicy())
+        result = await Harness(agent).run("go")
+        assert result.receipt.model_name == model.name
+
+    def test_receipt_version_is_2(self):
+        r = _make_receipt()
+        assert r.version == "2"
+
+
+# ===========================================================================
+# Gap 2: Tool outputs captured
+# ===========================================================================
+
+
+class TestToolOutputs:
+    def test_tool_output_in_receipt(self):
+        r = _make_receipt_with_tools()
+        assert r.tool_calls[0]["output"] == "612"
+
+    def test_tool_output_included_in_hash(self):
+        r1 = _make_receipt_with_tools()
+        d = r1.to_dict()
+        d["tool_calls"][0]["output"] = "999"
+        # Change output → hash should mismatch
+        r2 = ExecutionReceipt.from_dict(d)
+        assert r2.verify() is False
+
+    def test_tool_output_in_text_report(self):
+        r = _make_receipt_with_tools()
+        report = r.to_audit_report()
+        assert "612" in report
+
+    def test_tool_output_in_html_report(self):
+        r = _make_receipt_with_tools()
+        assert "612" in r.to_audit_report("html")
+
+    def test_tool_output_empty_when_no_result(self):
+        r = _make_receipt()
+        assert r.tool_calls == []
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_tool_output_captured(self):
+        from tvastar import Harness, create_agent
+        from tvastar.model import MockModel
+        from tvastar.tools import tool
+
+        @tool
+        def get_balance(account_id: str) -> str:
+            return f"${account_id}:1234.56"
+
+        model = MockModel(script=[
+            ToolUseBlock(name="get_balance", input={"account_id": "ACC-42"}, id="tc_e2e"),
+            "Balance retrieved.",
+        ])
+        agent = create_agent("bank-bot", model=model, tools=[get_balance], assurance=AssurancePolicy())
+        result = await Harness(agent).run("What is my balance?")
+
+        assert result.receipt is not None
+        assert len(result.receipt.tool_calls) == 1
+        assert result.receipt.tool_calls[0]["name"] == "get_balance"
+        assert result.receipt.tool_calls[0]["output"] == "$ACC-42:1234.56"
+        assert result.receipt.verify() is True
+
+
+# ===========================================================================
+# Gap 3: PII redaction — SanitizationPolicy
+# ===========================================================================
+
+
+class TestSanitizationPolicy:
+    # --- scrub() ---
+
+    def test_ssn_redacted(self):
+        s = SanitizationPolicy.hipaa()
+        assert s.scrub("SSN is 123-45-6789 for this patient") == "SSN is [SSN] for this patient"
+
+    def test_email_redacted(self):
+        s = SanitizationPolicy.hipaa()
+        assert "[EMAIL]" in s.scrub("Contact jane@example.com for details")
+
+    def test_phone_redacted(self):
+        s = SanitizationPolicy.hipaa()
+        assert "[PHONE]" in s.scrub("Call 555-867-5309 now")
+
+    def test_credit_card_redacted_pci(self):
+        s = SanitizationPolicy.pci()
+        assert "[CARD]" in s.scrub("Card: 4111111111111111")
+
+    def test_ip_redacted(self):
+        s = SanitizationPolicy.hipaa()
+        assert "[IP]" in s.scrub("From IP 192.168.1.1")
+
+    def test_bearer_token_redacted(self):
+        s = SanitizationPolicy.hipaa()
+        assert "[TOKEN]" in s.scrub("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc")
+
+    def test_no_patterns_leaves_text_unchanged(self):
+        s = SanitizationPolicy()
+        assert s.scrub("SSN 123-45-6789") == "SSN 123-45-6789"
+
+    def test_custom_pattern(self):
+        s = SanitizationPolicy().add_pattern(r"\bACCT-\d+\b", "[ACCOUNT]")
+        assert s.scrub("Account ACCT-99182 overdrawn") == "Account [ACCOUNT] overdrawn"
+
+    def test_multiple_matches_all_redacted(self):
+        s = SanitizationPolicy.hipaa()
+        text = "SSN 123-45-6789 and 987-65-4321"
+        result = s.scrub(text)
+        assert "123-45-6789" not in result
+        assert "987-65-4321" not in result
+
+    def test_gdpr_preset(self):
+        s = SanitizationPolicy.gdpr()
+        assert "[EMAIL]" in s.scrub("user@example.com")
+        assert "[SSN]" in s.scrub("123-45-6789")
+
+    def test_all_pii_preset(self):
+        s = SanitizationPolicy.all_pii()
+        assert "[EMAIL]" in s.scrub("x@y.com")
+
+    # --- scrub_tool_calls() ---
+
+    def test_scrubs_tool_input_values(self):
+        s = SanitizationPolicy.hipaa()
+        calls = [{"id": "1", "name": "lookup", "input": {"email": "jane@example.com"}, "output": ""}]
+        result = s.scrub_tool_calls(calls)
+        assert "jane@example.com" not in str(result)
+        assert "[EMAIL]" in str(result)
+
+    def test_scrubs_tool_output(self):
+        s = SanitizationPolicy.hipaa()
+        calls = [{"id": "1", "name": "get_ssn", "input": {}, "output": "SSN: 123-45-6789"}]
+        result = s.scrub_tool_calls(calls)
+        assert "123-45-6789" not in result[0]["output"]
+
+    def test_does_not_mutate_original_tool_calls(self):
+        s = SanitizationPolicy.hipaa()
+        calls = [{"id": "1", "name": "f", "input": {"x": "123-45-6789"}, "output": ""}]
+        s.scrub_tool_calls(calls)
+        assert calls[0]["input"]["x"] == "123-45-6789"  # original unchanged
+
+    # --- apply() ---
+
+    def test_apply_redacts_prompt(self):
+        s = SanitizationPolicy.hipaa()
+        p, _, _ = s.apply(prompt="SSN 123-45-6789", tool_calls=[], final_text="ok")
+        assert "[SSN]" in p
+        assert "123-45-6789" not in p
+
+    def test_apply_redacts_final_text(self):
+        s = SanitizationPolicy.hipaa()
+        _, _, t = s.apply(prompt="ok", tool_calls=[], final_text="SSN 123-45-6789")
+        assert "[SSN]" in t
+
+    def test_apply_respects_redact_prompt_false(self):
+        s = SanitizationPolicy.hipaa()
+        s.redact_prompt = False
+        p, _, _ = s.apply(prompt="SSN 123-45-6789", tool_calls=[], final_text="ok")
+        assert "123-45-6789" in p
+
+    def test_apply_respects_redact_answer_false(self):
+        s = SanitizationPolicy.hipaa()
+        s.redact_answer = False
+        _, _, t = s.apply(prompt="ok", tool_calls=[], final_text="SSN 123-45-6789")
+        assert "123-45-6789" in t
+
+    # --- receipt integration ---
+
+    def test_receipt_prompt_redacted(self):
+        s = SanitizationPolicy.hipaa()
+        t = time.time()
+        r = ExecutionReceipt.from_run_result(
+            _FakeResult("done"),
+            agent="a", model_name="m",
+            prompt="Patient SSN 123-45-6789 has diabetes",
+            started_at=t, completed_at=t + 1,
+            sanitize=s,
+        )
+        assert "123-45-6789" not in r.prompt
+        assert "[SSN]" in r.prompt
+        assert r.verify() is True  # hash covers redacted form
+
+    def test_receipt_final_text_redacted(self):
+        s = SanitizationPolicy.hipaa()
+        t = time.time()
+        r = ExecutionReceipt.from_run_result(
+            _FakeResult("Contact jane@example.com for results"),
+            agent="a", model_name="m",
+            prompt="get results",
+            started_at=t, completed_at=t + 1,
+            sanitize=s,
+        )
+        assert "jane@example.com" not in r.final_text
+        assert r.verify() is True
+
+    def test_receipt_verify_fails_if_pii_re_injected(self):
+        s = SanitizationPolicy.hipaa()
+        t = time.time()
+        r = ExecutionReceipt.from_run_result(
+            _FakeResult("done"),
+            agent="a", model_name="m",
+            prompt="SSN 123-45-6789",
+            started_at=t, completed_at=t + 1,
+            sanitize=s,
+        )
+        d = r.to_dict()
+        d["prompt"] = "SSN 123-45-6789"  # re-inject raw PII
+        r2 = ExecutionReceipt.from_dict(d)
+        assert r2.verify() is False  # hash mismatch — redaction proves PII was removed
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_pii_redacted_in_trust_log(self):
+        from tvastar import Harness, create_agent
+        from tvastar.model import MockModel
+
+        log = TrustLog()
+        agent = create_agent(
+            "hipaa-bot",
+            model=MockModel(script=["Patient records retrieved for jane@example.com."]),
+            assurance=AssurancePolicy(
+                log=log,
+                sanitize=SanitizationPolicy.hipaa(),
+            ),
+        )
+        result = await Harness(agent).run("Get records for jane@example.com SSN 123-45-6789")
+        r = result.receipt
+        assert "123-45-6789" not in r.prompt
+        assert "jane@example.com" not in r.prompt
+        assert "jane@example.com" not in r.final_text
+        assert r.verify() is True
+        assert log.verify_chain()
+
+
+# ===========================================================================
+# Gap 5: Human approver linkage
+# ===========================================================================
+
+
+class TestApproverTracking:
+    def test_approval_request_records_approver(self):
+        from tvastar.approval import ApprovalRequest
+        req = ApprovalRequest("Approve transfer")
+        req.approve(approver="jane.doe@company.com")
+        assert req.approved_by == "jane.doe@company.com"
+        assert req.approved_at > 0
+
+    def test_approval_request_empty_approver_by_default(self):
+        from tvastar.approval import ApprovalRequest
+        req = ApprovalRequest("Approve")
+        req.approve()
+        assert req.approved_by == ""
+
+    def test_receipt_approvals_field_defaults_empty(self):
+        r = _make_receipt()
+        assert r.approvals == []
+
+    def test_receipt_approvals_included_in_hash(self):
+        t = time.time()
+        r_no_approval = ExecutionReceipt.from_run_result(
+            _FakeResult("done"), agent="a", model_name="m",
+            prompt="go", started_at=t, completed_at=t + 1, approvals=[],
+        )
+        r_with_approval = ExecutionReceipt.from_run_result(
+            _FakeResult("done"), agent="a", model_name="m",
+            prompt="go", started_at=t, completed_at=t + 1,
+            approvals=[{"tool": "transfer", "approved_by": "jane", "approved_at": t, "message": "ok"}],
+        )
+        assert r_no_approval.content_hash != r_with_approval.content_hash
+
+    def test_receipt_approvals_tamper_fails_verify(self):
+        t = time.time()
+        r = ExecutionReceipt.from_run_result(
+            _FakeResult("done"), agent="a", model_name="m",
+            prompt="go", started_at=t, completed_at=t + 1,
+            approvals=[{"tool": "x", "approved_by": "alice", "approved_at": t, "message": "ok"}],
+        )
+        d = r.to_dict()
+        d["approvals"][0]["approved_by"] = "eve"
+        r2 = ExecutionReceipt.from_dict(d)
+        assert r2.verify() is False
+
+    def test_receipt_approvals_roundtrip_json(self):
+        t = time.time()
+        ap = [{"tool": "wire_funds", "approved_by": "cfo@corp.com", "approved_at": t, "message": "ok"}]
+        r = ExecutionReceipt.from_run_result(
+            _FakeResult("done"), agent="a", model_name="m",
+            prompt="go", started_at=t, completed_at=t + 1, approvals=ap,
+        )
+        r2 = ExecutionReceipt.from_json(r.to_json())
+        assert r2.approvals[0]["approved_by"] == "cfo@corp.com"
+        assert r2.verify() is True
+
+    def test_approvals_in_text_audit_report(self):
+        t = time.time()
+        ap = [{"tool": "delete_account", "approved_by": "supervisor@co.com", "approved_at": t, "message": "ok"}]
+        r = ExecutionReceipt.from_run_result(
+            _FakeResult("done"), agent="a", model_name="m",
+            prompt="go", started_at=t, completed_at=t + 1, approvals=ap,
+        )
+        report = r.to_audit_report()
+        assert "HUMAN APPROVALS" in report
+        assert "supervisor@co.com" in report
+        assert "delete_account" in report
+
+    def test_no_approvals_no_approval_section(self):
+        r = _make_receipt()
+        assert "HUMAN APPROVALS" not in r.to_audit_report()
+
+    def test_unidentified_approver_shows_in_report(self):
+        t = time.time()
+        ap = [{"tool": "tool_x", "approved_by": "", "approved_at": t, "message": "ok"}]
+        r = ExecutionReceipt.from_run_result(
+            _FakeResult("done"), agent="a", model_name="m",
+            prompt="go", started_at=t, completed_at=t + 1, approvals=ap,
+        )
+        assert "unidentified operator" in r.to_audit_report()
+
+
+# ===========================================================================
+# Gap 6: TrustLog access control — can_read
+# ===========================================================================
+
+
+class TestTrustLogAccessControl:
+    def test_open_log_allows_all_roles(self):
+        log = TrustLog()  # no can_read — open access
+        log.append(_make_receipt())
+        # No exception regardless of role
+        log.get(next(iter(log)).run_id, role="anyone")
+
+    def test_can_read_blocks_unauthorized_role(self):
+        log = TrustLog(can_read=lambda r: r in ("auditor", "admin"))
+        log.append(_make_receipt())
+        with pytest.raises(PermissionError):
+            log.get(next(iter(log)).run_id, role="developer")
+
+    def test_can_read_allows_authorized_role(self):
+        log = TrustLog(can_read=lambda r: r == "auditor")
+        r = _make_receipt()
+        log.append(r)
+        result = log.get(r.run_id, role="auditor")
+        assert result is not None
+        assert result.run_id == r.run_id
+
+    def test_iter_as_blocks_unauthorized(self):
+        log = TrustLog(can_read=lambda r: r == "auditor")
+        log.append(_make_receipt())
+        with pytest.raises(PermissionError):
+            list(log.iter_as("developer"))
+
+    def test_iter_as_allows_authorized(self):
+        log = TrustLog(can_read=lambda r: r == "auditor")
+        log.append(_make_receipt())
+        entries = list(log.iter_as("auditor"))
+        assert len(entries) == 1
+
+    def test_plain_iter_bypasses_access_control(self):
+        # __iter__ intentionally has no access control — used internally by append/verify
+        log = TrustLog(can_read=lambda r: False)
+        log.append(_make_receipt())
+        assert len(list(log)) == 1  # internal iteration still works
+
+    def test_get_without_role_open_log(self):
+        log = TrustLog()
+        r = _make_receipt()
+        log.append(r)
+        assert log.get(r.run_id) is not None  # default role=""
+
+    def test_get_missing_run_id_returns_none(self):
+        log = TrustLog(can_read=lambda r: True)
+        log.append(_make_receipt())
+        assert log.get("run_nonexistent", role="auditor") is None
+
+    def test_can_read_callable_receives_role_string(self):
+        received = []
+        log = TrustLog(can_read=lambda r: received.append(r) or True)
+        r = _make_receipt()
+        log.append(r)
+        log.get(r.run_id, role="compliance-team")
+        assert received == ["compliance-team"]
+
+
+# ===========================================================================
+# Gap 4: Chain breach alert — on_breach callback
+# ===========================================================================
+
+
+class TestChainBreachAlert:
+    def test_on_breach_called_when_chain_tampered(self):
+        import dataclasses
+        breached = []
+        log = TrustLog(on_breach=lambda r: breached.append(r))
+        r1 = _make_receipt()
+        r2 = _make_receipt(prev_hash=r1.content_hash)
+        log.append(r1)
+        log.append(r2)
+        # Corrupt r2's prev_hash so chain check fails
+        log._entries[1] = dataclasses.replace(r2, prev_hash="sha256:wrong")
+        assert log.verify_chain() is False
+        assert len(breached) == 1
+
+    def test_on_breach_not_called_when_chain_intact(self):
+        breached = []
+        log = TrustLog(on_breach=lambda r: breached.append(r))
+        r = _make_receipt()
+        log.append(r)
+        assert log.verify_chain() is True
+        assert breached == []
+
+    def test_on_breach_receives_first_corrupt_receipt(self):
+        import dataclasses
+        receipts = []
+        log = TrustLog(on_breach=lambda r: receipts.append(r.run_id))
+        r1 = _make_receipt()
+        r2 = _make_receipt(prev_hash=r1.content_hash)
+        log.append(r1)
+        log.append(r2)
+        log._entries[1] = dataclasses.replace(r2, prev_hash="sha256:wrong")
+        log.verify_chain()
+        assert len(receipts) == 1  # only first bad one fires
+
+    def test_no_on_breach_chain_still_returns_false(self):
+        import dataclasses
+        log = TrustLog()  # no callback
+        r1 = _make_receipt()
+        log.append(r1)
+        # Corrupt the stored hash directly so verify() fails
+        log._entries[0] = dataclasses.replace(r1, content_hash="sha256:deadbeef")
+        assert log.verify_chain() is False
+
+    def test_on_breach_async_callback_scheduled(self):
+        import asyncio
+        import dataclasses
+        fired = []
+
+        async def breach_handler(r):
+            fired.append(r.run_id)
+
+        r1 = _make_receipt()
+        log = TrustLog(on_breach=breach_handler)
+        log.append(r1)
+        log._entries[0] = dataclasses.replace(r1, content_hash="sha256:deadbeef")
+
+        async def run():
+            log.verify_chain()
+            await asyncio.sleep(0.01)  # let the created task execute
+
+        asyncio.run(run())
+        assert len(fired) == 1
+
+    def test_on_breach_only_fires_once_per_verify_call(self):
+        import dataclasses
+        calls = []
+        log = TrustLog(on_breach=lambda r: calls.append(1))
+        r1 = _make_receipt()
+        r2 = _make_receipt(prev_hash=r1.content_hash)
+        r3 = _make_receipt(prev_hash=r2.content_hash)
+        log.append(r1)
+        log.append(r2)
+        log.append(r3)
+        # corrupt entry[1] prev_hash → stops at first bad entry
+        log._entries[1] = dataclasses.replace(r2, prev_hash="sha256:wrong")
+        log.verify_chain()
+        assert len(calls) == 1
+
+
+# ===========================================================================
 # Audit report — to_audit_report()
 # ===========================================================================
 
@@ -1024,7 +1543,7 @@ class TestAuditReport:
 
 
 def _make_receipt_with_tools() -> ExecutionReceipt:
-    tc = [{"id": "tc_1", "name": "check_credit", "input": {"customer_id": 4821}}]
+    tc = [{"id": "tc_1", "name": "check_credit", "input": {"customer_id": 4821}, "output": "612"}]
     r = _make_receipt()
     # Rebuild with tool_calls injected — use from_dict so hash is consistent
     d = r.to_dict()
@@ -1033,8 +1552,8 @@ def _make_receipt_with_tools() -> ExecutionReceipt:
     from tvastar.assurance.receipt import _canonical_payload
     import hashlib
     payload = _canonical_payload(
-        run_id=d["run_id"], agent=d["agent"], prompt=d["prompt"],
-        tool_calls=tc, final_text=d["final_text"],
+        run_id=d["run_id"], agent=d["agent"], model_name=d["model_name"],
+        prompt=d["prompt"], tool_calls=tc, final_text=d["final_text"],
         quality_score=d["quality_score"], quality_grade=d["quality_grade"],
         findings=d["findings"], usage_input=d["usage_input"],
         usage_output=d["usage_output"], stopped=d["stopped"],

@@ -6,6 +6,48 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.15.2] — 2026-06-20
+
+### Added — Regulatory Compliance (6 gaps closed)
+
+**Gap 1 — Model name/version in every receipt** (EU AI Act Art.13)
+- `ExecutionReceipt.model_name` field — records which model produced the run.
+- Auto-populated from `spec.model.name` in `_assure()`.
+- Included in content hash — tampering with model name invalidates the receipt.
+
+**Gap 2 — Tool outputs captured** (FINRA, EU AI Act)
+- Tool call records now include `"output"` — what the tool returned, not just
+  the input. Auditors can see the full decision chain: ask + answer.
+- `_extract_tool_calls()` matches `ToolUseBlock` ↔ `ToolResultBlock` by id.
+
+**Gap 3 — PII/PHI redaction** (HIPAA, GDPR, PCI-DSS) — `SanitizationPolicy`
+- `SanitizationPolicy.hipaa()` / `.pci()` / `.gdpr()` / `.all_pii()` presets.
+- Scrubs SSN, credit cards, email, phone, IP, DOB, bearer tokens, credentials.
+- Applied before hashing — receipt hash covers redacted form. Chain intact.
+- `AssurancePolicy(sanitize=SanitizationPolicy.hipaa())` one-liner.
+
+**Gap 4 — Chain breach alert** (all regulatory frameworks)
+- `TrustLog(on_breach=handler)` — fires sync or async callback with the first
+  corrupt receipt when `verify_chain()` detects tampering.
+- Satisfies incident-response notification requirements.
+
+**Gap 5 — Human approver in receipt** (SOX, FDA 21 CFR Part 11, EU AI Act Art.14)
+- `ApprovalRequest.approve(approver="jane@co.com")` records who approved and when.
+- `ExecutionReceipt.approvals` — list of `{tool, approved_by, approved_at, message}`,
+  included in content hash, shown in `to_audit_report()`.
+- Session collects approval records automatically; `approved_by` populated by
+  event-backend callers via `request.approve(approver=...)`.
+
+**Gap 6 — TrustLog access control** (SOC2 CC6, HIPAA §164.312)
+- `TrustLog(can_read=lambda role: role in ("auditor", "admin"))` — gates
+  `get(run_id, role=...)` and `iter_as(role)`.
+- `__iter__` remains ungated for internal use (append/verify_chain).
+- `PermissionError` raised on unauthorized access.
+
+- Receipt schema bumped to version `"2"`.
+- `SanitizationPolicy` exported from `tvastar.assurance` and `tvastar`.
+- 62 new tests (191 total in `test_assurance.py`, 690 suite-wide).
+
 ## [0.15.1] — 2026-06-20
 
 ### Added
@@ -923,7 +965,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.2...HEAD
+[0.15.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.13.0...v0.14.0

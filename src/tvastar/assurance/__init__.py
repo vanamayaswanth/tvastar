@@ -36,10 +36,12 @@ Quick start::
 from .log import TrustLog
 from .policy import AssurancePolicy, SLABreached
 from .receipt import ExecutionReceipt
+from .sanitize import SanitizationPolicy
 
 __all__ = [
     "AssurancePolicy",
     "ExecutionReceipt",
+    "SanitizationPolicy",
     "TrustLog",
     "SLABreached",
 ]

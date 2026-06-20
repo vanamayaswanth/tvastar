@@ -71,9 +71,20 @@ class ApprovalRequest:
 
     # Resolved by the backend
     _future: asyncio.Future | None = field(default=None, init=False, repr=False)
+    # Audit trail — who approved and when (populated on approval)
+    approved_by: str = field(default="", init=False)
+    approved_at: float = field(default=0.0, init=False)
 
-    def approve(self) -> None:
-        """Call this to approve the request (from outside the agent loop)."""
+    def approve(self, approver: str = "") -> None:
+        """Call this to approve the request (from outside the agent loop).
+
+        Args:
+            approver: Identity of the human approver (email, username, employee ID).
+                      Captured in the ExecutionReceipt for regulatory audit trails.
+        """
+        import time as _time
+        self.approved_by = approver
+        self.approved_at = _time.time()
         if self._future and not self._future.done():
             self._future.get_loop().call_soon_threadsafe(self._future.set_result, True)
 
@@ -114,6 +125,7 @@ class ApprovalGate:
         self.on_request = on_request
         self.approved_by_default = approved_by_default
         self._pending: dict[str, ApprovalRequest] = {}
+        self._last_approver: str = ""  # populated by event backend's approve(approver=)
 
     async def request(
         self,
@@ -261,6 +273,8 @@ class ApprovalGate:
 
         if not approved:
             raise ApprovalDenied(f"Approval denied: {req.message!r}")
+        # Capture approver identity from req.approve(approver=...) call
+        self._last_approver = req.approved_by
         return True
 
 
