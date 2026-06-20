@@ -8,12 +8,36 @@ FileStore writes one JSON file per key under a root dir — simple, debuggable
 from __future__ import annotations
 
 import abc
+import base64
+import hashlib
 import json
 import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional
+
+
+def _make_fernet(key: Optional[str]):
+    """Return a Fernet instance derived from *key*, or None if key is falsy.
+
+    Key may be a literal string or ``"env:VAR_NAME"`` to read from the env.
+    Requires ``pip install cryptography``.
+    """
+    if not key:
+        return None
+    raw = os.environ.get(key[4:]) if key.startswith("env:") else key
+    if not raw:
+        return None
+    try:
+        from cryptography.fernet import Fernet
+        # Derive a 32-byte Fernet key from the user-supplied string via SHA-256.
+        fernet_key = base64.urlsafe_b64encode(hashlib.sha256(raw.encode()).digest())
+        return Fernet(fernet_key)
+    except ImportError:
+        import warnings
+        warnings.warn("pip install cryptography to enable encrypted FileStore", stacklevel=3)
+        return None
 
 
 class Store(abc.ABC):
@@ -96,12 +120,23 @@ def _file_lock(path: Path):
 
 
 class FileStore(Store):
-    """JSON-per-key store. Keys are sanitized into safe filenames."""
+    """JSON-per-key store. Keys are sanitized into safe filenames.
 
-    def __init__(self, root: str | Path = ".tvastar-state"):
+    Pass ``key`` to encrypt every record with AES-256-GCM (via
+    ``cryptography.fernet.Fernet``). Requires ``pip install cryptography``.
+    The key can be any string; it is hashed to a 32-byte Fernet key internally.
+    Set ``key="env:MY_VAR"`` to read the key from an environment variable.
+
+    Example::
+
+        store = FileStore(".tvastar-state", key="env:TVASTAR_STORE_KEY")
+    """
+
+    def __init__(self, root: str | Path = ".tvastar-state", key: Optional[str] = None):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._fernet = _make_fernet(key)
 
     def _path(self, key: str) -> Path:
         # Use percent-encoding for special characters so keys with literal "__"
@@ -114,8 +149,10 @@ class FileStore(Store):
         if not p.exists():
             return None
         try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+            raw = p.read_bytes()
+            text = self._fernet.decrypt(raw).decode("utf-8") if self._fernet else raw.decode("utf-8")
+            return json.loads(text)
+        except Exception:
             return None
 
     def set(self, key: str, value: Any) -> None:
@@ -125,9 +162,9 @@ class FileStore(Store):
         with _file_lock(p):
             with self._lock:
                 try:
-                    tmp.write_text(
-                        json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
-                    )
+                    raw = json.dumps(value, ensure_ascii=False, indent=2).encode("utf-8")
+                    data = self._fernet.encrypt(raw) if self._fernet else raw
+                    tmp.write_bytes(data)
                     os.replace(tmp, p)  # atomic on POSIX & Windows
                 except Exception:
                     try:

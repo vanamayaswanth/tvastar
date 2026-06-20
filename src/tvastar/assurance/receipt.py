@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, Any, Dict, List
 if TYPE_CHECKING:  # pragma: no cover
     from ..session import RunResult
 
-__all__ = ["ExecutionReceipt"]
+__all__ = ["ExecutionReceipt", "generate_pqc_keypair"]
 
 _RECEIPT_VERSION = "2"
 _ENV_KEY = "TVASTAR_RECEIPT_KEY"
@@ -95,6 +95,8 @@ class ExecutionReceipt:
     prev_hash: str
     content_hash: str
     signature: str
+    pqc_signature: str = ""       # ML-DSA-65 (Dilithium3) signature, base64; "" when oqs absent
+    pqc_public_key: str = ""      # base64 ML-DSA-65 public key needed to verify pqc_signature
     version: str = _RECEIPT_VERSION
 
     # ------------------------------------------------------------------ build
@@ -110,6 +112,7 @@ class ExecutionReceipt:
         started_at: float,
         completed_at: float,
         key: str = "",
+        pqc_key: str = "",
         prev_hash: str = "",
         sanitize: Any = None,
         approvals: List[Dict[str, Any]] = None,
@@ -127,6 +130,11 @@ class ExecutionReceipt:
                           ``TVASTAR_RECEIPT_KEY`` environment variable, then
                           to an unsigned receipt (``signature=""``) if neither
                           is set.
+            pqc_key:      Base64-encoded ML-DSA-65 (Dilithium3) private key from
+                          :func:`generate_pqc_keypair`. Requires ``pip install oqs-python``.
+                          Adds a ``pqc_signature`` field that can be verified with only
+                          the public key — useful when sharing receipts with parties
+                          that must verify but must not hold the signing secret.
             prev_hash:    content_hash of the preceding receipt in the log.
             approvals:    List of human approval records from this run
                           [{tool, approved_by, approved_at, message}].
@@ -174,6 +182,7 @@ class ExecutionReceipt:
         )
         content_hash = "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
         signature = _sign(content_hash, signing_key)
+        pqc_sig, pqc_pub = _sign_pqc(content_hash, pqc_key)
         return cls(
             run_id=run_id,
             agent=agent,
@@ -193,6 +202,8 @@ class ExecutionReceipt:
             prev_hash=prev_hash,
             content_hash=content_hash,
             signature=signature,
+            pqc_signature=pqc_sig,
+            pqc_public_key=pqc_pub,
             version=_RECEIPT_VERSION,
         )
 
@@ -234,8 +245,11 @@ class ExecutionReceipt:
             return False
         if signing_key:
             expected_sig = _sign(expected_hash, signing_key)
-            return hmac.compare_digest(self.signature, expected_sig)
-        return True  # unsigned receipt — hash match is sufficient
+            if not hmac.compare_digest(self.signature, expected_sig):
+                return False
+        if not _verify_pqc(expected_hash, self.pqc_signature, self.pqc_public_key):
+            return False
+        return True
 
     # ------------------------------------------------------------------ I/O
 
@@ -261,6 +275,8 @@ class ExecutionReceipt:
             "prev_hash": self.prev_hash,
             "content_hash": self.content_hash,
             "signature": self.signature,
+            "pqc_signature": self.pqc_signature,
+            "pqc_public_key": self.pqc_public_key,
         }
 
     def to_json(self) -> str:
@@ -290,6 +306,8 @@ class ExecutionReceipt:
             prev_hash=str(data.get("prev_hash", "")),
             content_hash=str(data["content_hash"]),
             signature=str(data.get("signature", "")),
+            pqc_signature=str(data.get("pqc_signature", "")),
+            pqc_public_key=str(data.get("pqc_public_key", "")),
         )
 
     @classmethod
@@ -330,6 +348,57 @@ def _sign(content_hash: str, key: str) -> str:
         return ""
     digest = hmac.new(key.encode(), content_hash.encode(), hashlib.sha256).hexdigest()
     return f"hmac-sha256:{digest}"
+
+
+def _sign_pqc(content_hash: str, pqc_key_b64: str) -> tuple:
+    """ML-DSA-65 (Dilithium3) signature of content_hash.
+
+    Returns (sig_b64, pub_b64) when oqs is installed and pqc_key_b64 is set,
+    otherwise ("", ""). Requires ``pip install oqs-python``.
+    """
+    if not pqc_key_b64:
+        return "", ""
+    try:
+        import base64 as _b64
+        import oqs  # type: ignore[import]
+        priv = _b64.b64decode(pqc_key_b64)
+        signer = oqs.Signature("ML-DSA-65", secret_key=priv)
+        sig = signer.sign(content_hash.encode())
+        pub = signer.export_public_key()
+        return _b64.b64encode(sig).decode(), _b64.b64encode(pub).decode()
+    except (ImportError, Exception):
+        return "", ""
+
+
+def _verify_pqc(content_hash: str, sig_b64: str, pub_b64: str) -> bool:
+    """Verify an ML-DSA-65 signature. Returns True on success, False otherwise."""
+    if not (sig_b64 and pub_b64):
+        return True  # no PQC signature present — skip check
+    try:
+        import base64 as _b64
+        import oqs  # type: ignore[import]
+        verifier = oqs.Signature("ML-DSA-65")
+        return verifier.verify(content_hash.encode(), _b64.b64decode(sig_b64), _b64.b64decode(pub_b64))
+    except (ImportError, Exception):
+        return True  # oqs absent — can't verify, don't fail legacy receipts
+
+
+def generate_pqc_keypair() -> tuple:
+    """Generate a fresh ML-DSA-65 (Dilithium3) keypair.
+
+    Returns:
+        (private_key_b64, public_key_b64) — both base64-encoded strings.
+        Pass private_key_b64 to ``from_run_result(pqc_key=...)``.
+        Store public_key_b64 with your verifiers.
+
+    Requires ``pip install oqs-python``.
+    """
+    import base64 as _b64
+    import oqs  # type: ignore[import]
+    signer = oqs.Signature("ML-DSA-65")
+    pub = signer.generate_keypair()
+    priv = signer.export_secret_key()
+    return _b64.b64encode(priv).decode(), _b64.b64encode(pub).decode()
 
 
 def _extract_tool_calls(messages: list) -> List[Dict[str, Any]]:

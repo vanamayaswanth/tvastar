@@ -645,6 +645,11 @@ class Session:
         if _budget_warnings:
             result.findings = list(result.findings) + _budget_warnings
         result.receipt = self._assure(result, started_at=_run_started_at)
+        if getattr(spec, "scrub_after_run", False):
+            import hashlib as _hl
+            for _msg in self.messages:
+                _h = _hl.sha256(str(_msg.content).encode()).hexdigest()
+                _msg.content = f"[scrubbed:sha256:{_h[:16]}]"
         return result
 
     def _detect(self, result: RunResult) -> list["Finding"]:

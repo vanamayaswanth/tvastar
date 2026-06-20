@@ -64,6 +64,9 @@ class AgentSpec:
     #: optional agent pruner — auto-updated after sess.task() completes so slow/failing
     #: agents are demoted before the next routing decision.
     pruner: Optional[Any] = None  # AgentPruner
+    #: when True, replace every message's content with its SHA-256 hash after each run
+    #: so PII in the conversation history cannot be recovered from the session object.
+    scrub_after_run: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self, *, last_user_text: str = "") -> str:
@@ -128,6 +131,7 @@ def create_agent(
     memory_cap_mb: Optional[float] = None,
     assurance: Optional[Any] = None,
     pruner: Optional[Any] = None,
+    scrub_after_run: bool = False,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -203,5 +207,6 @@ def create_agent(
         memory_cap_mb=memory_cap_mb,
         assurance=assurance,
         pruner=pruner,
+        scrub_after_run=scrub_after_run,
         metadata=metadata,
     )

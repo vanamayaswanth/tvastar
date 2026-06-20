@@ -86,3 +86,63 @@ async def test_loop_budget_suspends_when_exceeded():
     loop = Loop(agent, config)
     run = await loop.trigger()
     assert run.state == LoopState.SUSPENDED
+
+
+# ---------------------------------------------------------------------------
+# 4. Encrypted FileStore — round-trip with a key
+# ---------------------------------------------------------------------------
+
+
+def test_encrypted_filestore_roundtrip(tmp_path):
+    from tvastar.memory.store import FileStore
+
+    store = FileStore(tmp_path / "enc", key="test-secret")
+    store.set("hello", {"msg": "world"})
+    # file on disk must not contain the plaintext value
+    raw = (tmp_path / "enc" / "hello.json").read_bytes()
+    assert b"world" not in raw
+    # but round-trip must recover the value
+    assert store.get("hello") == {"msg": "world"}
+
+
+# ---------------------------------------------------------------------------
+# 5. Session scrub — message content replaced with hash after run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scrub_after_run_replaces_message_content():
+    from tvastar import Harness
+
+    agent = create_agent(
+        "scrubber",
+        model=MockModel(script=["done"]),
+        scrub_after_run=True,
+    )
+    result = await Harness(agent).run("Secret PII: alice@example.com")
+    # result.text is extracted before scrub so it stays intact
+    assert result.text == "done"
+    # every message in the history must be scrubbed
+    for msg in result.messages:
+        assert str(msg.content).startswith("[scrubbed:sha256:")
+
+
+# ---------------------------------------------------------------------------
+# 6. Receipt PQC fields default to empty when oqs is absent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_receipt_pqc_fields_default_empty():
+    from tvastar import Harness
+
+    agent = create_agent(
+        "assured",
+        model=MockModel(script=["ok"]),
+        assurance=AssurancePolicy(),
+    )
+    result = await Harness(agent).run("test")
+    if result.receipt is not None:
+        assert result.receipt.pqc_signature == ""
+        assert result.receipt.pqc_public_key == ""
+        assert result.receipt.verify()
