@@ -143,6 +143,30 @@ model = OpenAIModel(
 )
 ```
 
+```python
+# 100+ providers with one import — and automatic cost routing between them
+# pip install "tvastar[litellm]"
+from tvastar.model import LiteLLMModel
+
+# Single provider — any litellm model string
+model = LiteLLMModel("anthropic/claude-sonnet-4-6")
+model = LiteLLMModel("groq/llama-3.1-70b-versatile")
+model = LiteLLMModel("ollama/llama3.2")
+
+# Router — your fast/cheap model handles easy prompts, smart model handles hard ones
+model = LiteLLMModel(
+    "fast",
+    model_list=[
+        {"model_name": "fast",  "litellm_params": {"model": "claude-haiku-4-5-20251001"}},
+        {"model_name": "smart", "litellm_params": {"model": "claude-sonnet-4-6"}},
+    ],
+    routing_strategy="usage-based-routing-v2",   # least-loaded wins
+    fallbacks=[{"fast": ["smart"]}],             # escalate on failure
+)
+```
+
+Running Haiku where you were running Opus cuts cost 25×. LiteLLM Router does the routing. You don't write the if/else.
+
 The harness wraps the model. It does not care which one.
 
 ---
@@ -198,6 +222,12 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 | Anyone on the team can read the audit log | `TrustLog(can_read=...)` — role-based access, `PermissionError` if denied |
 | Audit log tampered silently | `on_breach` callback — fires immediately, per-receipt |
 | 7-year SOX retention, data must not grow forever | `RetentionPolicy` — archive old entries, legal hold freezes the log |
+| Model sees real SSNs before your policy strips them | `TokenVault` — tokens go in, originals come back only after model is done |
+| 100 providers, one interface, automatic cost routing | `LiteLLMModel` + Router — cheap model by default, expensive on fallback |
+| Writing `agent='reviewer'` on every task() call | `AgentRouter` — semantic matching picks the right profile automatically |
+| Bad agents waste compute in multi-agent pipelines | `AgentPruner` — drops underperformers below quality threshold automatically |
+| TaskGraph written by hand for every new pipeline | `auto_topology()` — describe the goal, get the graph |
+| Free-form prompt rewriting after failures | `DSPyOptimizer` — compiles better instructions from your failure history |
 
 ---
 
@@ -236,6 +266,9 @@ Model generates response
 pip install tvastar                      # core only — zero deps
 pip install "tvastar[anthropic]"         # + Claude models
 pip install "tvastar[openai]"            # + OpenAI / Groq / Ollama / etc.
+pip install "tvastar[litellm]"           # + 100+ providers via LiteLLM + cost routing
+pip install "tvastar[router]"            # + semantic-router embeddings for AgentRouter
+pip install "tvastar[dspy]"              # + DSPy systematic prompt optimisation
 pip install "tvastar[serve]"             # + HTTP server (FastAPI)
 pip install "tvastar[otel]"              # + OpenTelemetry tracing
 pip install "tvastar[presidio]"          # + ML-powered PII detection (Presidio + spaCy)
@@ -444,6 +477,38 @@ async with sess:
 
 Task delegation is capped at 4 levels deep to prevent runaway recursion.
 
+### Auto-routing — the router picks the agent, not you
+
+```python
+from tvastar import AgentRouter
+
+router = AgentRouter(spec.subagents.values())
+
+# No more agent="reviewer" — the router reads the prompt and decides
+result = await sess.task(
+    "Review this SQL migration for data loss risks.",
+    router=router,
+)
+```
+
+With `pip install "tvastar[router]"` the router uses embedding-based similarity (semantic-router). Without it, it falls back to word-overlap — zero deps, still useful.
+
+### AgentPruner — drop specialists that underperform
+
+```python
+from tvastar import AgentPruner
+
+pruner = AgentPruner(threshold=60.0, min_runs=3)
+
+# After each task result, record the score against the profile that ran it
+pruner.update("coder", result)
+
+# Rebuild the router from the surviving pool — low scorers are gone
+router = AgentRouter(pruner.active(all_profiles))
+```
+
+`AgentDropout` for your agent pipelines: profiles whose rolling average quality score falls below threshold are removed from routing. The compute that was going to a bad agent goes to a good one instead.
+
 ---
 
 ## Parallel fan-out
@@ -462,6 +527,26 @@ results = await harness.fan_out([
     },
 ], concurrency=4)
 ```
+
+---
+
+## Auto-topology — describe the goal, get the parallel graph
+
+You shouldn't be wiring TaskGraph by hand for every pipeline. `auto_topology()` decomposes a natural-language goal into a TaskGraph + AgentProfile set automatically.
+
+```python
+from tvastar import auto_topology
+
+graph, profiles = await auto_topology(
+    "Research our top 3 competitors, score their pricing, write a strategy report.",
+    harness=harness,    # reuses your existing model — no extra config
+    max_subtasks=6,
+)
+results = await graph.run()
+print(results["report"].text)
+```
+
+The planner generates subtasks with explicit dependencies. `graph.run()` executes them with maximum parallelism — the critical path, not the sum.
 
 ---
 
@@ -557,9 +642,9 @@ run = await loop.trigger()
 # Only APPROVED advances to PASS
 ```
 
-### Self-Improving Loops (`meta_model`)
+### Self-Improving Loops (`meta_model` / `DSPyOptimizer`)
 
-Set `meta_model` on any `LoopConfig` and the loop will rewrite its own agent instructions after each FAIL — inspired by [Hyperagents](https://github.com/facebookresearch/Hyperagents). No code execution: improvement is pure prompt evolution, persisted across restarts.
+Set `meta_model` on any `LoopConfig` and the loop rewrites its own agent instructions after each FAIL — inspired by [Hyperagents](https://github.com/facebookresearch/Hyperagents). No code execution: improvement is pure prompt evolution, persisted across restarts.
 
 ```python
 from tvastar.loop import Loop, LoopConfig
@@ -574,14 +659,27 @@ config = LoopConfig(
     meta_model=AnthropicModel("claude-sonnet-4-6"),  # stronger model improves the worker
 )
 loop = Loop(spec, config, store=FileStore(".tvastar-state"))
-
-# After each FAIL, meta_model rewrites the worker's instructions and the next
-# retry uses the improved version. Every run is recorded as a LoopGeneration.
 run = await loop.trigger()
 
 best = loop.best_generation()   # highest-scoring generation on record
 print(f"Best: gen {best.gen_id}, score={best.score}")
 ```
+
+**DSPyOptimizer — systematic, not free-form.** Free-form rewriting after a failure is guesswork. DSPy compiles better instructions by treating your PASS runs as few-shot demonstrations and your FAIL runs as failure evidence. The optimizer produces structured output — just the improved instructions, no commentary, no hallucinated constraints.
+
+```python
+from tvastar.loop.optimize import DSPyOptimizer
+
+config = LoopConfig(
+    name="self-improving-ci",
+    goal="Keep the build green.",
+    schedule="*/15 * * * *",
+    optimizer=DSPyOptimizer("gpt-4o"),   # replaces meta_model — takes precedence
+)
+# pip install "tvastar[dspy]"
+```
+
+`DSPyOptimizer` takes precedence over `meta_model` when both are set. `meta_model` is still supported — swap to `optimizer` when you want DSPy's structured compilation instead of a one-shot rewrite.
 
 `MakerChecker` with a `FileStore` also persists checker rejection verdicts across runs so the Maker learns from patterns that caused rejection in previous sessions.
 
@@ -860,6 +958,25 @@ sanitize=SanitizationPolicy.hipaa().add_pattern(r"MRN-\d+", "[MRN]")
 ```
 
 The hash covers the **sanitized** content. Proof that PII was removed is baked into the receipt itself — a tampered re-injection of PII fails `verify()`.
+
+### TokenVault — the model never sees real PII, not even once
+
+`SanitizationPolicy` redacts PII from audit records. `TokenVault` goes further: the model never sees the original values in the first place.
+
+```python
+from tvastar.assurance import SanitizationPolicy, TokenVault
+
+vault = TokenVault()
+clean = vault.tokenize(prompt, SanitizationPolicy.hipaa())
+# "Patient Jane Smith SSN 123-45-6789" → "Patient <<PERSON_1>> SSN <<US_SSN_1>>"
+
+result = await sess.prompt(clean)   # model works on tokens only
+
+final = vault.rehydrate(result.text)
+# "Send referral to <<PERSON_1>>" → "Send referral to Jane Smith"
+```
+
+HIPAA §164.514 says the AI system must not retain PHI beyond the minimum necessary. TokenVault makes that testable: grep your model traffic for the vault's tokens — if you find the original SSN, something broke.
 
 ### Retention — SOX 7yr, HIPAA 6yr, legal holds
 

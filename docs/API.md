@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.15.5. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.16.2. Every public symbol, field, and signature.
 
 ---
 
@@ -199,6 +199,7 @@ class Session:
         model: Model | None = None,
         thinking_level: str | None = None,
         max_steps: int | None = None,
+        router: AgentRouter | None = None, # auto-picks agent when agent= is None
     ) -> RunResult
 
     # Streaming
@@ -398,6 +399,46 @@ class MockModel(Model):
     # thinking_level: accepted and noted in echoed text for test visibility
 ```
 
+### `LiteLLMModel` (`tvastar.model.litellm`)
+
+Wraps `litellm.acompletion` and `litellm.Router` inside Tvastar's `Model` ABC. Covers 100+ providers with a single import. Requires `pip install tvastar[litellm]`.
+
+```python
+class LiteLLMModel(Model):
+    system = "litellm"
+
+    def __init__(
+        self,
+        model: str = "gpt-4o",
+        *,
+        model_list: list[dict] | None = None,   # if set, creates a litellm.Router
+        routing_strategy: str = "usage-based-routing-v2",
+        fallbacks: list[dict] | None = None,    # [{"fast": ["smart"]}]
+        api_key: str | None = None,
+        **router_kwargs,
+    )
+```
+
+When `model_list` is provided, all calls go through a `litellm.Router` for load-balancing and fallback. Otherwise calls go directly to `litellm.acompletion`. The `model` string is the default/primary model passed to every completion call; router entries use their own `litellm_params.model`.
+
+```python
+from tvastar.model import LiteLLMModel
+
+# Simple — one provider
+model = LiteLLMModel("anthropic/claude-sonnet-4-6")
+
+# Router — route between fast (cheap) and smart (expensive)
+model = LiteLLMModel(
+    "fast",
+    model_list=[
+        {"model_name": "fast",  "litellm_params": {"model": "claude-haiku-4-5-20251001"}},
+        {"model_name": "smart", "litellm_params": {"model": "claude-sonnet-4-6"}},
+    ],
+    routing_strategy="usage-based-routing-v2",
+    fallbacks=[{"fast": ["smart"]}],
+)
+```
+
 ---
 
 ## Tools (`tvastar/tools/`)
@@ -496,6 +537,108 @@ def define_agent_profile(
     subagents: list[AgentProfile] | None = None,
     **metadata,
 ) -> AgentProfile
+```
+
+---
+
+## `AgentRouter` (`tvastar/router.py`)
+
+Routes a task prompt to the best-matching `AgentProfile`. Uses semantic-router (embedding-based) when installed (`pip install tvastar[router]`), falls back to difflib word-overlap with zero deps.
+
+```python
+class AgentRouter:
+    def __init__(
+        self,
+        profiles: Iterable[AgentProfile],
+        *,
+        threshold: float = 0.3,   # minimum match score to accept a route
+        encoder = None,           # optional semantic-router encoder instance
+    )
+
+    def route(self, text: str) -> str | None
+    # Returns the best-matching profile name, or None if no match exceeds threshold.
+    # Pass to sess.task(router=router) for automatic agent selection.
+```
+
+Wiring into `task()`:
+
+```python
+router = AgentRouter(spec.subagents.values())
+result = await sess.task("Review auth.py for security issues", router=router)
+# router.route() called with the prompt; resolved name passed as agent=
+```
+
+---
+
+## `AgentPruner` (`tvastar/router.py`)
+
+Tracks per-profile quality scores and drops underperformers from the active pool. Inspired by the AgentDropout paper.
+
+```python
+class AgentPruner:
+    def __init__(
+        self,
+        threshold: float = 50.0,  # min average score (0–100) to keep a profile
+        *,
+        min_runs: int = 1,         # minimum runs before a profile is eligible for pruning
+    )
+
+    def update(self, profile_name: str, result: RunResult) -> None
+    # Record a RunResult. Calls score_run(result) internally.
+
+    def avg_score(self, profile_name: str) -> float | None
+    # Rolling average score for the profile, or None if not yet seen.
+
+    def should_prune(self, profile_name: str) -> bool
+    # True if the profile has min_runs and avg_score < threshold.
+
+    def active(self, profiles: Iterable[AgentProfile]) -> list[AgentProfile]
+    # Return profiles NOT pruned. Unseen profiles always included.
+
+    def pruned(self, profiles: Iterable[AgentProfile]) -> list[AgentProfile]
+    # Return only profiles that would be dropped.
+```
+
+Typical usage pattern:
+
+```python
+pruner = AgentPruner(threshold=60.0, min_runs=3)
+
+# After every task result, record it against the profile that ran it
+pruner.update(agent_name, result)
+
+# Rebuild the router — prune before the next round
+router = AgentRouter(pruner.active(all_profiles))
+```
+
+---
+
+## `auto_topology()` (`tvastar/topology.py`)
+
+Decomposes a natural-language goal into a `TaskGraph` + `list[AgentProfile]`. The planner uses the harness's existing model — no extra configuration.
+
+```python
+async def auto_topology(
+    goal: str,
+    *,
+    harness: Harness,
+    max_subtasks: int = 6,
+    cancel_after: float = 60.0,
+) -> tuple[TaskGraph, list[AgentProfile]]
+```
+
+Returns `(graph, profiles)` where `graph` is ready to `run()` and `profiles` is one `AgentProfile` per subtask role.
+
+Raises `ValueError` if the planner returns invalid JSON or an unknown dependency. Raises `asyncio.TimeoutError` if planning exceeds `cancel_after`.
+
+```python
+graph, profiles = await auto_topology(
+    "Research competitors, score pricing, write a strategy deck.",
+    harness=harness,
+    max_subtasks=5,
+)
+results = await graph.run()
+print(results["strategy_deck"].text)
 ```
 
 ---
@@ -1360,6 +1503,8 @@ class LoopConfig:
     retry_backoff_base: float = 30.0 # seconds: 30 → 60 → 120 with exponential growth
     circuit_breaker_limit: int = 5   # consecutive HANDOFF cycles → SUSPENDED
     handoff: HandoffPolicy | None = None
+    meta_model: Model | None = None  # one-shot instruction rewriter after FAIL
+    optimizer: Callable | None = None  # Callable[[str, list[LoopRun]], str]; takes precedence over meta_model
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None
@@ -1852,3 +1997,73 @@ except SLABreached as e:
     print(f"Quality score {e.receipt.quality_score} below threshold")
     print(e.receipt.findings)
 ```
+
+---
+
+### `TokenVault` (`tvastar.assurance.sanitize`)
+
+Reversible PII tokenization. The model receives opaque tokens instead of real values; `rehydrate()` swaps them back in the response.
+
+```python
+class TokenVault:
+    def __init__(self) -> None
+
+    def tokenize(self, text: str, policy: SanitizationPolicy) -> str
+    # Apply policy patterns to text, storing originals in vault.
+    # Returns tokenized text with <<LABEL_N>> placeholders.
+
+    def rehydrate(self, text: str) -> str
+    # Replace all <<LABEL_N>> tokens in text with the originals captured during tokenize().
+
+    def __len__(self) -> int           # number of tokens recorded
+```
+
+Token format: `<<EMAIL_1>>`, `<<US_SSN_2>>`, etc. — derived from the policy's pattern labels. Multiple occurrences of the same type get unique counters.
+
+```python
+from tvastar.assurance import SanitizationPolicy, TokenVault
+
+vault = TokenVault()
+clean   = vault.tokenize(prompt, SanitizationPolicy.hipaa())
+result  = await sess.prompt(clean)
+final   = vault.rehydrate(result.text)
+```
+
+---
+
+## `DSPyOptimizer` (`tvastar/loop/optimize.py`)
+
+Systematic instruction optimizer for self-improving loops. Wraps DSPy `ChainOfThought` to rewrite agent instructions from failure evidence. Requires `pip install tvastar[dspy]`.
+
+```python
+class DSPyOptimizer:
+    def __init__(
+        self,
+        model: str = "gpt-4o",   # DSPy model string (litellm-compatible)
+        *,
+        max_demos: int = 3,       # max PASS runs to use as few-shot examples
+        max_fails: int = 5,       # max FAIL runs to include in failure evidence
+        **lm_kwargs,              # forwarded to dspy.LM(model, **lm_kwargs)
+    )
+
+    def __call__(
+        self,
+        instructions: str,
+        runs: list[LoopRun],
+    ) -> str
+    # Returns improved instructions, or instructions unchanged if DSPy returns empty.
+```
+
+Plug into `LoopConfig.optimizer` — takes precedence over `meta_model`:
+
+```python
+from tvastar.loop.optimize import DSPyOptimizer
+
+config = LoopConfig(
+    name="ci",
+    goal="Keep build green.",
+    optimizer=DSPyOptimizer("claude-sonnet-4-6"),
+)
+```
+
+The optimizer callable signature `(instructions: str, runs: list[LoopRun]) -> str` is stable — any callable that matches it works as an optimizer, not just `DSPyOptimizer`.

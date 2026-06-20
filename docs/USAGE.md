@@ -78,8 +78,60 @@ results = await harness.fan_out(["Summarise chapter 1", "Summarise chapter 2", .
 r1 = await sess.prompt("Read the auth module.")
 r2 = await sess.prompt("Fix the bug you found.")
 
-# Delegate to a specialist
+# Delegate to a named specialist
 review = await sess.task("Review the auth module for security issues", agent="security-reviewer")
+
+# Delegate with auto-routing — router picks the specialist from prompt semantics
+from tvastar import AgentRouter
+router = AgentRouter(spec.subagents.values())
+review = await sess.task("Review the auth module for security issues", router=router)
+```
+
+### `AgentRouter` vs explicit `agent=`
+
+| | `agent="name"` | `router=AgentRouter(...)` |
+|---|---|---|
+| How profile is selected | Hard-coded at call site | Semantic similarity to prompt |
+| When to use | Profile is always known at write time | Profile selection is runtime data |
+| Accuracy | 100% — you chose | Depends on description quality |
+| Deps | None | `pip install tvastar[router]` for embeddings; difflib fallback otherwise |
+
+### `AgentPruner` — drop bad specialists
+
+After recording results, `AgentPruner` removes profiles whose rolling average quality score falls below threshold. Rebuild the router from the surviving pool each round.
+
+```python
+from tvastar import AgentPruner
+pruner = AgentPruner(threshold=60.0, min_runs=3)
+pruner.update("security-reviewer", result)          # record quality score
+router  = AgentRouter(pruner.active(all_profiles))  # excludes underperformers
+```
+
+---
+
+## `TaskGraph` vs `auto_topology()`
+
+| | `TaskGraph` (manual) | `auto_topology()` |
+|---|---|---|
+| Subtask definition | You define each task and dependency | Planner model generates them |
+| Control | Full — you choose what runs | Declarative — you describe the goal |
+| Use when | Pipeline structure is fixed | Pipeline structure varies by input |
+| Extra model call | No | Yes — one planner call |
+
+```python
+# Manual — you know exactly what to run
+graph = TaskGraph(harness)
+graph.task("fetch", "Fetch data")
+graph.task("analyse", "Analyse it", depends_on=["fetch"])
+results = await graph.run()
+
+# Auto — tell the model what you want
+from tvastar import auto_topology
+graph, profiles = await auto_topology(
+    "Research competitors, score pricing, write a strategy deck.",
+    harness=harness,
+)
+results = await graph.run()
 ```
 
 ---
@@ -163,9 +215,28 @@ run = await loop.trigger()
 | Maximum quality, hard problems | `claude-opus-4-8` |
 | OpenAI compatible | `OpenAIModel("gpt-4o")` |
 | Local, free, no API key | `OpenAIModel("llama3.2", base_url="http://localhost:11434/v1", api_key="ollama")` |
+| 100+ providers, one interface | `LiteLLMModel("anthropic/claude-sonnet-4-6")` |
+| Auto-route cheap↔expensive | `LiteLLMModel("fast", model_list=[...], fallbacks=[...])` |
 | Tests (no API calls) | `MockModel(script=["response 1", "response 2"])` |
 
 Use a faster/cheaper model for the Maker in MakerChecker and a stronger model for the Checker.
+
+**LiteLLM Router** — when you have a mix of easy and hard prompts, let the Router decide which tier to use:
+
+```python
+from tvastar.model import LiteLLMModel  # pip install tvastar[litellm]
+
+model = LiteLLMModel(
+    "fast",
+    model_list=[
+        {"model_name": "fast",  "litellm_params": {"model": "claude-haiku-4-5-20251001"}},
+        {"model_name": "smart", "litellm_params": {"model": "claude-opus-4-8"}},
+    ],
+    routing_strategy="usage-based-routing-v2",
+    fallbacks=[{"fast": ["smart"]}],
+)
+# fast handles everything; falls back to smart when fast is degraded or fails
+```
 
 ---
 
@@ -279,11 +350,13 @@ harness = Harness(spec, tracer=Tracer([ConsoleExporter(), JSONLExporter("trace.j
 
 ---
 
-## Self-Improving Loops (`meta_model`)
+## Self-Improving Loops (`meta_model` / `DSPyOptimizer`)
 
-Set `meta_model` on a `LoopConfig` to enable Hyperagents-style prompt evolution. After each
-FAIL the meta-agent reads the failure evidence and rewrites the loop's agent instructions.
-The improved instructions are persisted and used from the very next retry.
+Set `meta_model` or `optimizer` on a `LoopConfig` to enable prompt evolution after failures. `optimizer` takes precedence when both are set.
+
+### `meta_model` — one-shot free-form rewrite
+
+After each FAIL, a meta-agent reads the failure evidence and rewrites the loop's agent instructions. Simple; one extra API call per failure.
 
 ```python
 config = LoopConfig(
@@ -295,13 +368,29 @@ config = LoopConfig(
 )
 ```
 
+### `optimizer` — structured compilation via DSPy
+
+`DSPyOptimizer` uses your PASS run history as few-shot demonstrations and FAIL runs as failure evidence, then runs a DSPy `ChainOfThought` to produce structured output (just the instructions, no commentary). More systematic than a one-shot rewrite.
+
+```python
+from tvastar.loop.optimize import DSPyOptimizer  # pip install tvastar[dspy]
+
+config = LoopConfig(
+    name="ci-sweeper",
+    goal="Keep the build green.",
+    optimizer=DSPyOptimizer("gpt-4o"),  # takes precedence over meta_model
+)
+```
+
+Any callable with signature `(instructions: str, runs: list[LoopRun]) -> str` works as an optimizer. Implement your own for custom refinement strategies.
+
 | Question | Answer |
 |----------|--------|
 | When does it fire? | Asynchronously after each non-PASS run, before the retry backoff expires |
 | What does it improve? | The agent's `instructions` string — never code |
 | How do improvements persist? | Stored under `loop:{name}:meta_instructions` in `FileStore` |
-| What if meta-improvement fails? | Silently ignored — loop continues on previous instructions |
-| Which model for `meta_model`? | Stronger than the worker (e.g. Sonnet for a Haiku worker) |
+| What if improvement fails? | Silently ignored — loop continues on previous instructions |
+| `meta_model` vs `optimizer`? | `meta_model`: one-shot, simpler. `optimizer`: structured, systematic, DSPy required. |
 | Does it affect PASS runs? | No — only fires after FAIL/RETRY/HANDOFF |
 
 ### Generational Archive
@@ -417,6 +506,30 @@ policy = SanitizationPolicy.hipaa().add_pattern(r"PAT-\d{6}", "[PATIENT_ID]")
 `presidio()` requires `pip install tvastar[presidio]` and a spaCy language model.
 Use it when regex presets miss entity types (names, organisation names, locations)
 or when you need multi-language coverage.
+
+---
+
+### `TokenVault` — zero-PII model traffic
+
+`SanitizationPolicy` redacts PII from the receipt after the run. `TokenVault` goes further: the model never receives real PII at all.
+
+| | `SanitizationPolicy` | `TokenVault` |
+|---|---|---|
+| When PII is removed | After run, before hashing | Before the model call |
+| Model sees real PII | Yes (then redacted) | No |
+| Output contains PII | Redacted | Rehydrated post-run |
+| Use when | Audit log must be clean | Model traffic must be clean |
+
+```python
+from tvastar.assurance import SanitizationPolicy, TokenVault
+
+vault = TokenVault()
+clean  = vault.tokenize(user_prompt, SanitizationPolicy.hipaa())
+result = await sess.prompt(clean)
+output = vault.rehydrate(result.text)
+```
+
+Combine both for defence-in-depth: `TokenVault` keeps PII out of model traffic; `SanitizationPolicy` keeps PII out of the audit log in case any leaked through.
 
 ---
 

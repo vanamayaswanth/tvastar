@@ -1282,6 +1282,205 @@ quality score and grade, hash chain verification status, and the HMAC signature.
 
 ---
 
+## 33. LiteLLM — 100+ Providers with Cost Routing
+
+Single interface to every LLM provider. Use `LiteLLMModel` directly for one provider, or pass `model_list` to create a Router that load-balances and falls back automatically.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness, default_toolset
+from tvastar.model import LiteLLMModel  # pip install tvastar[litellm]
+
+# Single provider — any litellm model string
+agent = create_agent(
+    "assistant",
+    model=LiteLLMModel("anthropic/claude-sonnet-4-6"),
+    tools=default_toolset(),
+)
+
+# Router — cheap model by default, escalates on failure
+model = LiteLLMModel(
+    "fast",
+    model_list=[
+        {"model_name": "fast",  "litellm_params": {"model": "claude-haiku-4-5-20251001"}},
+        {"model_name": "smart", "litellm_params": {"model": "claude-sonnet-4-6"}},
+    ],
+    routing_strategy="usage-based-routing-v2",
+    fallbacks=[{"fast": ["smart"]}],
+)
+agent = create_agent("assistant", model=model, tools=default_toolset())
+result = asyncio.run(Harness(agent).run("Analyse the codebase."))
+```
+
+---
+
+## 34. AgentRouter — Semantic Auto-Routing to Specialist Profiles
+
+Instead of hard-coding `agent="reviewer"` at every call site, let the router read the prompt and pick the right specialist.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness, AgentRouter, AgentProfile, default_toolset
+from tvastar.model import AnthropicModel  # pip install tvastar[router] for embeddings
+
+profiles = [
+    AgentProfile(name="coder",    description="Write and fix Python code"),
+    AgentProfile(name="reviewer", description="Review code for bugs and security"),
+    AgentProfile(name="tester",   description="Write unit tests and run test suites"),
+]
+
+agent  = create_agent("coordinator", model=AnthropicModel("claude-sonnet-4-6"),
+                      subagents=profiles, tools=default_toolset())
+router = AgentRouter(profiles)
+
+async def main():
+    sess = Harness(agent).session()
+    result = await sess.task(
+        "Review auth.py for SQL injection risks",
+        router=router,  # picks "reviewer" automatically
+    )
+    print(result.text)
+
+asyncio.run(main())
+```
+
+---
+
+## 35. AgentPruner — Drop Underperforming Specialists
+
+Score each specialist after every task and remove the ones that consistently produce low-quality output.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness, AgentRouter, AgentPruner, AgentProfile, default_toolset
+from tvastar.model import AnthropicModel
+
+all_profiles = [
+    AgentProfile(name="fast-coder",   description="Write Python code quickly"),
+    AgentProfile(name="senior-coder", description="Write careful, well-tested Python code"),
+    AgentProfile(name="reviewer",     description="Review code for bugs and security"),
+]
+
+agent  = create_agent("coordinator", model=AnthropicModel("claude-sonnet-4-6"),
+                      subagents=all_profiles, tools=default_toolset())
+pruner = AgentPruner(threshold=60.0, min_runs=3)
+
+async def main():
+    sess   = Harness(agent).session()
+    router = AgentRouter(pruner.active(all_profiles))
+
+    for prompt in prompts:
+        result = await sess.task(prompt, router=router)
+        # record result against whichever profile was chosen
+        agent_used = router.route(prompt)
+        if agent_used:
+            pruner.update(agent_used, result)
+        # rebuild router with updated scores — underperformers dropped
+        router = AgentRouter(pruner.active(all_profiles))
+```
+
+---
+
+## 36. TokenVault — Zero-PII Model Traffic
+
+`SanitizationPolicy` scrubs PII from audit records. `TokenVault` ensures the model never receives the original values at all.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.assurance import SanitizationPolicy, TokenVault
+from tvastar.model import AnthropicModel
+
+agent = create_agent("healthcare", model=AnthropicModel("claude-sonnet-4-6"))
+
+async def process_intake(form_text: str) -> str:
+    vault  = TokenVault()
+    clean  = vault.tokenize(form_text, SanitizationPolicy.hipaa())
+    # clean: "Patient <<PERSON_1>> SSN <<US_SSN_1>> DOB <<DATE_TIME_1>>"
+
+    result = await Harness(agent).run(clean)
+    # model worked on tokens only — real PII never left your process
+
+    return vault.rehydrate(result.text)
+    # output: real names/values restored where the model referenced tokens
+
+asyncio.run(process_intake("Patient Jane Smith SSN 123-45-6789 DOB 1980-01-15"))
+```
+
+---
+
+## 37. DSPyOptimizer — Systematic Prompt Compilation
+
+Replace free-form `meta_model` rewriting with DSPy `ChainOfThought` that compiles from your failure evidence and PASS history.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness, default_toolset
+from tvastar.loop import Loop, LoopConfig
+from tvastar.loop.optimize import DSPyOptimizer  # pip install tvastar[dspy]
+from tvastar.model import AnthropicModel
+from tvastar.memory.store import FileStore
+
+spec = create_agent(
+    "ci-worker",
+    model=AnthropicModel("claude-haiku-4-5-20251001"),
+    instructions="Fix failing CI builds.",
+    tools=default_toolset(),
+)
+
+config = LoopConfig(
+    name="self-improving-ci",
+    goal="Keep the build green.",
+    schedule="*/15 * * * *",
+    cancel_after=300.0,
+    optimizer=DSPyOptimizer("gpt-4o", max_demos=3, max_fails=5),
+)
+
+loop = Loop(spec, config, store=FileStore(".tvastar-state"))
+asyncio.run(loop.start())
+# After each FAIL: DSPy compiles improved instructions from run history.
+# After min_runs=3 examples, instruction quality compounds over time.
+```
+
+---
+
+## 38. auto_topology — Generate a TaskGraph from a Goal
+
+Skip writing `TaskGraph` by hand. Describe what you want; the planner generates the parallel structure.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness, auto_topology, default_toolset
+from tvastar.model import AnthropicModel
+
+planner = create_agent(
+    "planner",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    instructions="You are a task decomposition expert.",
+)
+harness = Harness(planner)
+
+async def main():
+    graph, profiles = await auto_topology(
+        "Research our top 5 competitors, analyse their pricing, "
+        "identify gaps, and write an executive strategy memo.",
+        harness=harness,
+        max_subtasks=6,
+    )
+
+    print("Subtasks:", [p.name for p in profiles])
+    # e.g. ["competitor_research", "pricing_analysis", "gap_analysis", "strategy_memo"]
+
+    results = await graph.run()
+    print(results["strategy_memo"].text)
+
+asyncio.run(main())
+```
+
+The planner call is one extra round-trip. Everything after that (`graph.run()`) runs with the same parallelism as a hand-written `TaskGraph`.
+
+---
+
 ## Pattern Quick-Reference
 
 | Goal | Key API |
@@ -1317,3 +1516,10 @@ quality score and grade, hash chain verification status, and the HMAC signature.
 | ML PII detection | `SanitizationPolicy.presidio(languages=["en"])` + `pip install tvastar[presidio]` |
 | Audit report (text/HTML) | `receipt.to_audit_report()` / `receipt.to_audit_report(fmt="html")` |
 | Quality SLA enforcement | `AssurancePolicy(min_score=80, on_fail="raise")` → raises `SLABreached` |
+| 100+ providers | `LiteLLMModel("anthropic/claude-sonnet-4-6")` + `pip install tvastar[litellm]` |
+| Cost routing between models | `LiteLLMModel("fast", model_list=[...], fallbacks=[...])` |
+| Auto-pick specialist | `sess.task(prompt, router=AgentRouter(profiles))` |
+| Drop bad specialists | `AgentPruner(threshold=60).active(profiles)` → rebuilt router |
+| Zero-PII model traffic | `vault.tokenize(prompt, policy)` → model → `vault.rehydrate(output)` |
+| DSPy systematic optimization | `LoopConfig(..., optimizer=DSPyOptimizer("gpt-4o"))` |
+| Generate a TaskGraph | `graph, profiles = await auto_topology(goal, harness=harness)` |
