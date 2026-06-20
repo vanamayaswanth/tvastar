@@ -359,4 +359,122 @@ if not result.ok:
 
 if result.stopped == "max_steps":
     print(f"Hit step limit ({result.steps} steps). Increase max_steps or split the task.")
+
+---
+
+## Assurance — when and what to use
+
+`tvastar.assurance` gives you cryptographically-signed receipts, a tamper-evident
+audit log, PII redaction, retention scheduling, and quality SLA enforcement. It is
+designed for production agents that operate in regulated environments or that need
+an immutable record of every decision they make.
+
+---
+
+### When to attach an `AssurancePolicy`
+
+Use `AssurancePolicy` whenever you need an external, verifiable record that a run
+happened exactly as described. Concrete triggers:
+
+| Situation | Reason |
+|---|---|
+| Agent acts on patient, financial, or legal data | Regulatory audit trail (HIPAA, PCI-DSS, SOX) |
+| Agent modifies production state (DB writes, emails, deploys) | Prove exactly what was done and when |
+| SOC 2 / ISO 27001 audit requirement | Evidence that every model call is logged |
+| Agent quality SLA (e.g. min 80/100) | Catch and escalate low-quality runs automatically |
+| Any agent running in prod | Default-on posture for regulated sectors |
+
+Attach with:
+
+```python
+agent = create_agent("name", model=m, assurance=AssurancePolicy(...))
+```
+
+The receipt is available on `result.receipt` after every run.
+
+---
+
+### Which `SanitizationPolicy` preset to use
+
+PII redaction runs before the receipt is hashed. Pick the preset that matches
+your compliance regime:
+
+| Regulation | Preset | What it redacts |
+|---|---|---|
+| HIPAA (US healthcare) | `SanitizationPolicy.hipaa()` | SSN, DOB, phone, email, IP, bearer/API key |
+| PCI-DSS (card payments) | `SanitizationPolicy.pci()` | Credit card numbers, CVV, bearer/API key |
+| GDPR (EU personal data) | `SanitizationPolicy.gdpr()` | Email, phone, IP, DOB, bearer |
+| All of the above | `SanitizationPolicy.all_pii()` | Union of all three presets |
+| Custom / ML-based | `SanitizationPolicy.presidio(...)` | 50+ entity types via Microsoft Presidio ML models |
+
+Combine presets with `add_pattern()` to cover domain-specific identifiers
+(account numbers, patient IDs, internal codes):
+
+```python
+policy = SanitizationPolicy.hipaa().add_pattern(r"PAT-\d{6}", "[PATIENT_ID]")
+```
+
+`presidio()` requires `pip install tvastar[presidio]` and a spaCy language model.
+Use it when regex presets miss entity types (names, organisation names, locations)
+or when you need multi-language coverage.
+
+---
+
+### `TrustLog`: file-backed vs in-memory
+
+| Mode | How | When to use |
+|---|---|---|
+| In-memory | `TrustLog()` (no path) | Tests, ephemeral jobs, local dev |
+| File-backed | `TrustLog(".tvastar-trust.jsonl")` | Any production agent — survives restarts, auditable |
+
+Always use a file-backed log in production. The JSONL file is the audit artefact
+regulators or auditors will inspect. Keep it on durable storage (network volume,
+object store-mounted path, or equivalent).
+
+`verify_chain()` checks the entire chain on demand. Run it after every deployment
+or on a schedule:
+
+```python
+ok = log.verify_chain()  # False + on_breach callback if tampered
+```
+
+---
+
+### When to use `RetentionPolicy`
+
+Compliance frameworks specify minimum retention periods. Wire `RetentionPolicy`
+into a scheduled job (cron, `Loop`, or a background task) rather than running it
+inline during agent calls.
+
+| Framework | Minimum retention | Suggested config |
+|---|---|---|
+| SOX (US public companies) | 7 years | `max_age_days=365*7` |
+| HIPAA (US healthcare) | 6 years | `max_age_days=365*6` |
+| PCI-DSS | 1 year online, 3 year total | `max_age_days=365` (online); archive rest |
+| GDPR | "no longer than necessary" | Domain-specific; `max_age_days` set per data type |
+
+Set `hold_until` to an epoch timestamp whenever a legal hold is active
+(litigation, regulatory inquiry). `apply_retention()` returns 0 and makes no
+changes while the hold is in effect, regardless of age.
+
+```python
+# Nothing archived while hold is active
+log.apply_retention(RetentionPolicy(max_age_days=30, hold_until=1800000000.0))
+```
+
+---
+
+### `on_fail` options
+
+`AssurancePolicy.on_fail` controls what happens when `quality_score < min_score`:
+
+| Value | Effect | Use when |
+|---|---|---|
+| `"ignore"` | Receipt is logged; run continues normally | Monitoring only — you want telemetry without breaking the run |
+| `"raise"` | `SLABreached(receipt)` is raised in the calling code | You want the caller to decide how to handle failures |
+| `"escalate"` | `on_escalate(receipt)` is called | You have an async notification path (PagerDuty, Slack, compliance officer) |
+
+`"escalate"` falls back to `"raise"` if `on_escalate` is `None`. Prefer
+`"escalate"` in production so failures are routed to an on-call channel without
+crashing the main application path.
 ```

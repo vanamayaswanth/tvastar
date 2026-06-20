@@ -1124,6 +1124,164 @@ Key properties:
 
 ---
 
+## 28. HIPAA-Compliant Agent
+
+Sign every receipt with an HMAC key, log to a tamper-evident file, require a
+quality score of 80 or above, and escalate low-quality runs to a compliance
+officer. PII is redacted before hashing using the HIPAA preset.
+
+```python
+import asyncio, os
+from tvastar import create_agent, Harness
+from tvastar.assurance import AssurancePolicy, TrustLog, SanitizationPolicy
+from tvastar.model.anthropic import AnthropicModel
+
+def alert_security_team(r):
+    print(f"[SECURITY BREACH] Chain tampered at run {r.run_id}")
+
+def notify_compliance_officer(r):
+    print(f"[COMPLIANCE] Quality below SLA: score={r.quality_score} run={r.run_id}")
+
+model = AnthropicModel("claude-sonnet-4-6")
+
+policy = AssurancePolicy(
+    key=os.environ["RECEIPT_KEY"],
+    log=TrustLog(".tvastar-trust.jsonl", on_breach=lambda r: alert_security_team(r)),
+    min_score=80,
+    on_fail="escalate",
+    on_escalate=lambda r: notify_compliance_officer(r),
+    sanitize=SanitizationPolicy.hipaa(),
+)
+agent = create_agent("clinical-assistant", model=model, assurance=policy)
+
+result = asyncio.run(Harness(agent).run("Summarise patient intake notes."))
+print(result.receipt.quality_grade)     # "PASS" | "WARN" | "FAIL"
+print(result.receipt.content_hash)      # "sha256:..."
+print(result.receipt.verify(os.environ["RECEIPT_KEY"]))  # True
+```
+
+---
+
+## 29. SOX 7-Year Retention with Legal Hold
+
+Archive receipts older than seven years as part of a daily compliance job.
+A `hold_until` timestamp freezes all archival during active litigation.
+
+```python
+from tvastar.assurance import TrustLog, RetentionPolicy
+
+log = TrustLog(".tvastar-trust.jsonl")
+
+# Daily scheduled job — archive anything older than 7 years
+count = log.apply_retention(RetentionPolicy(
+    max_age_days=365 * 7,
+    archive_path=".tvastar-trust-archive.jsonl",
+))
+print(f"{count} entries archived")
+
+# Freeze everything during litigation (hold_until = epoch of hold expiry)
+count = log.apply_retention(RetentionPolicy(
+    max_age_days=30,
+    hold_until=1800000000.0,   # nothing archived while time.time() < hold_until
+))
+print(f"{count} entries eligible (hold active, none archived)")
+```
+
+`apply_retention()` appends eligible entries to `archive_path` and removes them
+from the live log. Pass `archive_path=None` to count eligible entries without
+moving them (dry-run mode).
+
+---
+
+## 30. Role-Based TrustLog Access
+
+Restrict who can read receipts by providing a `can_read` predicate. Useful when
+the log file is shared across teams with different clearance levels.
+
+```python
+from tvastar.assurance import TrustLog
+
+ALLOWED_ROLES = {"auditor", "compliance", "admin"}
+
+log = TrustLog(
+    ".tvastar-trust.jsonl",
+    can_read=lambda role: role in ALLOWED_ROLES,
+    on_breach=lambda r: quarantine(r),
+)
+
+# Permitted reads
+receipt = log.get("run_abc123", role="auditor")       # OK
+entries = list(log.iter_as("compliance"))             # OK
+
+# Denied reads
+log.get("run_abc123", role="developer")               # raises PermissionError
+list(log.iter_as("intern"))                           # raises PermissionError
+
+# Internal iteration bypasses access control (for verify_chain(), apply_retention())
+for r in log:
+    print(r.run_id)
+```
+
+---
+
+## 31. ML-Powered PII Detection (Presidio)
+
+Use Microsoft Presidio for entity-aware redaction covering 50+ types — names,
+organisations, locations, and more — with optional multi-language support.
+
+```python
+# pip install tvastar[presidio]
+# python -m spacy download en_core_web_lg
+from tvastar.assurance import SanitizationPolicy
+
+policy = SanitizationPolicy.presidio(
+    languages=["en", "de"],
+    # entities=["PERSON", "EMAIL_ADDRESS"],  # omit to cover all 50+ types
+    score_threshold=0.5,                     # lower = more aggressive
+)
+
+# Extend with custom regex on top of the ML detectors
+policy.add_pattern(r"ACCT-\d+", "[ACCOUNT]")
+policy.add_pattern(r"MRN-\d{8}", "[MRN]")
+
+print(policy.scrub("Patient John Smith (MRN-00123456) called from 555-867-5309"))
+# "Patient [PERSON] ([MRN]) called from [PHONE_NUMBER]"
+```
+
+Use `all_pii()` when you need broad regex-only coverage without the Presidio
+dependency. Use `presidio()` when you need entity types that regex cannot reliably
+detect (free-text names, organisations, addresses).
+
+---
+
+## 32. Generate a Regulator-Ready Audit Report
+
+`ExecutionReceipt.to_audit_report()` renders a human-readable or HTML report
+suitable for sharing with auditors or regulators without exposing raw JSONL.
+
+```python
+from tvastar.assurance import TrustLog
+
+log = TrustLog(".tvastar-trust.jsonl")
+
+# Fetch a specific receipt (role-gated if can_read is configured)
+r = log.get("run_abc123")
+
+# Plain-text report (default)
+print(r.to_audit_report())
+
+# HTML report — save to file for email or document archive
+html = r.to_audit_report(fmt="html")
+from pathlib import Path
+Path("audit.html").write_text(html)
+```
+
+The report includes: run metadata (agent, model, timestamps, token usage),
+a table of tool calls with inputs and outputs, all findings with severity,
+quality score and grade, hash chain verification status, and the HMAC signature.
+
+---
+
 ## Pattern Quick-Reference
 
 | Goal | Key API |
@@ -1151,3 +1309,11 @@ Key properties:
 | Self-improving loop | `LoopConfig(..., meta_model=AnthropicModel(...))` |
 | Cross-run MakerChecker | `MakerChecker(..., store=FileStore(...))` — rejection history persists |
 | Generation archive | `loop.generation_archive` / `loop.best_generation()` |
+| Verifiable receipts | `create_agent(..., assurance=AssurancePolicy(key=..., log=TrustLog(...)))` |
+| HIPAA-safe receipts | `AssurancePolicy(sanitize=SanitizationPolicy.hipaa(), min_score=80, on_fail="escalate")` |
+| SOX archival | `log.apply_retention(RetentionPolicy(max_age_days=365*7, archive_path=...))` |
+| Legal hold freeze | `RetentionPolicy(max_age_days=30, hold_until=<epoch>)` — nothing archived |
+| Role-gated log reads | `TrustLog(..., can_read=lambda role: role in ALLOWED)` |
+| ML PII detection | `SanitizationPolicy.presidio(languages=["en"])` + `pip install tvastar[presidio]` |
+| Audit report (text/HTML) | `receipt.to_audit_report()` / `receipt.to_audit_report(fmt="html")` |
+| Quality SLA enforcement | `AssurancePolicy(min_score=80, on_fail="raise")` → raises `SLABreached` |

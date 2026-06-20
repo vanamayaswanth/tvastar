@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.11.0. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.15.5. Every public symbol, field, and signature.
 
 ---
 
@@ -25,6 +25,7 @@ def create_agent(
     subagents: list[AgentProfile] | None = None,
     compaction: CompactionPolicy | None = None,
     tool_retry: ToolRetryPolicy | None = None,
+    assurance: AssurancePolicy | None = None,
     budget: BudgetPolicy | None = None,
     approval_gate: ApprovalGate | None = None,
     tool_policy: ToolPolicy | None = None,
@@ -1563,3 +1564,291 @@ cmd_audit(".tvastar/loops/ci_sweeper.py:loop")  # → int exit code (0 only at L
 
 **Exit codes:** `run` and `audit` return 0 on success (PASS / L3), 1 on failure — safe for
 use as CI gates: `tvastar loop audit .tvastar/loops/ci.py:loop || exit 1`
+
+---
+
+## `tvastar.assurance` — Verifiable Execution
+
+> Added in v0.15.0. Provides cryptographically-signed per-run receipts, an append-only
+> chain-linked audit log, PII redaction before hashing, configurable retention, and
+> quality SLA enforcement.
+
+```python
+from tvastar.assurance import (
+    AssurancePolicy,     # attach to create_agent()
+    ExecutionReceipt,    # available on result.receipt after each run
+    TrustLog,            # append-only chain-linked WORM log
+    SanitizationPolicy,  # PII/PHI redaction applied before hashing
+    RetentionPolicy,     # archive old entries for SOX/HIPAA/GDPR schedules
+    SLABreached,         # exception raised when quality_score < min_score
+)
+```
+
+---
+
+### `AssurancePolicy`
+
+Attach to an agent via `create_agent(..., assurance=policy)`. Controls signing,
+logging, quality enforcement, and PII redaction.
+
+```python
+@dataclass
+class AssurancePolicy:
+    key: str = ""
+    # HMAC-SHA256 signing key for receipt signatures.
+    # If empty, reads TVASTAR_RECEIPT_KEY env var at runtime.
+    # If still empty, signature field is "" (unsigned but still hashed).
+
+    log: TrustLog | None = None
+    # If set, every completed receipt is appended to this log.
+
+    min_score: int = 0
+    # Quality SLA threshold (0–100). If receipt.quality_score < min_score,
+    # the on_fail handler is invoked.
+
+    on_fail: Literal["ignore", "raise", "escalate"] = "ignore"
+    # "ignore"   → log and continue
+    # "raise"    → raise SLABreached(receipt)
+    # "escalate" → call on_escalate callback (falls back to "raise" if None)
+
+    on_escalate: Callable[[ExecutionReceipt], None] | None = None
+    # Called when on_fail="escalate". Receives the failing receipt.
+
+    sanitize: SanitizationPolicy | None = None
+    # Applied before hashing: scrubs PII/PHI from prompt, tool calls, and
+    # final_text in the receipt. Does NOT alter the actual model conversation.
+```
+
+---
+
+### `ExecutionReceipt`
+
+Immutable record of one agent run. Available as `result.receipt` after any
+`harness.run()`, `sess.prompt()`, or `sess.task()` when an `AssurancePolicy`
+is configured.
+
+```python
+@dataclass
+class ExecutionReceipt:
+    run_id: str              # "run_<hex12>" — unique per run
+    agent: str               # AgentSpec.name
+    model_name: str          # e.g. "claude-sonnet-4-6"
+    prompt: str              # user prompt (sanitized if SanitizationPolicy set)
+    tool_calls: list[dict]   # [{id, name, input, output}, ...] — all calls in order
+    final_text: str          # last assistant message text (sanitized if set)
+    findings: list[dict]     # serialized Finding objects from silent-failure detectors
+    approvals: list[dict]    # [{tool, approved_by, approved_at, message}, ...]
+    usage_input: int         # total input tokens consumed
+    usage_output: int        # total output tokens consumed
+    quality_score: int       # 0–100; computed from findings and stop reason
+    quality_grade: str       # "PASS" (≥80) | "WARN" (50–79) | "FAIL" (<50)
+    stopped: str             # "end_turn" | "max_steps" | "error"
+    started_at: float        # epoch seconds
+    completed_at: float      # epoch seconds
+    prev_hash: str           # content_hash of the preceding receipt; "" for first
+    content_hash: str        # "sha256:<hex64>" — over all fields above
+    signature: str           # "hmac-sha256:<hex64>"; "" if no key configured
+    version: str             # receipt schema version; currently "2"
+
+    def verify(self, key: str = "") -> bool
+    # Recomputes content_hash and HMAC. Returns True if both match.
+    # Pass the same key used in AssurancePolicy (or TVASTAR_RECEIPT_KEY env).
+
+    def to_json(self) -> str
+    # Serializes to a compact JSON string. Round-trips cleanly with from_json().
+
+    @classmethod
+    def from_json(cls, s: str) -> ExecutionReceipt
+    # Deserializes from a JSON string produced by to_json().
+
+    @classmethod
+    def from_dict(cls, d: dict) -> ExecutionReceipt
+    # Constructs from a plain dict (e.g. parsed from JSONL log line).
+
+    def to_audit_report(self, *, fmt: Literal["text", "html"] = "text") -> str
+    # Renders a human-readable or HTML audit report for regulators.
+    # Includes: run metadata, tool call table, findings, quality grade, hash chain.
+```
+
+---
+
+### `TrustLog`
+
+Append-only, chain-linked log of `ExecutionReceipt` objects. Each receipt's
+`prev_hash` field points to the `content_hash` of the entry before it, forming
+a tamper-evident chain. Raising `ValueError` on any chain break makes silent
+tampering detectable.
+
+```python
+class TrustLog:
+    def __init__(
+        self,
+        path: str | None = None,
+        # JSONL file path. Each line is one receipt JSON.
+        # None = in-memory only (lost on process exit).
+        *,
+        on_breach: Callable[[ExecutionReceipt], None] | None = None,
+        # Called with the first tampered receipt found by verify_chain().
+        can_read: Callable[[str], bool] | None = None,
+        # Role-based read predicate. Called as can_read(role).
+        # If it returns False, get() and iter_as() raise PermissionError.
+        # __iter__ bypasses access control (for internal iteration).
+    )
+
+    def append(self, receipt: ExecutionReceipt) -> None
+    # Appends receipt to the log. Sets receipt.prev_hash = tail_hash before
+    # writing. Raises ValueError if the incoming receipt's prev_hash does not
+    # match tail_hash (chain integrity violation).
+
+    def verify_chain(self) -> bool
+    # Walks every entry and re-verifies content_hash and prev_hash linkage.
+    # Calls on_breach with the first failing receipt and returns False.
+    # Returns True only if all entries are intact.
+
+    def get(self, run_id: str, *, role: str = "") -> ExecutionReceipt | None
+    # Returns the receipt with the given run_id, or None if not found.
+    # Raises PermissionError if can_read is set and can_read(role) returns False.
+
+    def iter_as(self, role: str) -> Iterator[ExecutionReceipt]
+    # Iterates all receipts. Raises PermissionError if can_read(role) is False.
+
+    def apply_retention(self, policy: RetentionPolicy) -> int
+    # Identifies entries eligible for archival per policy.
+    # If policy.hold_until is set and time.time() < hold_until, returns 0.
+    # If policy.archive_path is set, eligible entries are appended to that JSONL
+    # file and removed from the live log.
+    # Returns the count of eligible entries (archived or counted-only).
+
+    def to_jsonl(self) -> str
+    # Returns all entries serialized as newline-delimited JSON.
+
+    @property
+    def tail_hash(self) -> str
+    # content_hash of the most-recently appended receipt; "" if log is empty.
+
+    def __iter__(self) -> Iterator[ExecutionReceipt]
+    # Iterates all entries with no access-control check.
+
+    def __len__(self) -> int
+    # Number of entries in the log.
+```
+
+---
+
+### `SanitizationPolicy`
+
+Regex-based PII/PHI scrubber applied to receipt fields before hashing. Does not
+modify the live conversation — only the content written into `ExecutionReceipt`.
+
+```python
+class SanitizationPolicy:
+    patterns: list[tuple[re.Pattern, str]]
+    # List of (compiled_pattern, replacement_string) pairs applied in order.
+
+    redact_prompt: bool = True     # scrub receipt.prompt
+    redact_tools: bool = True      # scrub receipt.tool_calls inputs and outputs
+    redact_answer: bool = True     # scrub receipt.final_text
+
+    @classmethod
+    def hipaa(cls) -> SanitizationPolicy
+    # Redacts: SSN, date-of-birth, phone numbers, email addresses,
+    # IP addresses, bearer tokens, API keys.
+
+    @classmethod
+    def pci(cls) -> SanitizationPolicy
+    # Redacts: credit card numbers (Luhn-aware), CVV/CVC codes,
+    # bearer tokens, API keys.
+
+    @classmethod
+    def gdpr(cls) -> SanitizationPolicy
+    # Redacts: email addresses, phone numbers, IP addresses,
+    # date-of-birth, bearer tokens.
+
+    @classmethod
+    def all_pii(cls) -> SanitizationPolicy
+    # Union of hipaa() + pci() + gdpr() — broadest coverage.
+
+    @classmethod
+    def presidio(
+        cls,
+        languages: list[str] = ["en"],
+        entities: list[str] | None = None,
+        # None → all 50+ Presidio entity types.
+        # Explicit list e.g. ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER"].
+        score_threshold: float = 0.5,
+        # Minimum confidence to redact. Lower = more aggressive.
+    ) -> SanitizationPolicy
+    # ML-powered detection via Microsoft Presidio.
+    # Requires: pip install tvastar[presidio]
+    # Model download: python -m spacy download en_core_web_lg
+
+    def add_pattern(
+        self,
+        pattern: str | re.Pattern,
+        replacement: str,
+    ) -> SanitizationPolicy
+    # Appends a custom regex rule. Returns self for chaining.
+
+    def scrub(self, text: str) -> str
+    # Applies all patterns to a string. Returns the redacted result.
+
+    def scrub_tool_calls(self, tool_calls: list[dict]) -> list[dict]
+    # Applies scrub() to the input and output values of each tool call dict.
+
+    def apply(
+        self,
+        *,
+        prompt: str,
+        tool_calls: list,
+        final_text: str,
+    ) -> tuple[str, list, str]
+    # Convenience: applies redact_prompt / redact_tools / redact_answer flags
+    # and returns (sanitized_prompt, sanitized_tool_calls, sanitized_final_text).
+```
+
+---
+
+### `RetentionPolicy`
+
+Describes which log entries are eligible for archival. Passed to
+`TrustLog.apply_retention()`.
+
+```python
+@dataclass
+class RetentionPolicy:
+    max_age_days: int | None = None
+    # Archive entries whose started_at is older than this many days.
+    # None = no age-based archival.
+
+    hold_until: float | None = None
+    # Epoch timestamp. If time.time() < hold_until, apply_retention() returns 0
+    # (legal hold — nothing is archived regardless of age).
+
+    archive_path: str | None = None
+    # Path to a JSONL file where archived entries are appended.
+    # None = count eligible entries only, do not move them.
+```
+
+---
+
+### `SLABreached`
+
+Raised by the session when `AssurancePolicy.on_fail == "raise"` and
+`receipt.quality_score < policy.min_score`.
+
+```python
+class SLABreached(Exception):
+    receipt: ExecutionReceipt
+    # The failing receipt — inspect receipt.quality_score, receipt.findings,
+    # and receipt.quality_grade for details.
+```
+
+Example:
+
+```python
+try:
+    result = await sess.prompt("Analyze this data")
+except SLABreached as e:
+    print(f"Quality score {e.receipt.quality_score} below threshold")
+    print(e.receipt.findings)
+```

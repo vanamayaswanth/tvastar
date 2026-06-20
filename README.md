@@ -191,6 +191,13 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 | Filesystem changes need atomic rollback | `harness.transaction()` + sandbox snapshot/restore |
 | Agent needs memory across sessions | `tvastar.contrib.ltm` — post-session LTM consolidation |
 | Session messages balloon past 50 MB | `memory_cap_mb` — hard cap with auto-compaction |
+| Regulator asks "what did your AI do?" | `ExecutionReceipt` — cryptographic proof, court-ready |
+| PHI / PII ends up in your audit log | `SanitizationPolicy` — redact before hashing, chain stays intact |
+| Agent runs a tool, no record of the output | `tool_calls[].output` — every input AND output captured |
+| No proof a human approved the action | `approvals[]` in receipt — who approved, when, what |
+| Anyone on the team can read the audit log | `TrustLog(can_read=...)` — role-based access, `PermissionError` if denied |
+| Audit log tampered silently | `on_breach` callback — fires immediately, per-receipt |
+| 7-year SOX retention, data must not grow forever | `RetentionPolicy` — archive old entries, legal hold freezes the log |
 
 ---
 
@@ -231,6 +238,7 @@ pip install "tvastar[anthropic]"         # + Claude models
 pip install "tvastar[openai]"            # + OpenAI / Groq / Ollama / etc.
 pip install "tvastar[serve]"             # + HTTP server (FastAPI)
 pip install "tvastar[otel]"              # + OpenTelemetry tracing
+pip install "tvastar[presidio]"          # + ML-powered PII detection (Presidio + spaCy)
 pip install "tvastar[all]"              # everything
 ```
 
@@ -412,9 +420,9 @@ Works with Pydantic v2, Pydantic v1, dataclasses, plain `dict`, or any callable 
 ## Delegating to specialist sub-agents
 
 ```python
-from tvastar import create_agent, define_agent_profile
+from tvastar import create_agent, AgentProfile
 
-reviewer = define_agent_profile(
+reviewer = AgentProfile(
     name="reviewer",
     description="Reviews code for security and correctness.",
     instructions="Report only issues with a reproducible failure scenario.",
@@ -744,45 +752,137 @@ so the full silent-failure detector suite runs — not just text-level checks.
 
 ---
 
-## Verifiable Execution — cryptographic proof of every run
+## Verifiable Execution — the audit trail your regulator will actually accept
 
-Make AI agent runs as trustworthy as compiled code. One policy line attaches a
-signed, chain-linked receipt to every `RunResult`:
+HIPAA violations average $1.9M per incident. A SOX audit asks for records of every automated decision. The EU AI Act requires traceability on high-risk AI systems. PCI-DSS demands logs of who accessed what, when, and what changed.
+
+Every other AI agent framework answers these questions with: a text file, if you're lucky.
+
+Tvastar closes 7 regulatory gaps no other framework addresses:
+
+| Gap | What we built |
+|-----|--------------|
+| No model version in record | `model_name` field on every receipt |
+| Tool outputs not captured | `tool_calls[].output` — input AND output, matched by ID |
+| PII/PHI in plaintext audit log | `SanitizationPolicy` — redact before hashing, chain stays valid |
+| No human approver in record | `approvals[]` — who approved, exact timestamp, what message |
+| Audit log readable by anyone | `TrustLog(can_read=role_fn)` — `PermissionError` on unauthorized access |
+| Tampering goes undetected | `on_breach` callback fires immediately on first corrupted entry |
+| No retention / legal hold | `RetentionPolicy` — SOX 7yr, HIPAA 6yr, litigation freeze |
+
+One line to opt in:
 
 ```python
-from tvastar.assurance import AssurancePolicy, TrustLog
+from tvastar.assurance import AssurancePolicy, TrustLog, SanitizationPolicy
 
 agent = create_agent(
     "billing-bot",
     model=model,
     assurance=AssurancePolicy(
-        key="prod-secret",                # HMAC-SHA256 signing key
-        log=TrustLog(".tvastar-trust.jsonl"),
-        min_score=80,                     # quality SLA: PASS required
+        key=os.environ["RECEIPT_KEY"],    # HMAC-SHA256; reads env automatically if not passed
+        log=TrustLog(
+            ".tvastar-trust.jsonl",
+            on_breach=lambda r: alert_security_team(r),    # fires immediately on tamper
+            can_read=lambda role: role in {"auditor", "admin"},  # PermissionError otherwise
+        ),
+        min_score=80,                     # quality SLA — SLABreached if score drops below
         on_fail="escalate",
-        on_escalate=lambda r: alert_team(r),
+        on_escalate=lambda r: page_oncall(r),
+        sanitize=SanitizationPolicy.hipaa(),   # redact SSN/DOB/PHI before hashing
     ),
 )
 
-result = await harness.run("Charge customer $50")
+result = await harness.run("Process patient intake form")
 
-# Cryptographic proof — verifiable by any auditor
-print(result.receipt.run_id)           # run_c3afc6fcc23c4322
-print(result.receipt.content_hash)     # sha256:d2e502ed...
-print(result.receipt.verify("prod-secret"))  # True
+# Cryptographic proof — SHA-256 hash + HMAC-SHA256 signature
+print(result.receipt.run_id)                    # run_c3afc6fcc23c4322
+print(result.receipt.content_hash)              # sha256:d2e502ed...
+print(result.receipt.model_name)                # claude-sonnet-4-6
+print(result.receipt.tool_calls[0]["output"])   # what the tool actually returned
+print(result.receipt.verify())                  # True — hash and signature both valid
 
-# Tamper-evident chain — modify any entry and the next prev_hash breaks
+# Chain integrity — modify any past entry and verify_chain() catches it
 assert policy.log.verify_chain()
 
-# Replay any past run
-r = policy.log.get("run_c3afc6fcc23c4322")
-assert r.quality_grade == "PASS"
+# Pull any past run
+r = policy.log.get("run_c3afc6fcc23c4322", role="auditor")
+print(r.quality_grade)     # "PASS"
+print(r.approvals)         # [{"tool": "deploy", "approved_by": "jane@corp.com", ...}]
 ```
 
-Every receipt captures: prompt, all tool calls + inputs, final answer, Loop
-Quality score, token usage, timestamps, and the hash of the previous receipt.
-Suitable as a SOC2 / HIPAA / PCI-DSS audit trail — the first in the AI agent
-space.
+### Audit report — hand this to the lawyer
+
+```python
+r = log.get("run_abc123", role="auditor")
+print(r.to_audit_report())
+# ══════════════════════════════════════════════════════════
+# EXECUTION RECEIPT  run_c3afc6fcc23c4322
+# ══════════════════════════════════════════════════════════
+# Agent:           billing-bot
+# Model:           claude-sonnet-4-6
+# Timestamp:       2026-06-20 14:32:01 UTC
+# Duration:        2.3 s
+# Quality:         91 / 100  [PASS]
+# ...
+# TOOL CALLS (2)
+#   [1] bash
+#       Input:   {"command": "pytest tests/"}
+#       Output:  "3 passed in 0.8s"
+# ...
+# HUMAN APPROVALS (1)
+#   deploy_to_production — approved by jane@corp.com at 14:32:00
+# ══════════════════════════════════════════════════════════
+# INTEGRITY
+#   Hash:      sha256:d2e502ed...
+#   Signature: hmac-sha256:9af1b3c0...
+#   Chain:     sha256:a1b2c3d4...  ← previous receipt
+# ══════════════════════════════════════════════════════════
+
+html = r.to_audit_report(fmt="html")
+Path("audit.html").write_text(html)   # table view, ready to email
+```
+
+### PII / PHI redaction — HIPAA, PCI-DSS, GDPR
+
+```python
+# Regex-based presets (zero deps)
+sanitize=SanitizationPolicy.hipaa()    # SSN, DOB, phone, email, IP, bearer tokens
+sanitize=SanitizationPolicy.pci()      # credit card, CVV, bearer tokens
+sanitize=SanitizationPolicy.gdpr()     # email, phone, IP, DOB
+sanitize=SanitizationPolicy.all_pii()  # union of all above
+
+# ML-powered (catches names, locations, passport numbers — things regex misses)
+# pip install tvastar[presidio] && python -m spacy download en_core_web_lg
+sanitize=SanitizationPolicy.presidio(languages=["en", "de"])
+
+# Extend any preset with custom patterns
+sanitize=SanitizationPolicy.hipaa().add_pattern(r"MRN-\d+", "[MRN]")
+```
+
+The hash covers the **sanitized** content. Proof that PII was removed is baked into the receipt itself — a tampered re-injection of PII fails `verify()`.
+
+### Retention — SOX 7yr, HIPAA 6yr, legal holds
+
+```python
+from tvastar.assurance import RetentionPolicy
+
+log = TrustLog(".tvastar-trust.jsonl")
+
+# Archive entries older than 7 years (SOX requirement)
+count = log.apply_retention(RetentionPolicy(
+    max_age_days=365 * 7,
+    archive_path=".tvastar-trust-archive.jsonl",  # standalone verifiable chain
+))
+
+# Legal hold — freeze everything until litigation ends
+count = log.apply_retention(RetentionPolicy(
+    max_age_days=30,
+    hold_until=1_800_000_000.0,   # epoch timestamp of hold expiry
+))
+# → returns 0, nothing archived while hold is active
+```
+
+Archive files are standalone verifiable JSONL chains — a regulator can run `TrustLog(archive_path).verify_chain()` independently.
 
 ---
 
@@ -1469,55 +1569,46 @@ print(f"Sent {result.sent}/{result.leads_qualified} emails.")
 ---
 
 ### 🔒 tvastar-comply — PII / PFI / PHI compliance layer
-*Enterprise-grade data protection baked into the agent loop.*
+*Core shipped in `tvastar.assurance`. Token-vault rehydration coming in v0.16.0.*
 
 Healthcare, finance, and legal companies cannot use AI agents on real customer
-data without a compliance layer. `tvastar-comply` solves this at the harness
-level — not as a bolt-on service, but as a first-class part of every agent run.
+data without a compliance layer. The redaction and audit-trail layer is already
+in `tvastar.assurance` — no extra install needed.
 
-**What it handles:**
+**What's shipped today (`tvastar.assurance`):**
 
-| Type | Examples | Regulation |
-|---|---|---|
-| **PII** | Name, email, phone, address, SSN | GDPR, CCPA |
-| **PFI** | Credit cards, bank accounts, tax records | PCI-DSS, GLBA |
-| **PHI** | Medical records, diagnoses, prescriptions | HIPAA |
-
-**How it works — redact before LLM, rehydrate after:**
+| Capability | API |
+|---|---|
+| SSN, DOB, email, phone, IP, credit card redaction | `SanitizationPolicy.hipaa()` / `.pci()` / `.gdpr()` |
+| ML entity detection (names, locations, passports) | `SanitizationPolicy.presidio()` |
+| Cryptographic proof PII was removed | Hash covers sanitized form — `receipt.verify()` |
+| Role-gated audit log access | `TrustLog(can_read=fn)` |
+| Retention + legal hold | `RetentionPolicy` |
+| Per-run compliance report | `receipt.to_audit_report()` |
 
 ```python
-from tvastar.comply import ComplyPolicy
+from tvastar.assurance import AssurancePolicy, SanitizationPolicy, TrustLog
 
 agent = create_agent(
-    "support",
+    "clinical-assistant",
     model=AnthropicModel(),
-    comply=ComplyPolicy(
-        scan=["pii", "phi", "pfi"],  # what to detect
-        action="redact",              # redact | block | audit
-        vault="local",               # token vault stays on your machine
+    assurance=AssurancePolicy(
+        log=TrustLog(".tvastar-trust.jsonl"),
+        sanitize=SanitizationPolicy.hipaa(),   # PHI redacted before hash
+        min_score=80,
     ),
 )
-
-# Input:  "John Smith, DOB 1990-01-01, diagnosis: diabetes"
-# → LLM sees: "[NAME_1], DOB [DATE_1], diagnosis: [CONDITION_1]"
-# → LLM responds: "I've updated [NAME_1]'s care plan"
-# → Output: "I've updated John Smith's care plan"
+# Input:  "Jane Doe, SSN 123-45-6789, diagnosis: hypertension"
+# → Receipt stores: "Jane Doe, SSN [SSN], diagnosis: hypertension"
+# → Hash proves PII was removed — tamper-evident
 ```
 
-**Compliance audit trail built in:**
+**Coming in v0.16.0 (tvastar-comply):**
+- Token-vault rehydration — `[SSN_1]` → original value, post-LLM, on your infra
+- CCPA + GLBA coverage
+- Enterprise compliance dashboard
 
-```python
-result = await harness.run("Process patient intake form")
-result.comply_report  # what was found, redacted, timestamp, hash — per run
-```
-
-**Why this matters for every other Tvastar product:**
-- `tvastar-outbound` processes lead PII → GDPR requires it
-- `tvastar-support` handles customer data → CCPA requires it
-- `tvastar-devops` reads logs that may contain secrets → security requires it
-
-One `comply=ComplyPolicy(...)` line makes any agent enterprise-ready.
-The token vault is local — **no PII ever leaves your infrastructure.**
+The vault stays local. **No PII ever leaves your infrastructure.**
 
 ---
 
@@ -1579,8 +1670,10 @@ Products ship first. Framework features get added only when a product needs them
 | **Loop Quality** | `score_run()`, `LoopQualityReport`, `tvastar quality` CLI, 14 source bug fixes, security hardening | ✅ v0.13.0 |
 | **Plug into anything** | `tvastar.wrap`, `adapters.openai`, `adapters.langgraph`, `adapters.agentcore` — Loop Quality on any framework | ✅ v0.14.0 |
 | **Verifiable Execution** | `AssurancePolicy`, `ExecutionReceipt`, `TrustLog` — cryptographic receipts + SLA enforcement | ✅ v0.15.0 |
-| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.16.0 |
-| **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |
+| **Audit reports** | `receipt.to_audit_report()` — text + HTML, hand to a lawyer | ✅ v0.15.1 |
+| **7 regulatory gaps** | model tracking, tool outputs, PII redaction, human approver, access control, breach alert, retention | ✅ v0.15.2–v0.15.4 |
+| **Presidio ML PII** | `SanitizationPolicy.presidio()` — 50+ entity types, 15+ languages | ✅ v0.15.3 |
+| **tvastar-comply** | Token-vault PII rehydration, CCPA / GLBA coverage, enterprise dashboard | 🔒 v0.16.0 |
 | **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |
 | **tvastar-devops** | Auto-heal production incidents | 📋 v1.1.0 |
 | **tvastar-support** | Multi-platform customer support agent | 📋 v1.2.0 |
