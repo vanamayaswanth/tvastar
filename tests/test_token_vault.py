@@ -24,7 +24,7 @@ class TestTokenVault:
     def test_multiple_values_get_unique_tokens(self):
         vault = TokenVault()
         text = "alice@a.com and bob@b.com"
-        cleaned = vault.tokenize(text, SanitizationPolicy.hipaa())
+        vault.tokenize(text, SanitizationPolicy.hipaa())
         tokens = [t for t in vault._map]
         assert len(tokens) == 2
         assert tokens[0] != tokens[1]
@@ -32,7 +32,7 @@ class TestTokenVault:
     def test_same_value_gets_separate_tokens(self):
         vault = TokenVault()
         text = "alice@a.com and alice@a.com again"
-        cleaned = vault.tokenize(text, SanitizationPolicy.hipaa())
+        vault.tokenize(text, SanitizationPolicy.hipaa())
         assert len(vault._map) == 2  # two occurrences → two tokens
 
     def test_rehydrate_noop_when_no_tokens(self):
@@ -57,7 +57,7 @@ class TestTokenVault:
 
     def test_rehydrate_partial_text(self):
         vault = TokenVault()
-        cleaned = vault.tokenize("Email: test@x.com", SanitizationPolicy.hipaa())
+        vault.tokenize("Email: test@x.com", SanitizationPolicy.hipaa())
         tok = list(vault._map.keys())[0]
         partial = f"Reply to {tok} immediately"
         restored = vault.rehydrate(partial)

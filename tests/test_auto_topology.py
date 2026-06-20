@@ -67,7 +67,8 @@ class TestAutoTopology:
     async def test_raises_on_invalid_json(self):
         bad = RunResult(text="not json", messages=[], usage=Usage(),
                         steps=1, stopped="end_turn", findings=[], data=None)
-        h = MagicMock(); h.run = AsyncMock(return_value=bad)
+        h = MagicMock()
+        h.run = AsyncMock(return_value=bad)
         with pytest.raises(ValueError, match="invalid JSON"):
             await auto_topology("goal", harness=h)
 
@@ -85,7 +86,8 @@ class TestAutoTopology:
             text="```json\n" + json.dumps(_PLAN) + "\n```",
             messages=[], usage=Usage(), steps=1, stopped="end_turn", findings=[], data=None,
         )
-        h = MagicMock(); h.run = AsyncMock(return_value=fenced)
+        h = MagicMock()
+        h.run = AsyncMock(return_value=fenced)
         graph, profiles = await auto_topology("goal", harness=h)
         assert len(profiles) == 3
 

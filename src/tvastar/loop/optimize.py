@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from . import LoopRun, LoopState
+    from . import LoopRun
 
 __all__ = ["DSPyOptimizer"]
 

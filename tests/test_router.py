@@ -69,7 +69,7 @@ class TestAgentRouterIntegration:
 
     @pytest.mark.asyncio
     async def test_router_kwarg_picks_agent(self):
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock, patch
 
         router = AgentRouter(_profiles())
 
@@ -77,8 +77,6 @@ class TestAgentRouterIntegration:
         resolved = {}
 
         from tvastar.session import Session
-
-        original_task = Session.task
 
         async def fake_task(self, prompt, *, agent=None, router=None, **kw):
             if agent is None and router is not None:

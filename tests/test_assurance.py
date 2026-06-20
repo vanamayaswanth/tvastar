@@ -1130,7 +1130,6 @@ class TestPresidioSanitizationPolicy:
         assert isinstance(p, _PresidioSanitizationPolicy)
 
     def test_presidio_default_language_is_en(self):
-        from tvastar.assurance.sanitize import _PresidioSanitizationPolicy
         p = SanitizationPolicy.presidio()
         assert p._languages == ["en"]
 
@@ -1325,7 +1324,7 @@ class TestPresidioSanitizationPolicy:
         assert text == "Safe text"
 
     def test_presidio_multiple_languages_each_called(self):
-        from unittest.mock import MagicMock, patch, call
+        from unittest.mock import MagicMock, patch
 
         mock_analyzer = MagicMock()
         mock_analyzer.analyze.return_value = []
@@ -1338,8 +1337,6 @@ class TestPresidioSanitizationPolicy:
             p = SanitizationPolicy.presidio(languages=["en", "de"])
             p.scrub("some text")
 
-        calls = [c.kwargs.get("language") or c.args[1] if len(c.args) > 1 else c.kwargs.get("language")
-                 for c in mock_analyzer.analyze.call_args_list]
         assert "en" in str(mock_analyzer.analyze.call_args_list)
         assert "de" in str(mock_analyzer.analyze.call_args_list)
 
