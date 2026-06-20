@@ -6,6 +6,17 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.15.5] — 2026-06-20
+
+### Changed — ponytail-audit cuts (~-60 lines)
+
+- Deleted `_id()` UUID wrapper helper; call sites now inline `f"prefix_{uuid.uuid4().hex[:12]}"`.
+- Deleted `ToolContext.extra: dict` dead field — never populated.
+- Deleted `_UpstreamSkipError` exception class in graph.py; replaced with `None` sentinel check.
+- Deleted `AgentProfile.child_subagents()` — zero callers in src/.
+- Deleted `CompactionPolicy.token_estimator` callback field — nobody overrides it; `_estimate_tokens` now called directly.
+- Moved `_INJECTION_PATTERNS` from module-level constant to local in `scan_for_injection()`.
+
 ## [0.15.4] — 2026-06-20
 
 ### Added — Gap 7: Retention policy for TrustLog
@@ -995,7 +1006,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.4...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.5...HEAD
+[0.15.5]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.4...v0.15.5
 [0.15.4]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.3...v0.15.4
 [0.15.3]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.2...v0.15.3
 [0.15.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.1...v0.15.2

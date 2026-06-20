@@ -56,10 +56,6 @@ class AgentProfile:
     subagents: list["AgentProfile"] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def child_subagents(self) -> dict[str, "AgentProfile"]:
-        """Named subagents this profile allows for further delegation."""
-        return {p.name: p for p in self.subagents}
-
 
 def define_agent_profile(
     name: str,

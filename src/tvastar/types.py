@@ -13,10 +13,6 @@ from enum import Enum
 from typing import Any, Literal, Optional, Union
 
 
-def _id(prefix: str) -> str:
-    return f"{prefix}_{uuid.uuid4().hex[:12]}"
-
-
 Role = Literal["system", "user", "assistant", "tool"]
 
 
@@ -34,7 +30,7 @@ class ToolUseBlock:
 
     name: str
     input: dict[str, Any]
-    id: str = field(default_factory=lambda: _id("call"))
+    id: str = field(default_factory=lambda: f"call_{uuid.uuid4().hex[:12]}")
     type: Literal["tool_use"] = "tool_use"
 
 
@@ -78,7 +74,7 @@ class Message:
 
     role: Role
     content: Union[str, list[ContentBlock]]
-    id: str = field(default_factory=lambda: _id("msg"))
+    id: str = field(default_factory=lambda: f"msg_{uuid.uuid4().hex[:12]}")
     created_at: float = field(default_factory=time.time)
     metadata: dict[str, Any] = field(default_factory=dict)
 

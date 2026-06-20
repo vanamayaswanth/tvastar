@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from .types import Message
 
@@ -69,7 +69,6 @@ class CompactionPolicy:
         "that matter, and any open questions. Be dense — this replaces the "
         "original messages to save context space."
     )
-    token_estimator: Optional[Callable[[list[Message]], int]] = None
     summary_model: Optional[Any] = None
 
 
@@ -86,8 +85,7 @@ def should_compact(messages: list[Message], policy: CompactionPolicy) -> bool:
     if policy.max_messages > 0 and len(messages) > policy.max_messages:
         return True
     if policy.max_tokens_estimate > 0:
-        estimator = policy.token_estimator or _estimate_tokens
-        if estimator(messages) > policy.max_tokens_estimate:
+        if _estimate_tokens(messages) > policy.max_tokens_estimate:
             return True
     return False
 

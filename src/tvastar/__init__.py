@@ -171,7 +171,7 @@ from .workflow import (
 )
 from .wrap import WrappedResult, wrap
 
-__version__ = "0.15.4"
+__version__ = "0.15.5"
 
 __all__ = [
     "create_agent",

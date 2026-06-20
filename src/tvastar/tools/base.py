@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ..errors import ToolError, ToolNotFound
@@ -87,7 +87,6 @@ class ToolContext:
     memory: Any = None
     session: Any = None
     approval_gate: Any = None  # the agent's ApprovalGate, if configured
-    extra: dict[str, Any] = field(default_factory=dict)
 
 
 # ── Tool ─────────────────────────────────────────────────────────────────────

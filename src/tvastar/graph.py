@@ -45,15 +45,6 @@ if TYPE_CHECKING:
 __all__ = ["TaskGraph", "GraphResult"]
 
 
-class _UpstreamSkipError(RuntimeError):
-    """Raised internally when a task is skipped due to an upstream failure.
-
-    Using a typed exception (instead of string-matching the message) lets the
-    real-error filter use ``isinstance`` checks rather than fragile substring
-    matching that breaks if the message is ever rephrased.
-    """
-
-
 @dataclass
 class _TaskNode:
     name: str
@@ -200,9 +191,7 @@ class TaskGraph:
             # Propagate upstream failures without running this task.
             dep_errors = [dep for dep in node.depends_on if dep in errors]
             if dep_errors:
-                errors[name] = _UpstreamSkipError(
-                    f"Task {name!r} skipped: upstream tasks failed: {dep_errors}"
-                )
+                errors[name] = None
                 done_events[name].set()
                 return
 
@@ -246,9 +235,7 @@ class TaskGraph:
         await asyncio.gather(*[_run_one(n) for n in self._nodes])
 
         # Re-raise the first real task failure (not downstream propagation noise).
-        # _UpstreamSkipError is used for propagated skips so we can filter by
-        # type rather than by fragile substring matching.
-        real_errors = {k: v for k, v in errors.items() if not isinstance(v, _UpstreamSkipError)}
+        real_errors = {k: v for k, v in errors.items() if v is not None}
         if real_errors:
             first_name, first_err = next(iter(real_errors.items()))
             raise RuntimeError(f"Task {first_name!r} failed") from first_err

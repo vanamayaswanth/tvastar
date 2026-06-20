@@ -23,53 +23,6 @@ from __future__ import annotations
 
 import re
 
-#: High-precision signatures of prompt-injection attempts. Tuned to avoid
-#: firing on ordinary prose; each pattern targets an *imperative* aimed at the
-#: model's own instructions, not mere mention of the words.
-_INJECTION_PATTERNS: list[tuple[str, re.Pattern]] = [
-    (
-        "override_instructions",
-        re.compile(
-            r"\b(ignore|disregard|forget|override)\b[^.\n]{0,40}\b"
-            r"(previous|prior|above|earlier|all|your)\b[^.\n]{0,20}"
-            r"\b(instruction|prompt|rule|direction|context|message)s?\b",
-            re.IGNORECASE,
-        ),
-    ),
-    (
-        "role_reassignment",
-        re.compile(
-            r"\byou are (now|no longer)\b|\bact as (an?|the)\b[^.\n]{0,30}\b"
-            r"(unrestricted|jailbroken|dan|developer mode)\b",
-            re.IGNORECASE,
-        ),
-    ),
-    (
-        "reveal_system_prompt",
-        re.compile(
-            r"\b(reveal|print|repeat|show|output|disclose)\b[^.\n]{0,30}\b"
-            r"(system prompt|system message|your instructions|initial prompt)\b",
-            re.IGNORECASE,
-        ),
-    ),
-    (
-        "fake_system_turn",
-        re.compile(
-            r"(^|\n)\s*(\[?system\]?|<\s*system\s*>|###\s*system)\s*[:\]>]",
-            re.IGNORECASE,
-        ),
-    ),
-    (
-        "exfiltration",
-        re.compile(
-            r"\b(send|post|exfiltrate|leak|upload)\b[^.\n]{0,40}\b"
-            r"(api[_ ]?key|secret|password|token|credential|env(?:ironment)? var)s?\b",
-            re.IGNORECASE,
-        ),
-    ),
-]
-
-
 def scan_for_injection(text: str) -> list[str]:
     """Return the names of injection patterns ``text`` matches (empty = clean).
 
@@ -78,7 +31,49 @@ def scan_for_injection(text: str) -> list[str]:
     """
     if not text:
         return []
-    return [name for name, pat in _INJECTION_PATTERNS if pat.search(text)]
+    patterns: list[tuple[str, re.Pattern]] = [
+        (
+            "override_instructions",
+            re.compile(
+                r"\b(ignore|disregard|forget|override)\b[^.\n]{0,40}\b"
+                r"(previous|prior|above|earlier|all|your)\b[^.\n]{0,20}"
+                r"\b(instruction|prompt|rule|direction|context|message)s?\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "role_reassignment",
+            re.compile(
+                r"\byou are (now|no longer)\b|\bact as (an?|the)\b[^.\n]{0,30}\b"
+                r"(unrestricted|jailbroken|dan|developer mode)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "reveal_system_prompt",
+            re.compile(
+                r"\b(reveal|print|repeat|show|output|disclose)\b[^.\n]{0,30}\b"
+                r"(system prompt|system message|your instructions|initial prompt)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "fake_system_turn",
+            re.compile(
+                r"(^|\n)\s*(\[?system\]?|<\s*system\s*>|###\s*system)\s*[:\]>]",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "exfiltration",
+            re.compile(
+                r"\b(send|post|exfiltrate|leak|upload)\b[^.\n]{0,40}\b"
+                r"(api[_ ]?key|secret|password|token|credential|env(?:ironment)? var)s?\b",
+                re.IGNORECASE,
+            ),
+        ),
+    ]
+    return [name for name, pat in patterns if pat.search(text)]
 
 
 def looks_like_injection(text: str) -> bool:
