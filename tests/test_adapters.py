@@ -16,15 +16,19 @@ from tvastar.wrap import WrappedResult
 def _make_openai_messages(text: str = "Done.", with_tool: bool = False) -> list[dict]:
     msgs = [{"role": "user", "content": "Fix the tests."}]
     if with_tool:
-        msgs.append({
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [{
-                "id": "call_1",
-                "type": "function",
-                "function": {"name": "bash", "arguments": '{"command": "pytest"}'},
-            }],
-        })
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": '{"command": "pytest"}'},
+                    }
+                ],
+            }
+        )
         msgs.append({"role": "tool", "tool_call_id": "call_1", "content": "5 passed"})
     msgs.append({"role": "assistant", "content": text})
     return msgs
@@ -38,6 +42,7 @@ def _make_openai_messages(text: str = "Done.", with_tool: bool = False) -> list[
 class TestScoreOpenAIMessages:
     def test_clean_run_passes(self):
         from tvastar.adapters.openai import score_openai_messages
+
         msgs = _make_openai_messages("All done. Tests pass.")
         r = score_openai_messages(msgs)
         assert isinstance(r, WrappedResult)
@@ -46,12 +51,14 @@ class TestScoreOpenAIMessages:
 
     def test_extracts_final_assistant_text(self):
         from tvastar.adapters.openai import score_openai_messages
+
         msgs = _make_openai_messages("Final answer here.")
         r = score_openai_messages(msgs)
         assert r.text == "Final answer here."
 
     def test_tool_call_preserved_in_messages(self):
         from tvastar.adapters.openai import _convert_messages
+
         msgs = _make_openai_messages(with_tool=True)
         tvastar_msgs = _convert_messages(msgs)
         # Should have: user, assistant (tool_use block), user (tool_result), assistant (text)
@@ -61,31 +68,37 @@ class TestScoreOpenAIMessages:
 
     def test_empty_text_triggers_finding(self):
         from tvastar.adapters.openai import score_openai_messages
+
         msgs = [{"role": "user", "content": "q"}, {"role": "assistant", "content": ""}]
         r = score_openai_messages(msgs)
         assert any(f.detector == "empty_answer" for f in r.findings)
 
     def test_error_stop_lowers_score(self):
         from tvastar.adapters.openai import score_openai_messages
+
         msgs = _make_openai_messages("partial answer")
         r = score_openai_messages(msgs, stopped="error")
         assert r.quality.score <= 50
 
     def test_raw_is_original_messages_list(self):
         from tvastar.adapters.openai import score_openai_messages
+
         msgs = _make_openai_messages("ok")
         r = score_openai_messages(msgs)
         assert r.raw is msgs
 
     def test_custom_detector_applied(self):
         from tvastar.adapters.openai import score_openai_messages
+
         def _always_warn(ctx):
             return [Finding("forced", Severity.WARNING, "test", {})]
+
         r = score_openai_messages(_make_openai_messages(), detectors=[_always_warn])
         assert any(f.detector == "forced" for f in r.findings)
 
     def test_system_messages_skipped(self):
         from tvastar.adapters.openai import _convert_messages
+
         msgs = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "hi"},
@@ -97,16 +110,19 @@ class TestScoreOpenAIMessages:
 
     def test_malformed_tool_call_arguments_handled(self):
         from tvastar.adapters.openai import score_openai_messages
+
         msgs = [
             {"role": "user", "content": "q"},
             {
                 "role": "assistant",
                 "content": None,
-                "tool_calls": [{
-                    "id": "c1",
-                    "type": "function",
-                    "function": {"name": "bash", "arguments": "NOT JSON"},
-                }],
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": "NOT JSON"},
+                    }
+                ],
             },
             {"role": "tool", "tool_call_id": "c1", "content": "result"},
             {"role": "assistant", "content": "done"},
@@ -116,6 +132,7 @@ class TestScoreOpenAIMessages:
 
     def test_empty_messages_list_handled(self):
         from tvastar.adapters.openai import score_openai_messages
+
         r = score_openai_messages([])
         assert isinstance(r, WrappedResult)
         assert r.text == ""
@@ -124,6 +141,7 @@ class TestScoreOpenAIMessages:
 class TestOpenAILoopWrapper:
     def test_sync_context_manager_scores_on_exit(self):
         from tvastar.adapters.openai import OpenAILoopWrapper
+
         with OpenAILoopWrapper() as loop:
             loop.messages.append({"role": "user", "content": "Fix it."})
             loop.messages.append({"role": "assistant", "content": "Fixed."})
@@ -135,6 +153,7 @@ class TestOpenAILoopWrapper:
     @pytest.mark.asyncio
     async def test_async_context_manager_scores_on_exit(self):
         from tvastar.adapters.openai import OpenAILoopWrapper
+
         async with OpenAILoopWrapper() as loop:
             loop.messages.append({"role": "user", "content": "Go."})
             loop.messages.append({"role": "assistant", "content": "Done."})
@@ -144,6 +163,7 @@ class TestOpenAILoopWrapper:
 
     def test_exception_in_block_sets_error_stop(self):
         from tvastar.adapters.openai import OpenAILoopWrapper
+
         with pytest.raises(ValueError):
             with OpenAILoopWrapper() as loop:
                 loop.messages.append({"role": "user", "content": "q"})
@@ -154,6 +174,7 @@ class TestOpenAILoopWrapper:
 
     def test_duration_recorded(self):
         from tvastar.adapters.openai import OpenAILoopWrapper
+
         with OpenAILoopWrapper() as loop:
             loop.messages.append({"role": "assistant", "content": "ok"})
         assert loop.result.duration >= 0
@@ -166,6 +187,7 @@ class TestOpenAILoopWrapper:
 
 class _FakeLangChainAIMessage:
     """Minimal stand-in for langchain_core.messages.AIMessage."""
+
     def __init__(self, content: str, tool_calls=None):
         self.content = content
         self.tool_calls = tool_calls or []
@@ -185,6 +207,7 @@ class _FakeLangChainToolMessage:
 
 class _FakeGraph:
     """Minimal LangGraph compiled graph stand-in."""
+
     def __init__(self, state_out: dict):
         self._state_out = state_out
 
@@ -198,6 +221,7 @@ class _FakeGraph:
 class TestLangGraphWrapper:
     def _wrap(self, state_out: dict):
         from tvastar.adapters.langgraph import LangGraphWrapper
+
         return LangGraphWrapper(_FakeGraph(state_out))
 
     def test_invoke_returns_wrapped_result(self):
@@ -224,6 +248,7 @@ class TestLangGraphWrapper:
 
     def test_human_message_converted(self):
         from tvastar.adapters.langgraph import _default_extract_messages
+
         msgs = [_FakeLangChainHumanMessage("hello")]
         result = _default_extract_messages({"messages": msgs})
         assert result[0].role == "user"
@@ -231,23 +256,28 @@ class TestLangGraphWrapper:
 
     def test_tool_message_converted_to_tool_result(self):
         from tvastar.adapters.langgraph import _default_extract_messages
+
         msgs = [_FakeLangChainToolMessage("output", tool_call_id="c1")]
         result = _default_extract_messages({"messages": msgs})
         assert result[0].role == "user"
         from tvastar.types import ToolResultBlock
+
         blocks = result[0].blocks
         assert any(isinstance(b, ToolResultBlock) for b in blocks)
 
     def test_ai_message_with_tool_calls_converted(self):
         from tvastar.adapters.langgraph import _default_extract_messages
+
         tc = {"name": "bash", "args": {"command": "ls"}, "id": "c1"}
         msgs = [_FakeLangChainAIMessage("", tool_calls=[tc])]
         result = _default_extract_messages({"messages": msgs})
         from tvastar.types import ToolUseBlock
+
         assert any(isinstance(b, ToolUseBlock) for m in result for b in m.blocks)
 
     def test_custom_extract_text_used(self):
         from tvastar.adapters.langgraph import LangGraphWrapper
+
         graph = _FakeGraph({"my_key": "custom result"})
         wrapped = LangGraphWrapper(graph, extract_text=lambda s: s.get("my_key", ""))
         r = wrapped.invoke({})
@@ -274,6 +304,7 @@ class TestLangGraphWrapper:
 
     def test_dict_messages_in_state(self):
         from tvastar.adapters.langgraph import _default_extract_messages
+
         msgs = [{"role": "assistant", "content": "from dict"}]
         result = _default_extract_messages({"messages": msgs})
         assert result[0].text == "from dict"
@@ -310,10 +341,13 @@ class _FakeBedrockClient:
 class TestAgentCoreWrapper:
     def test_invoke_returns_wrapped_result(self):
         from tvastar.adapters.agentcore import AgentCoreWrapper
+
         client = _FakeBedrockClient(_fake_agentcore_response("Task complete."))
         wrapper = AgentCoreWrapper(client)
         r = wrapper.invoke(
-            agent_id="A1", agent_alias_id="AL1", session_id="s1",
+            agent_id="A1",
+            agent_alias_id="AL1",
+            session_id="s1",
             input_text="Fix tests.",
         )
         assert isinstance(r, WrappedResult)
@@ -321,9 +355,13 @@ class TestAgentCoreWrapper:
 
     def test_clean_response_scores_pass(self):
         from tvastar.adapters.agentcore import AgentCoreWrapper
+
         client = _FakeBedrockClient(_fake_agentcore_response("All tests passing. Done."))
         r = AgentCoreWrapper(client).invoke(
-            agent_id="A1", agent_alias_id="AL1", session_id="s1", input_text="go",
+            agent_id="A1",
+            agent_alias_id="AL1",
+            session_id="s1",
+            input_text="go",
         )
         assert r.quality.grade in ("PASS", "WARN")
 
@@ -335,31 +373,39 @@ class TestAgentCoreWrapper:
                 raise RuntimeError("ThrottlingException")
 
         r = AgentCoreWrapper(_ErrorClient()).invoke(
-            agent_id="A1", agent_alias_id="AL1", session_id="s1", input_text="go",
+            agent_id="A1",
+            agent_alias_id="AL1",
+            session_id="s1",
+            input_text="go",
         )
         assert r.quality.grade == "FAIL"
         assert "ThrottlingException" in r.text
 
     def test_custom_detector_applied(self):
         from tvastar.adapters.agentcore import AgentCoreWrapper
+
         def _always_error(ctx):
             return [Finding("forced", Severity.ERROR, "forced", {})]
+
         client = _FakeBedrockClient(_fake_agentcore_response("ok"))
         r = AgentCoreWrapper(client, detectors=[_always_error]).invoke(
-            agent_id="A1", agent_alias_id="AL1", session_id="s1", input_text="go",
+            agent_id="A1",
+            agent_alias_id="AL1",
+            session_id="s1",
+            input_text="go",
         )
         assert any(f.detector == "forced" for f in r.findings)
 
     def test_score_agentcore_response_post_hoc(self):
         from tvastar.adapters.agentcore import score_agentcore_response
-        r = score_agentcore_response(
-            _fake_agentcore_response("Done."), input_text="Fix tests."
-        )
+
+        r = score_agentcore_response(_fake_agentcore_response("Done."), input_text="Fix tests.")
         assert r.text == "Done."
         assert isinstance(r.quality.score, int)
 
     def test_trace_event_tool_call_extracted(self):
         from tvastar.adapters.agentcore import _parse_response
+
         response = {
             "completion": [
                 {
@@ -380,17 +426,20 @@ class TestAgentCoreWrapper:
         text, messages, stopped = _parse_response(response, input_text="run tests")
         assert text == "Tests passed."
         from tvastar.types import ToolUseBlock
+
         tool_uses = [b for m in messages for b in m.blocks if isinstance(b, ToolUseBlock)]
         assert any(u.name == "bash" for u in tool_uses)
 
     def test_bytearray_chunk_decoded(self):
         from tvastar.adapters.agentcore import score_agentcore_response
+
         response = {"completion": [{"chunk": {"bytes": bytearray(b"hello")}}]}
         r = score_agentcore_response(response)
         assert r.text == "hello"
 
     def test_empty_response_handled(self):
         from tvastar.adapters.agentcore import score_agentcore_response
+
         r = score_agentcore_response({"completion": []})
         assert isinstance(r, WrappedResult)
         assert r.text == ""

@@ -92,9 +92,7 @@ class LangGraphWrapper:
         except Exception as exc:
             raw = {}
             stopped = "error"
-            return _score(
-                f"[error] {exc}", stopped, time.monotonic() - t0, self._detectors, raw={}
-            )
+            return _score(f"[error] {exc}", stopped, time.monotonic() - t0, self._detectors, raw={})
         return self._score_state(raw, time.monotonic() - t0)
 
     def invoke(self, state: Dict, **kwargs) -> WrappedResult:
@@ -103,9 +101,7 @@ class LangGraphWrapper:
         try:
             raw = self._graph.invoke(state, **kwargs)
         except Exception as exc:
-            return _score(
-                f"[error] {exc}", "error", time.monotonic() - t0, self._detectors, raw={}
-            )
+            return _score(f"[error] {exc}", "error", time.monotonic() - t0, self._detectors, raw={})
         return self._score_state(raw, time.monotonic() - t0)
 
     def _score_state(self, raw: Dict, duration: float) -> WrappedResult:
@@ -203,10 +199,7 @@ def _default_extract_messages(state: Dict) -> List[Message]:
         # ToolMessage → ToolResultBlock
         if "tool" in msg_type:
             tool_call_id = str(getattr(m, "tool_call_id", "") or "")
-            is_error = bool(
-                getattr(m, "is_error", False)
-                or getattr(m, "status", "") == "error"
-            )
+            is_error = bool(getattr(m, "is_error", False) or getattr(m, "status", "") == "error")
             out.append(
                 Message(
                     "user",

@@ -83,6 +83,7 @@ class ApprovalRequest:
                       Captured in the ExecutionReceipt for regulatory audit trails.
         """
         import time as _time
+
         self.approved_by = approver
         self.approved_at = _time.time()
         if self._future and not self._future.done():

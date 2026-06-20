@@ -209,7 +209,9 @@ class StreamableHttpTransport(Transport):
 
     def _post(self, payload: dict, expect_response: bool) -> Optional[dict]:
         if not self.url.startswith(("http://", "https://")):
-            raise MCPError(f"Only http/https URLs are allowed for MCP transport, got: {self.url[:40]!r}")
+            raise MCPError(
+                f"Only http/https URLs are allowed for MCP transport, got: {self.url[:40]!r}"
+            )
         body = json.dumps(payload).encode("utf-8")
         headers = {
             "Content-Type": "application/json",

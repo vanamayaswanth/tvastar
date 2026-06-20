@@ -137,6 +137,7 @@ class TrustLog:
 
         if inspect.iscoroutinefunction(self._on_breach):
             import asyncio
+
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(self._on_breach(receipt))

@@ -84,9 +84,11 @@ def _group_into_runs(spans: list[dict]) -> list[dict]:
                         "input_tokens": attrs.get("gen_ai.usage.input_tokens", 0),
                         "output_tokens": attrs.get("gen_ai.usage.output_tokens", 0),
                         "stop_reason": (
-                            lambda r: r[0]
-                            if isinstance(r, list) and r
-                            else (r if isinstance(r, str) else None)
+                            lambda r: (
+                                r[0]
+                                if isinstance(r, list) and r
+                                else (r if isinstance(r, str) else None)
+                            )
                         )(attrs.get("gen_ai.response.finish_reasons")),
                     }
                 )

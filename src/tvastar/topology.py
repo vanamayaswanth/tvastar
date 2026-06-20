@@ -108,18 +108,14 @@ async def auto_topology(
         data = json.loads(raw)
         subtasks = data["subtasks"]
     except (json.JSONDecodeError, KeyError) as e:
-        raise ValueError(
-            f"Planner returned invalid JSON: {e}\nRaw output:\n{raw}"
-        ) from e
+        raise ValueError(f"Planner returned invalid JSON: {e}\nRaw output:\n{raw}") from e
 
     # Validate: all depends_on names exist
     names = {s["name"] for s in subtasks}
     for s in subtasks:
         for dep in s.get("depends_on", []):
             if dep not in names:
-                raise ValueError(
-                    f"Subtask {s['name']!r} depends on unknown task {dep!r}"
-                )
+                raise ValueError(f"Subtask {s['name']!r} depends on unknown task {dep!r}")
 
     # Build TaskGraph
     graph = TaskGraph(harness)

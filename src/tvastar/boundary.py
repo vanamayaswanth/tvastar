@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 
+
 def scan_for_injection(text: str) -> list[str]:
     """Return the names of injection patterns ``text`` matches (empty = clean).
 

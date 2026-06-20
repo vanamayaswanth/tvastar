@@ -30,6 +30,7 @@ class TestDSPyOptimizer:
 
     def test_import_error_without_dspy(self):
         import sys
+
         opt = DSPyOptimizer("gpt-4o")
         saved = sys.modules.pop("dspy", None)
         sys.modules["dspy"] = None  # type: ignore
@@ -82,6 +83,7 @@ class TestDSPyOptimizer:
 
     def test_loop_config_accepts_optimizer(self):
         from tvastar.loop import LoopConfig
+
         opt = DSPyOptimizer("gpt-4o")
         cfg = LoopConfig(name="test", goal="do work", optimizer=opt)
         assert cfg.optimizer is opt
@@ -89,5 +91,6 @@ class TestDSPyOptimizer:
     def test_optimizer_takes_precedence_field_exists(self):
         from tvastar.loop import LoopConfig
         import dataclasses
+
         fields = {f.name for f in dataclasses.fields(LoopConfig)}
         assert "optimizer" in fields

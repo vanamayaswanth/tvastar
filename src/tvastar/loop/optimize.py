@@ -71,17 +71,15 @@ class DSPyOptimizer:
         try:
             import dspy  # type: ignore
         except ImportError as e:
-            raise ImportError(
-                "DSPy is not installed. Run: pip install tvastar[dspy]"
-            ) from e
+            raise ImportError("DSPy is not installed. Run: pip install tvastar[dspy]") from e
 
         from . import LoopState
 
         lm = dspy.LM(self._model, **self._lm_kwargs)
         dspy.configure(lm=lm)
 
-        fails = [r for r in runs if r.state == LoopState.FAIL][-self._max_fails:]
-        passes = [r for r in runs if r.state == LoopState.PASS][-self._max_demos:]
+        fails = [r for r in runs if r.state == LoopState.FAIL][-self._max_fails :]
+        passes = [r for r in runs if r.state == LoopState.PASS][-self._max_demos :]
 
         failure_lines = []
         for r in fails:
@@ -98,9 +96,7 @@ class DSPyOptimizer:
             """Rewrite agent instructions to prevent failures while preserving what works."""
 
             current_instructions: str = dspy.InputField()
-            failure_evidence: str = dspy.InputField(
-                desc="Recent failures to eliminate"
-            )
+            failure_evidence: str = dspy.InputField(desc="Recent failures to eliminate")
             improved_instructions: str = dspy.OutputField(
                 desc="Complete improved instructions — only the instructions, no commentary or quotes"
             )
@@ -114,7 +110,7 @@ class DSPyOptimizer:
                     failure_evidence="[no failures — these instructions worked]",
                     improved_instructions=instructions,
                 ).with_inputs("current_instructions", "failure_evidence")
-                for _ in passes[:self._max_demos]
+                for _ in passes[: self._max_demos]
             ]
 
         result = predictor(

@@ -65,4 +65,5 @@ class TestTokenVault:
 
     def test_exported_from_tvastar(self):
         from tvastar import TokenVault as TV
+
         assert TV is TokenVault

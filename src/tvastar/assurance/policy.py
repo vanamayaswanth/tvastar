@@ -47,8 +47,7 @@ class SLABreached(Exception):
         self.min_score = min_score
         self.receipt = receipt
         super().__init__(
-            f"SLA breached: quality score {score} < required {min_score} "
-            f"(run_id={receipt.run_id})"
+            f"SLA breached: quality score {score} < required {min_score} (run_id={receipt.run_id})"
         )
 
 

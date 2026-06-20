@@ -125,7 +125,9 @@ class LoopConfig:
     circuit_breaker_limit: int = 5  # consecutive HANDOFF cycles → SUSPENDED
     handoff: "HandoffPolicy | None" = None
     meta_model: "Model | None" = None  # if set, rewrites instructions after each FAIL
-    optimizer: "Any | None" = None     # Callable[[str, list[LoopRun]], str] — takes precedence over meta_model
+    optimizer: "Any | None" = (
+        None  # Callable[[str, list[LoopRun]], str] — takes precedence over meta_model
+    )
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -318,12 +320,11 @@ class Loop:
 
         # Self-improvement: after any non-PASS run, fire meta-improvement asynchronously
         # so the next retry (already scheduled after backoff) benefits from improved instructions
-        if (
-            run.state not in (LoopState.PASS, LoopState.SUSPENDED)
-            and (self._config.optimizer is not None or self._config.meta_model is not None)
+        if run.state not in (LoopState.PASS, LoopState.SUSPENDED) and (
+            self._config.optimizer is not None or self._config.meta_model is not None
         ):
             t = asyncio.create_task(self._improve_instructions(run))
-            self._bg_tasks.add(t)         # prevent GC before completion
+            self._bg_tasks.add(t)  # prevent GC before completion
             t.add_done_callback(self._bg_tasks.discard)
 
         return run
@@ -609,12 +610,10 @@ class Loop:
 
             # ── optimizer path (DSPyOptimizer or any callable) ──────────────
             if self._config.optimizer is not None:
-                all_runs: list[LoopRun] = list(
-                    self._store.get(f"loop:{self.name}:runs") or []
-                ) + [run]
-                new_instructions = self._config.optimizer(
-                    self._current_instructions, all_runs
-                )
+                all_runs: list[LoopRun] = list(self._store.get(f"loop:{self.name}:runs") or []) + [
+                    run
+                ]
+                new_instructions = self._config.optimizer(self._current_instructions, all_runs)
 
             # ── meta_model path (legacy one-shot rewrite) ───────────────────
             elif self._config.meta_model is not None:

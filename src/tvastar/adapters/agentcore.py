@@ -101,12 +101,23 @@ class AgentCoreWrapper:
             messages = []
             stopped = "error"
         duration = time.monotonic() - t0
-        return _score(text, stopped, duration, self._detectors, messages=messages, raw={
-            "agentId": agent_id, "sessionId": session_id, "inputText": input_text,
-        })
+        return _score(
+            text,
+            stopped,
+            duration,
+            self._detectors,
+            messages=messages,
+            raw={
+                "agentId": agent_id,
+                "sessionId": session_id,
+                "inputText": input_text,
+            },
+        )
 
 
-def score_agentcore_response(response: Any, *, detectors=None, input_text: str = "") -> WrappedResult:
+def score_agentcore_response(
+    response: Any, *, detectors=None, input_text: str = ""
+) -> WrappedResult:
     """Score an already-collected AgentCore ``invoke_agent`` response.
 
     Args:
@@ -131,9 +142,7 @@ def score_agentcore_response(response: Any, *, detectors=None, input_text: str =
 # ---------------------------------------------------------------------------
 
 
-def _parse_response(
-    response: Any, *, input_text: str
-) -> tuple[str, List[Message], str]:
+def _parse_response(response: Any, *, input_text: str) -> tuple[str, List[Message], str]:
     """Collect text and tool-trace events from a Bedrock agent event stream."""
     chunks: List[str] = []
     messages: List[Message] = []
@@ -143,7 +152,9 @@ def _parse_response(
         messages.append(Message("user", [TextBlock(text=input_text)]))
 
     try:
-        event_stream = response.get("completion", response) if isinstance(response, dict) else response
+        event_stream = (
+            response.get("completion", response) if isinstance(response, dict) else response
+        )
         for event in event_stream:
             if not isinstance(event, dict):
                 continue
@@ -179,20 +190,15 @@ def _extract_trace(trace: dict, messages: List[Message]) -> None:
     invocation = orchestration.get("invocationInput") or {}
     action = invocation.get("actionGroupInvocationInput") or {}
     if action:
-        name = (
-            action.get("function")
-            or action.get("actionGroupName")
-            or "unknown_action"
-        )
+        name = action.get("function") or action.get("actionGroupName") or "unknown_action"
         import json as _json
+
         raw_params = action.get("parameters") or action.get("requestBody") or {}
         try:
             inp = _json.loads(raw_params) if isinstance(raw_params, str) else raw_params
         except Exception:
             inp = {"_raw": str(raw_params)}
-        messages.append(
-            Message("assistant", [ToolUseBlock(name=str(name), input=inp, id="")])
-        )
+        messages.append(Message("assistant", [ToolUseBlock(name=str(name), input=inp, id="")]))
 
     # Tool result
     observation = orchestration.get("observation") or {}

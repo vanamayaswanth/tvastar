@@ -50,7 +50,9 @@ __all__ = ["SanitizationPolicy", "TokenVault"]
 # Each entry: (compiled_regex, replacement_label)
 _SSN = (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]")
 _CREDIT_CARD = (
-    re.compile(r"\b(?:4\d{3}|5[1-5]\d{2}|3[47]\d{2}|6(?:011|5\d{2}))[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b"),
+    re.compile(
+        r"\b(?:4\d{3}|5[1-5]\d{2}|3[47]\d{2}|6(?:011|5\d{2}))[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b"
+    ),
     "[CARD]",
 )
 _EMAIL = (re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"), "[EMAIL]")
@@ -65,9 +67,7 @@ _API_KEY = (
     "[CREDENTIAL]",
 )
 _DOB = (
-    re.compile(
-        r"\b(?:0[1-9]|1[0-2])[/-](?:0[1-9]|[12]\d|3[01])[/-](?:19|20)\d{2}\b"
-    ),
+    re.compile(r"\b(?:0[1-9]|1[0-2])[/-](?:0[1-9]|[12]\d|3[01])[/-](?:19|20)\d{2}\b"),
     "[DOB]",
 )
 
@@ -98,7 +98,7 @@ class TokenVault:
     """
 
     def __init__(self) -> None:
-        self._map: dict[str, str] = {}       # token  → original
+        self._map: dict[str, str] = {}  # token  → original
         self._counters: dict[str, int] = {}  # label → count
 
     def _next_token(self, label: str) -> str:
@@ -110,10 +110,12 @@ class TokenVault:
     def tokenize(self, text: str, policy: "SanitizationPolicy") -> str:
         """Apply *policy* patterns to *text*, storing originals. Returns tokenized text."""
         for regex, label in policy.patterns:
+
             def _replacer(m: re.Match, _lbl: str = label) -> str:
                 tok = self._next_token(_lbl)
                 self._map[tok] = m.group(0)
                 return tok
+
             text = regex.sub(_replacer, text)
         return text
 
@@ -227,9 +229,7 @@ class SanitizationPolicy:
             text = regex.sub(replacement, text)
         return text
 
-    def scrub_tool_calls(
-        self, tool_calls: List[Dict]
-    ) -> List[Dict]:
+    def scrub_tool_calls(self, tool_calls: List[Dict]) -> List[Dict]:
         """Return a new list with PII scrubbed from input and output fields."""
         result = []
         for tc in tool_calls:
@@ -321,9 +321,7 @@ class _PresidioSanitizationPolicy(SanitizationPolicy):
             )
             if results:
                 operators = {
-                    r.entity_type: OperatorConfig(
-                        "replace", {"new_value": f"[{r.entity_type}]"}
-                    )
+                    r.entity_type: OperatorConfig("replace", {"new_value": f"[{r.entity_type}]"})
                     for r in results
                 }
                 text = self._anonymizer.anonymize(

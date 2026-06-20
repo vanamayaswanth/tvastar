@@ -16,7 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from tvastar.assurance import AssurancePolicy, ExecutionReceipt, RetentionPolicy, SLABreached, SanitizationPolicy, TrustLog
+from tvastar.assurance import (
+    AssurancePolicy,
+    ExecutionReceipt,
+    RetentionPolicy,
+    SLABreached,
+    SanitizationPolicy,
+    TrustLog,
+)
 from tvastar.detect import Finding, Severity
 from tvastar.quality import LoopQualityReport
 from tvastar.types import Message, TextBlock, ToolResultBlock, ToolUseBlock, Usage
@@ -29,8 +36,11 @@ from tvastar.types import Message, TextBlock, ToolResultBlock, ToolUseBlock, Usa
 
 def _fake_quality(score: int = 90, grade: str = "PASS") -> LoopQualityReport:
     return LoopQualityReport(
-        score=score, grade=grade,
-        errors=[], warnings=[], findings=[],
+        score=score,
+        grade=grade,
+        errors=[],
+        warnings=[],
+        findings=[],
         summary="ok" if grade == "PASS" else "fail",
     )
 
@@ -155,8 +165,11 @@ class TestExecutionReceiptBuild:
         result = _FakeResult(messages=[msg_a])
         t = time.time()
         receipt = ExecutionReceipt.from_run_result(
-            result, agent="a", prompt="q",
-            started_at=t, completed_at=t + 0.1,
+            result,
+            agent="a",
+            prompt="q",
+            started_at=t,
+            completed_at=t + 0.1,
         )
         assert len(receipt.tool_calls) == 1
         assert receipt.tool_calls[0]["name"] == "bash"
@@ -168,8 +181,11 @@ class TestExecutionReceiptBuild:
         result = _FakeResult(messages=[msg])
         t = time.time()
         receipt = ExecutionReceipt.from_run_result(
-            result, agent="a", prompt="q",
-            started_at=t, completed_at=t + 0.1,
+            result,
+            agent="a",
+            prompt="q",
+            started_at=t,
+            completed_at=t + 0.1,
         )
         assert len(receipt.tool_calls) == 3
 
@@ -178,8 +194,11 @@ class TestExecutionReceiptBuild:
         result = _FakeResult(findings=[f])
         t = time.time()
         receipt = ExecutionReceipt.from_run_result(
-            result, agent="a", prompt="q",
-            started_at=t, completed_at=t + 0.1,
+            result,
+            agent="a",
+            prompt="q",
+            started_at=t,
+            completed_at=t + 0.1,
         )
         assert receipt.findings[0]["detector"] == "thrash_loop"
         assert receipt.findings[0]["severity"] == "warning"
@@ -188,8 +207,11 @@ class TestExecutionReceiptBuild:
         result = _FakeResult(input_tokens=999, output_tokens=111)
         t = time.time()
         r = ExecutionReceipt.from_run_result(
-            result, agent="a", prompt="q",
-            started_at=t, completed_at=t + 0.1,
+            result,
+            agent="a",
+            prompt="q",
+            started_at=t,
+            completed_at=t + 0.1,
         )
         assert r.usage_input == 999
         assert r.usage_output == 111
@@ -784,7 +806,11 @@ class TestUglyInputs:
         result = _FakeResult(input_tokens=0, output_tokens=0)
         t = time.time()
         r = ExecutionReceipt.from_run_result(
-            result, agent="a", prompt="q", started_at=t, completed_at=t,
+            result,
+            agent="a",
+            prompt="q",
+            started_at=t,
+            completed_at=t,
         )
         assert r.usage_input == 0
         assert r.verify() is True
@@ -795,7 +821,11 @@ class TestUglyInputs:
         result = _FakeResult(messages=[msg])
         t = time.time()
         r = ExecutionReceipt.from_run_result(
-            result, agent="a", prompt="q", started_at=t, completed_at=t,
+            result,
+            agent="a",
+            prompt="q",
+            started_at=t,
+            completed_at=t,
         )
         assert len(r.tool_calls) == 100
         assert r.verify() is True
@@ -808,7 +838,11 @@ class TestUglyInputs:
         result = _FakeResult(messages=msgs)
         t = time.time()
         r = ExecutionReceipt.from_run_result(
-            result, agent="a", prompt="q", started_at=t, completed_at=t,
+            result,
+            agent="a",
+            prompt="q",
+            started_at=t,
+            completed_at=t,
         )
         assert r.tool_calls == []
 
@@ -935,11 +969,15 @@ class TestToolOutputs:
         def get_balance(account_id: str) -> str:
             return f"${account_id}:1234.56"
 
-        model = MockModel(script=[
-            ToolUseBlock(name="get_balance", input={"account_id": "ACC-42"}, id="tc_e2e"),
-            "Balance retrieved.",
-        ])
-        agent = create_agent("bank-bot", model=model, tools=[get_balance], assurance=AssurancePolicy())
+        model = MockModel(
+            script=[
+                ToolUseBlock(name="get_balance", input={"account_id": "ACC-42"}, id="tc_e2e"),
+                "Balance retrieved.",
+            ]
+        )
+        agent = create_agent(
+            "bank-bot", model=model, tools=[get_balance], assurance=AssurancePolicy()
+        )
         result = await Harness(agent).run("What is my balance?")
 
         assert result.receipt is not None
@@ -1009,7 +1047,9 @@ class TestSanitizationPolicy:
 
     def test_scrubs_tool_input_values(self):
         s = SanitizationPolicy.hipaa()
-        calls = [{"id": "1", "name": "lookup", "input": {"email": "jane@example.com"}, "output": ""}]
+        calls = [
+            {"id": "1", "name": "lookup", "input": {"email": "jane@example.com"}, "output": ""}
+        ]
         result = s.scrub_tool_calls(calls)
         assert "jane@example.com" not in str(result)
         assert "[EMAIL]" in str(result)
@@ -1058,9 +1098,11 @@ class TestSanitizationPolicy:
         t = time.time()
         r = ExecutionReceipt.from_run_result(
             _FakeResult("done"),
-            agent="a", model_name="m",
+            agent="a",
+            model_name="m",
             prompt="Patient SSN 123-45-6789 has diabetes",
-            started_at=t, completed_at=t + 1,
+            started_at=t,
+            completed_at=t + 1,
             sanitize=s,
         )
         assert "123-45-6789" not in r.prompt
@@ -1072,9 +1114,11 @@ class TestSanitizationPolicy:
         t = time.time()
         r = ExecutionReceipt.from_run_result(
             _FakeResult("Contact jane@example.com for results"),
-            agent="a", model_name="m",
+            agent="a",
+            model_name="m",
             prompt="get results",
-            started_at=t, completed_at=t + 1,
+            started_at=t,
+            completed_at=t + 1,
             sanitize=s,
         )
         assert "jane@example.com" not in r.final_text
@@ -1085,9 +1129,11 @@ class TestSanitizationPolicy:
         t = time.time()
         r = ExecutionReceipt.from_run_result(
             _FakeResult("done"),
-            agent="a", model_name="m",
+            agent="a",
+            model_name="m",
             prompt="SSN 123-45-6789",
-            started_at=t, completed_at=t + 1,
+            started_at=t,
+            completed_at=t + 1,
             sanitize=s,
         )
         d = r.to_dict()
@@ -1126,6 +1172,7 @@ class TestSanitizationPolicy:
 class TestPresidioSanitizationPolicy:
     def test_presidio_factory_returns_instance(self):
         from tvastar.assurance.sanitize import _PresidioSanitizationPolicy
+
         p = SanitizationPolicy.presidio()
         assert isinstance(p, _PresidioSanitizationPolicy)
 
@@ -1147,6 +1194,7 @@ class TestPresidioSanitizationPolicy:
 
     def test_presidio_raises_import_error_when_not_installed(self):
         import sys
+
         # Temporarily hide presidio from the import system
         presidio_mods = [k for k in sys.modules if "presidio" in k]
         saved = {k: sys.modules.pop(k) for k in presidio_mods}
@@ -1154,6 +1202,7 @@ class TestPresidioSanitizationPolicy:
             p = SanitizationPolicy.presidio()
             # Patch builtins.__import__ to simulate missing package
             import builtins
+
             real_import = builtins.__import__
 
             def mock_import(name, *args, **kwargs):
@@ -1187,11 +1236,20 @@ class TestPresidioSanitizationPolicy:
 
         mock_operator_config = MagicMock()
 
-        with patch.dict("sys.modules", {
-            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
-            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock(return_value=mock_anonymizer)),
-            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock(return_value=mock_operator_config)),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "presidio_analyzer": MagicMock(
+                    AnalyzerEngine=MagicMock(return_value=mock_analyzer)
+                ),
+                "presidio_anonymizer": MagicMock(
+                    AnonymizerEngine=MagicMock(return_value=mock_anonymizer)
+                ),
+                "presidio_anonymizer.entities": MagicMock(
+                    OperatorConfig=MagicMock(return_value=mock_operator_config)
+                ),
+            },
+        ):
             p = SanitizationPolicy.presidio()
             result = p.scrub("Patient Jane Smith has diabetes")
 
@@ -1204,11 +1262,16 @@ class TestPresidioSanitizationPolicy:
         mock_analyzer = MagicMock()
         mock_analyzer.analyze.return_value = []  # no PII found
 
-        with patch.dict("sys.modules", {
-            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
-            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
-            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "presidio_analyzer": MagicMock(
+                    AnalyzerEngine=MagicMock(return_value=mock_analyzer)
+                ),
+                "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
+                "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+            },
+        ):
             p = SanitizationPolicy.presidio()
             result = p.scrub("No PII here at all.")
 
@@ -1218,11 +1281,16 @@ class TestPresidioSanitizationPolicy:
         from unittest.mock import MagicMock, patch
 
         mock_analyzer = MagicMock()
-        with patch.dict("sys.modules", {
-            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
-            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
-            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "presidio_analyzer": MagicMock(
+                    AnalyzerEngine=MagicMock(return_value=mock_analyzer)
+                ),
+                "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
+                "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+            },
+        ):
             p = SanitizationPolicy.presidio()
             result = p.scrub("")
 
@@ -1243,11 +1311,18 @@ class TestPresidioSanitizationPolicy:
         mock_anonymizer = MagicMock()
         mock_anonymizer.anonymize.return_value = mock_anon_out
 
-        with patch.dict("sys.modules", {
-            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
-            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock(return_value=mock_anonymizer)),
-            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "presidio_analyzer": MagicMock(
+                    AnalyzerEngine=MagicMock(return_value=mock_analyzer)
+                ),
+                "presidio_anonymizer": MagicMock(
+                    AnonymizerEngine=MagicMock(return_value=mock_anonymizer)
+                ),
+                "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+            },
+        ):
             p = SanitizationPolicy.presidio()
             p.add_pattern(r"ACCT-\d+", "[ACCOUNT]")
             result = p.scrub("Jane Smith opened account ACCT-99182")
@@ -1264,11 +1339,14 @@ class TestPresidioSanitizationPolicy:
         mock_analyzer.analyze.return_value = []
         mock_analyzer_cls.return_value = mock_analyzer
 
-        with patch.dict("sys.modules", {
-            "presidio_analyzer": MagicMock(AnalyzerEngine=mock_analyzer_cls),
-            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
-            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "presidio_analyzer": MagicMock(AnalyzerEngine=mock_analyzer_cls),
+                "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
+                "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+            },
+        ):
             p = SanitizationPolicy.presidio()
             p.scrub("first call")
             p.scrub("second call")
@@ -1283,6 +1361,7 @@ class TestPresidioSanitizationPolicy:
 
     def test_presidio_install_hint_in_error_message(self):
         import builtins
+
         real_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):
@@ -1308,11 +1387,16 @@ class TestPresidioSanitizationPolicy:
         mock_analyzer = MagicMock()
         mock_analyzer.analyze.return_value = []
 
-        with patch.dict("sys.modules", {
-            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
-            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
-            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "presidio_analyzer": MagicMock(
+                    AnalyzerEngine=MagicMock(return_value=mock_analyzer)
+                ),
+                "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
+                "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+            },
+        ):
             p = SanitizationPolicy.presidio()
             prompt, tools, text = p.apply(
                 prompt="Hello world",
@@ -1329,11 +1413,16 @@ class TestPresidioSanitizationPolicy:
         mock_analyzer = MagicMock()
         mock_analyzer.analyze.return_value = []
 
-        with patch.dict("sys.modules", {
-            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
-            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
-            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "presidio_analyzer": MagicMock(
+                    AnalyzerEngine=MagicMock(return_value=mock_analyzer)
+                ),
+                "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
+                "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+            },
+        ):
             p = SanitizationPolicy.presidio(languages=["en", "de"])
             p.scrub("some text")
 
@@ -1349,6 +1438,7 @@ class TestPresidioSanitizationPolicy:
 class TestApproverTracking:
     def test_approval_request_records_approver(self):
         from tvastar.approval import ApprovalRequest
+
         req = ApprovalRequest("Approve transfer")
         req.approve(approver="jane.doe@company.com")
         assert req.approved_by == "jane.doe@company.com"
@@ -1356,6 +1446,7 @@ class TestApproverTracking:
 
     def test_approval_request_empty_approver_by_default(self):
         from tvastar.approval import ApprovalRequest
+
         req = ApprovalRequest("Approve")
         req.approve()
         assert req.approved_by == ""
@@ -1367,21 +1458,36 @@ class TestApproverTracking:
     def test_receipt_approvals_included_in_hash(self):
         t = time.time()
         r_no_approval = ExecutionReceipt.from_run_result(
-            _FakeResult("done"), agent="a", model_name="m",
-            prompt="go", started_at=t, completed_at=t + 1, approvals=[],
+            _FakeResult("done"),
+            agent="a",
+            model_name="m",
+            prompt="go",
+            started_at=t,
+            completed_at=t + 1,
+            approvals=[],
         )
         r_with_approval = ExecutionReceipt.from_run_result(
-            _FakeResult("done"), agent="a", model_name="m",
-            prompt="go", started_at=t, completed_at=t + 1,
-            approvals=[{"tool": "transfer", "approved_by": "jane", "approved_at": t, "message": "ok"}],
+            _FakeResult("done"),
+            agent="a",
+            model_name="m",
+            prompt="go",
+            started_at=t,
+            completed_at=t + 1,
+            approvals=[
+                {"tool": "transfer", "approved_by": "jane", "approved_at": t, "message": "ok"}
+            ],
         )
         assert r_no_approval.content_hash != r_with_approval.content_hash
 
     def test_receipt_approvals_tamper_fails_verify(self):
         t = time.time()
         r = ExecutionReceipt.from_run_result(
-            _FakeResult("done"), agent="a", model_name="m",
-            prompt="go", started_at=t, completed_at=t + 1,
+            _FakeResult("done"),
+            agent="a",
+            model_name="m",
+            prompt="go",
+            started_at=t,
+            completed_at=t + 1,
             approvals=[{"tool": "x", "approved_by": "alice", "approved_at": t, "message": "ok"}],
         )
         d = r.to_dict()
@@ -1391,10 +1497,17 @@ class TestApproverTracking:
 
     def test_receipt_approvals_roundtrip_json(self):
         t = time.time()
-        ap = [{"tool": "wire_funds", "approved_by": "cfo@corp.com", "approved_at": t, "message": "ok"}]
+        ap = [
+            {"tool": "wire_funds", "approved_by": "cfo@corp.com", "approved_at": t, "message": "ok"}
+        ]
         r = ExecutionReceipt.from_run_result(
-            _FakeResult("done"), agent="a", model_name="m",
-            prompt="go", started_at=t, completed_at=t + 1, approvals=ap,
+            _FakeResult("done"),
+            agent="a",
+            model_name="m",
+            prompt="go",
+            started_at=t,
+            completed_at=t + 1,
+            approvals=ap,
         )
         r2 = ExecutionReceipt.from_json(r.to_json())
         assert r2.approvals[0]["approved_by"] == "cfo@corp.com"
@@ -1402,10 +1515,22 @@ class TestApproverTracking:
 
     def test_approvals_in_text_audit_report(self):
         t = time.time()
-        ap = [{"tool": "delete_account", "approved_by": "supervisor@co.com", "approved_at": t, "message": "ok"}]
+        ap = [
+            {
+                "tool": "delete_account",
+                "approved_by": "supervisor@co.com",
+                "approved_at": t,
+                "message": "ok",
+            }
+        ]
         r = ExecutionReceipt.from_run_result(
-            _FakeResult("done"), agent="a", model_name="m",
-            prompt="go", started_at=t, completed_at=t + 1, approvals=ap,
+            _FakeResult("done"),
+            agent="a",
+            model_name="m",
+            prompt="go",
+            started_at=t,
+            completed_at=t + 1,
+            approvals=ap,
         )
         report = r.to_audit_report()
         assert "HUMAN APPROVALS" in report
@@ -1420,8 +1545,13 @@ class TestApproverTracking:
         t = time.time()
         ap = [{"tool": "tool_x", "approved_by": "", "approved_at": t, "message": "ok"}]
         r = ExecutionReceipt.from_run_result(
-            _FakeResult("done"), agent="a", model_name="m",
-            prompt="go", started_at=t, completed_at=t + 1, approvals=ap,
+            _FakeResult("done"),
+            agent="a",
+            model_name="m",
+            prompt="go",
+            started_at=t,
+            completed_at=t + 1,
+            approvals=ap,
         )
         assert "unidentified operator" in r.to_audit_report()
 
@@ -1498,6 +1628,7 @@ class TestTrustLogAccessControl:
 class TestChainBreachAlert:
     def test_on_breach_called_when_chain_tampered(self):
         import dataclasses
+
         breached = []
         log = TrustLog(on_breach=lambda r: breached.append(r))
         r1 = _make_receipt()
@@ -1519,6 +1650,7 @@ class TestChainBreachAlert:
 
     def test_on_breach_receives_first_corrupt_receipt(self):
         import dataclasses
+
         receipts = []
         log = TrustLog(on_breach=lambda r: receipts.append(r.run_id))
         r1 = _make_receipt()
@@ -1531,6 +1663,7 @@ class TestChainBreachAlert:
 
     def test_no_on_breach_chain_still_returns_false(self):
         import dataclasses
+
         log = TrustLog()  # no callback
         r1 = _make_receipt()
         log.append(r1)
@@ -1541,6 +1674,7 @@ class TestChainBreachAlert:
     def test_on_breach_async_callback_scheduled(self):
         import asyncio
         import dataclasses
+
         fired = []
 
         async def breach_handler(r):
@@ -1560,6 +1694,7 @@ class TestChainBreachAlert:
 
     def test_on_breach_only_fires_once_per_verify_call(self):
         import dataclasses
+
         calls = []
         log = TrustLog(on_breach=lambda r: calls.append(1))
         r1 = _make_receipt()
@@ -1634,9 +1769,9 @@ class TestAuditReport:
         assert "DECISIONS MADE" not in r.to_audit_report()
 
     def test_text_findings_listed(self):
-        r = _make_receipt(findings=[
-            Finding("thrash_loop", Severity.WARNING, "looping detected", {})
-        ])
+        r = _make_receipt(
+            findings=[Finding("thrash_loop", Severity.WARNING, "looping detected", {})]
+        )
         report = r.to_audit_report()
         assert "thrash_loop" in report
         assert "looping detected" in report
@@ -1708,9 +1843,9 @@ class TestAuditReport:
         assert "Decisions Made" not in html
 
     def test_html_findings_when_present(self):
-        r = _make_receipt(findings=[
-            Finding("ignored_tool_error", Severity.ERROR, "tool error ignored", {})
-        ])
+        r = _make_receipt(
+            findings=[Finding("ignored_tool_error", Severity.ERROR, "tool error ignored", {})]
+        )
         html = r.to_audit_report("html")
         assert "ignored_tool_error" in html
         assert "tool error ignored" in html
@@ -1774,14 +1909,24 @@ def _make_receipt_with_tools() -> ExecutionReceipt:
     # Recompute hash so verify() passes
     from tvastar.assurance.receipt import _canonical_payload
     import hashlib
+
     payload = _canonical_payload(
-        run_id=d["run_id"], agent=d["agent"], model_name=d["model_name"],
-        prompt=d["prompt"], tool_calls=tc, final_text=d["final_text"],
-        quality_score=d["quality_score"], quality_grade=d["quality_grade"],
-        findings=d["findings"], usage_input=d["usage_input"],
-        usage_output=d["usage_output"], stopped=d["stopped"],
-        started_at=d["started_at"], completed_at=d["completed_at"],
-        prev_hash=d["prev_hash"], version=d["version"],
+        run_id=d["run_id"],
+        agent=d["agent"],
+        model_name=d["model_name"],
+        prompt=d["prompt"],
+        tool_calls=tc,
+        final_text=d["final_text"],
+        quality_score=d["quality_score"],
+        quality_grade=d["quality_grade"],
+        findings=d["findings"],
+        usage_input=d["usage_input"],
+        usage_output=d["usage_output"],
+        stopped=d["stopped"],
+        started_at=d["started_at"],
+        completed_at=d["completed_at"],
+        prev_hash=d["prev_hash"],
+        version=d["version"],
     )
     d["content_hash"] = "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
     d["signature"] = ""
@@ -1792,8 +1937,12 @@ class TestRetentionPolicy:
     def _make_old(self, days=40, prev_hash="") -> ExecutionReceipt:
         t = time.time() - days * 86400
         return ExecutionReceipt.from_run_result(
-            _FakeResult(), agent="test-agent", model_name="mock-model",
-            prompt="fix tests", started_at=t, completed_at=t + 0.1,
+            _FakeResult(),
+            agent="test-agent",
+            model_name="mock-model",
+            prompt="fix tests",
+            started_at=t,
+            completed_at=t + 0.1,
             prev_hash=prev_hash,
         )
 
@@ -1829,7 +1978,9 @@ class TestRetentionPolicy:
         r1 = _make_receipt(prev_hash=r0.content_hash)
         log.append(r0)
         log.append(r1)
-        log.apply_retention(RetentionPolicy(max_age_days=30, archive_path=str(tmp_path / "a.jsonl")))
+        log.apply_retention(
+            RetentionPolicy(max_age_days=30, archive_path=str(tmp_path / "a.jsonl"))
+        )
         # active log untouched — chain still valid
         assert log.verify_chain()
 
@@ -1846,7 +1997,11 @@ class TestRetentionPolicy:
         r = self._make_old(40)
         log.append(r)
         past_hold = time.time() - 1
-        count = log.apply_retention(RetentionPolicy(max_age_days=30, hold_until=past_hold, archive_path=str(tmp_path / "a.jsonl")))
+        count = log.apply_retention(
+            RetentionPolicy(
+                max_age_days=30, hold_until=past_hold, archive_path=str(tmp_path / "a.jsonl")
+            )
+        )
         assert count == 1
 
     def test_no_archive_path_returns_count_only(self):

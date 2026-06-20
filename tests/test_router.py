@@ -10,10 +10,10 @@ from tvastar.profiles import AgentProfile
 
 def _profiles():
     return [
-        AgentProfile(name="coder",    description="Write and fix Python code"),
+        AgentProfile(name="coder", description="Write and fix Python code"),
         AgentProfile(name="reviewer", description="Review code for bugs and security"),
-        AgentProfile(name="tester",   description="Write unit tests and run test suites"),
-        AgentProfile(name="devops",   description="Deploy infrastructure and CI pipelines"),
+        AgentProfile(name="tester", description="Write unit tests and run test suites"),
+        AgentProfile(name="devops", description="Deploy infrastructure and CI pipelines"),
     ]
 
 
@@ -84,8 +84,16 @@ class TestAgentRouterIntegration:
             resolved["agent"] = agent
             from tvastar.session import RunResult
             from tvastar.types import Usage
-            return RunResult(text="ok", messages=[], usage=Usage(), steps=1,
-                             stopped="end_turn", findings=[], data=None)
+
+            return RunResult(
+                text="ok",
+                messages=[],
+                usage=Usage(),
+                steps=1,
+                stopped="end_turn",
+                findings=[],
+                data=None,
+            )
 
         with patch.object(Session, "task", fake_task):
             sess = MagicMock(spec=Session)

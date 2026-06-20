@@ -31,9 +31,24 @@ def _harness(plan: dict) -> MagicMock:
 
 _PLAN = {
     "subtasks": [
-        {"name": "research",  "role": "Research specialist", "prompt": "Research X", "depends_on": []},
-        {"name": "analyse",   "role": "Analysis specialist", "prompt": "Analyse X",  "depends_on": ["research"]},
-        {"name": "report",    "role": "Report writer",       "prompt": "Write report", "depends_on": ["analyse"]},
+        {
+            "name": "research",
+            "role": "Research specialist",
+            "prompt": "Research X",
+            "depends_on": [],
+        },
+        {
+            "name": "analyse",
+            "role": "Analysis specialist",
+            "prompt": "Analyse X",
+            "depends_on": ["research"],
+        },
+        {
+            "name": "report",
+            "role": "Report writer",
+            "prompt": "Write report",
+            "depends_on": ["analyse"],
+        },
     ]
 }
 
@@ -65,8 +80,15 @@ class TestAutoTopology:
 
     @pytest.mark.asyncio
     async def test_raises_on_invalid_json(self):
-        bad = RunResult(text="not json", messages=[], usage=Usage(),
-                        steps=1, stopped="end_turn", findings=[], data=None)
+        bad = RunResult(
+            text="not json",
+            messages=[],
+            usage=Usage(),
+            steps=1,
+            stopped="end_turn",
+            findings=[],
+            data=None,
+        )
         h = MagicMock()
         h.run = AsyncMock(return_value=bad)
         with pytest.raises(ValueError, match="invalid JSON"):
@@ -74,9 +96,11 @@ class TestAutoTopology:
 
     @pytest.mark.asyncio
     async def test_raises_on_unknown_dependency(self):
-        bad_plan = {"subtasks": [
-            {"name": "a", "role": "r", "prompt": "p", "depends_on": ["nonexistent"]},
-        ]}
+        bad_plan = {
+            "subtasks": [
+                {"name": "a", "role": "r", "prompt": "p", "depends_on": ["nonexistent"]},
+            ]
+        }
         with pytest.raises(ValueError, match="unknown task"):
             await auto_topology("goal", harness=_harness(bad_plan))
 
@@ -84,7 +108,12 @@ class TestAutoTopology:
     async def test_strips_markdown_fences(self):
         fenced = RunResult(
             text="```json\n" + json.dumps(_PLAN) + "\n```",
-            messages=[], usage=Usage(), steps=1, stopped="end_turn", findings=[], data=None,
+            messages=[],
+            usage=Usage(),
+            steps=1,
+            stopped="end_turn",
+            findings=[],
+            data=None,
         )
         h = MagicMock()
         h.run = AsyncMock(return_value=fenced)
@@ -94,4 +123,5 @@ class TestAutoTopology:
     @pytest.mark.asyncio
     async def test_exported_from_tvastar(self):
         from tvastar import auto_topology as at
+
         assert at is auto_topology

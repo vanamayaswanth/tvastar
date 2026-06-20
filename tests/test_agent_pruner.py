@@ -12,9 +12,9 @@ from tvastar.profiles import AgentProfile
 
 def _profiles():
     return [
-        AgentProfile(name="coder",    description="Write Python code"),
+        AgentProfile(name="coder", description="Write Python code"),
         AgentProfile(name="reviewer", description="Review code"),
-        AgentProfile(name="tester",   description="Write tests"),
+        AgentProfile(name="tester", description="Write tests"),
     ]
 
 
@@ -106,4 +106,5 @@ class TestAgentPruner:
 
     def test_exported_from_tvastar(self):
         from tvastar import AgentPruner as AP
+
         assert AP is AgentPruner

@@ -356,12 +356,14 @@ def _extract_tool_calls(messages: list) -> List[Dict[str, Any]]:
             continue
         for block in msg.blocks:
             if isinstance(block, ToolUseBlock):
-                calls.append({
-                    "id": block.id,
-                    "name": block.name,
-                    "input": block.input,
-                    "output": outputs.get(block.id, ""),
-                })
+                calls.append(
+                    {
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                        "output": outputs.get(block.id, ""),
+                    }
+                )
     return calls
 
 
@@ -465,10 +467,7 @@ def _audit_report_text(r: "ExecutionReceipt") -> str:
 def _audit_report_html(r: "ExecutionReceipt") -> str:
     def esc(s: str) -> str:
         return (
-            s.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
+            s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
         )
 
     tool_rows = ""
@@ -492,9 +491,7 @@ def _audit_report_html(r: "ExecutionReceipt") -> str:
         r.quality_grade, "#333"
     )
     sig_display = esc(r.signature) if r.signature else "<em>(unsigned)</em>"
-    chain_display = (
-        esc(f"prev={r.prev_hash[:16]}...") if r.prev_hash else "<em>(first entry)</em>"
-    )
+    chain_display = esc(f"prev={r.prev_hash[:16]}...") if r.prev_hash else "<em>(first entry)</em>"
 
     findings_section = ""
     if r.findings:

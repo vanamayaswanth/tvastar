@@ -31,7 +31,7 @@ class LoopQualityReport:
     """Behavioral quality score for one completed agent run."""
 
     score: int
-    grade: str              # "PASS" | "WARN" | "FAIL"
+    grade: str  # "PASS" | "WARN" | "FAIL"
     errors: list[Finding]
     warnings: list[Finding]
     findings: list[Finding]

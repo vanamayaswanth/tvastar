@@ -44,10 +44,10 @@ __all__ = ["LiteLLMModel"]
 
 # OpenAI stop reason → Tvastar StopReason
 _STOP_MAP = {
-    "stop":         StopReason.END_TURN,
-    "tool_calls":   StopReason.TOOL_USE,
+    "stop": StopReason.END_TURN,
+    "tool_calls": StopReason.TOOL_USE,
     "function_call": StopReason.TOOL_USE,
-    "length":       StopReason.MAX_TOKENS,
+    "length": StopReason.MAX_TOKENS,
     "content_filter": StopReason.END_TURN,
 }
 
@@ -61,24 +61,33 @@ def _to_litellm_messages(messages: list[Message], system: Optional[str]) -> list
             out.append({"role": "system", "content": m.text})
         elif m.role in ("user", "assistant"):
             blocks = m.blocks
-            has_tool_use   = any(isinstance(b, ToolUseBlock) for b in blocks)
+            has_tool_use = any(isinstance(b, ToolUseBlock) for b in blocks)
             has_tool_result = any(isinstance(b, ToolResultBlock) for b in blocks)
 
             if has_tool_result:
                 for b in blocks:
                     if isinstance(b, ToolResultBlock):
-                        out.append({"role": "tool", "tool_call_id": b.tool_use_id,
-                                    "content": b.content})
+                        out.append(
+                            {"role": "tool", "tool_call_id": b.tool_use_id, "content": b.content}
+                        )
             elif has_tool_use:
                 tool_calls = [
-                    {"id": b.id, "type": "function",
-                     "function": {"name": b.name, "arguments": json.dumps(b.input)}}
-                    for b in blocks if isinstance(b, ToolUseBlock)
+                    {
+                        "id": b.id,
+                        "type": "function",
+                        "function": {"name": b.name, "arguments": json.dumps(b.input)},
+                    }
+                    for b in blocks
+                    if isinstance(b, ToolUseBlock)
                 ]
                 text_parts = [b.text for b in blocks if isinstance(b, TextBlock) and b.text]
-                out.append({"role": "assistant",
-                             "content": " ".join(text_parts) or None,
-                             "tool_calls": tool_calls})
+                out.append(
+                    {
+                        "role": "assistant",
+                        "content": " ".join(text_parts) or None,
+                        "tool_calls": tool_calls,
+                    }
+                )
             else:
                 text = m.text
                 out.append({"role": m.role, "content": text})
@@ -87,18 +96,22 @@ def _to_litellm_messages(messages: list[Message], system: Optional[str]) -> list
 
 def _to_tool_specs(tools: list[ToolSpec]) -> list[dict]:
     return [
-        {"type": "function", "function": {
-            "name": t.name, "description": t.description,
-            "parameters": t.input_schema,
-        }}
+        {
+            "type": "function",
+            "function": {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.input_schema,
+            },
+        }
         for t in tools
     ]
 
 
 def _parse_response(resp: Any) -> ModelResponse:
-    choice  = resp.choices[0]
-    msg     = choice.message
-    finish  = choice.finish_reason or "stop"
+    choice = resp.choices[0]
+    msg = choice.message
+    finish = choice.finish_reason or "stop"
     blocks: list = []
 
     if msg.content:
@@ -162,7 +175,7 @@ class LiteLLMModel(Model):
         api_key: Optional[str] = None,
         **router_kwargs: Any,
     ):
-        self.name   = model
+        self.name = model
         self._model = model
         self._api_key = api_key
         self._router: Any = None
@@ -170,9 +183,7 @@ class LiteLLMModel(Model):
         try:
             import litellm  # noqa: F401 — validate install
         except ImportError as e:
-            raise ModelError(
-                "litellm not installed. Run: pip install litellm"
-            ) from e
+            raise ModelError("litellm not installed. Run: pip install litellm") from e
 
         if model_list:
             try:
@@ -200,15 +211,15 @@ class LiteLLMModel(Model):
         import litellm
 
         kwargs: dict[str, Any] = {
-            "model":       self._model,
-            "messages":    _to_litellm_messages(messages, system),
-            "max_tokens":  max_tokens,
+            "model": self._model,
+            "messages": _to_litellm_messages(messages, system),
+            "max_tokens": max_tokens,
             "temperature": temperature,
         }
         if stop_sequences:
             kwargs["stop"] = stop_sequences
         if tools:
-            kwargs["tools"]       = _to_tool_specs(tools)
+            kwargs["tools"] = _to_tool_specs(tools)
             kwargs["tool_choice"] = "auto"
         if self._api_key:
             kwargs["api_key"] = self._api_key

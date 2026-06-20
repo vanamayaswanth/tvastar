@@ -96,6 +96,7 @@ class RunResult:
     @property
     def quality(self) -> "LoopQualityReport":
         from .quality import score_run
+
         return score_run(self)
 
 
@@ -112,7 +113,9 @@ class Session:
     _cancel_event: Optional[asyncio.Event] = None
     _last_compact_at: float = 0.0  # monotonic time of last compaction attempt
     _last_user_text: str = ""  # most-recent user message text (for LTM hook)
-    _approval_records: list = field(default_factory=list)  # [{tool, approved_by, approved_at, message}]
+    _approval_records: list = field(
+        default_factory=list
+    )  # [{tool, approved_by, approved_at, message}]
 
     # ---- lifecycle ----------------------------------------------------------
 
@@ -671,12 +674,14 @@ class Session:
                             "Policy 'least_privilege' requires elevation to proceed."
                         )
                         await gov.approval_gate.request(_approval_msg)
-                        self._approval_records.append({
-                            "tool": use.name,
-                            "approved_by": getattr(gov.approval_gate, "_last_approver", ""),
-                            "approved_at": time.time(),
-                            "message": _approval_msg[:200],
-                        })
+                        self._approval_records.append(
+                            {
+                                "tool": use.name,
+                                "approved_by": getattr(gov.approval_gate, "_last_approver", ""),
+                                "approved_at": time.time(),
+                                "message": _approval_msg[:200],
+                            }
+                        )
                         # Human approved — fall through to normal execution below.
                     except (ApprovalDenied, ApprovalTimeout) as e:
                         return ToolResultBlock(use.id, f"[governance] {e}", is_error=True)

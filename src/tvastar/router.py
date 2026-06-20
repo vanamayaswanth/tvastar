@@ -66,9 +66,11 @@ class AgentRouter:
             if enc is None:
                 try:
                     from semantic_router.encoders import FastEmbedEncoder  # type: ignore
+
                     enc = FastEmbedEncoder()
                 except ImportError:
                     from semantic_router.encoders import OpenAIEncoder  # type: ignore
+
                     enc = OpenAIEncoder()
 
             routes = [
@@ -152,6 +154,7 @@ class AgentPruner:
         used a specific profile so the pruner can track per-profile performance.
         """
         from .quality import score_run
+
         score = score_run(result).score
         self._scores.setdefault(profile_name, []).append(score)
 

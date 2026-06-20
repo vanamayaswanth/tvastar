@@ -277,9 +277,11 @@ class TestReturnType:
         assert isinstance(score_run(_R()).grade, str)
 
     def test_grade_values_are_canonical(self):
-        grades = {score_run(_R()).grade,
-                  score_run(_R([_warn()])).grade,
-                  score_run(_R([_err()] * 3)).grade}
+        grades = {
+            score_run(_R()).grade,
+            score_run(_R([_warn()])).grade,
+            score_run(_R([_err()] * 3)).grade,
+        }
         assert grades <= {"PASS", "WARN", "FAIL"}
 
 
@@ -289,24 +291,30 @@ class TestReturnType:
 
 
 class TestStopReasons:
-    @pytest.mark.parametrize("stopped,expected_penalty", [
-        ("end_turn", 0),
-        ("max_steps", 20),
-        ("budget", 20),
-        ("error", 50),
-        ("unknown_future_value", 0),
-        ("", 0),
-        ("END_TURN", 0),   # wrong case — should not match
-    ])
+    @pytest.mark.parametrize(
+        "stopped,expected_penalty",
+        [
+            ("end_turn", 0),
+            ("max_steps", 20),
+            ("budget", 20),
+            ("error", 50),
+            ("unknown_future_value", 0),
+            ("", 0),
+            ("END_TURN", 0),  # wrong case — should not match
+        ],
+    )
     def test_stop_reason_penalty(self, stopped, expected_penalty):
         rep = score_run(_R(stopped=stopped))
         assert rep.score == 100 - expected_penalty
 
-    @pytest.mark.parametrize("stopped,label", [
-        ("max_steps", "hit step limit"),
-        ("budget", "hit token budget"),
-        ("error", "stopped on error"),
-    ])
+    @pytest.mark.parametrize(
+        "stopped,label",
+        [
+            ("max_steps", "hit step limit"),
+            ("budget", "hit token budget"),
+            ("error", "stopped on error"),
+        ],
+    )
     def test_stop_reason_in_summary(self, stopped, label):
         rep = score_run(_R(stopped=stopped))
         assert label in rep.summary
