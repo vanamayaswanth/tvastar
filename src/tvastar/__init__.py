@@ -81,6 +81,7 @@ from .eval import (
     assert_steps_under,
 )
 from .graph import GraphResult, TaskGraph
+from .topology import auto_topology
 from .harness import Harness
 from .loop import FailureKind, Loop, LoopConfig, LoopEvent, LoopGeneration, LoopRun, LoopState
 from .loop.audit import ReadinessLevel, audit_loop
@@ -309,9 +310,10 @@ __all__ = [
     # trace viewer UI
     "create_ui_app",
     "run_ui",
-    # DAG-based parallel task execution
+    # DAG-based parallel task execution + auto-topology
     "TaskGraph",
     "GraphResult",
+    "auto_topology",
     # loop engineering
     "Loop",
     "LoopConfig",
