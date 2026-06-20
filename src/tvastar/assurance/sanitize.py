@@ -1,31 +1,37 @@
 """SanitizationPolicy — PII/PHI redaction before receipts are signed and stored.
 
-Applies regex-based scrubbing to prompt, tool call inputs/outputs, and final
-text before they reach the ExecutionReceipt hash and TrustLog. The hash covers
-the *redacted* content, so the audit trail is both tamper-evident and
-regulation-safe.
+Two tiers:
 
-Built-in patterns cover common PII/PHI under HIPAA, GDPR, and PCI-DSS:
-- SSN, credit card numbers, phone numbers, email addresses, IP addresses
-- US date-of-birth patterns, passport numbers, driver's licence formats
-- Bearer tokens, API keys, passwords in key=value form
+1. **Regex tier** (zero dependencies, always available):
+   Built-in patterns for SSN, credit cards, email, phone, IP, DOB, tokens.
+   Instantiate with presets: ``SanitizationPolicy.hipaa()`` / ``.pci()`` /
+   ``.gdpr()`` / ``.all_pii()``.
+
+2. **ML / NER tier** (optional, requires ``pip install tvastar[presidio]``):
+   Microsoft Presidio — 50+ entity types (PERSON, LOCATION, MEDICAL_LICENSE,
+   US_PASSPORT, …) across 15+ languages. Catches "Jane Smith" that regex
+   misses. Activate with ``SanitizationPolicy.presidio()``.
+
+   Both tiers compose: ``SanitizationPolicy.presidio().add_pattern(...)``
+   applies Presidio first, then any custom regex patterns on top.
 
 Usage::
 
     from tvastar.assurance import AssurancePolicy, SanitizationPolicy, TrustLog
 
-    agent = create_agent(
-        "billing-bot",
-        model=model,
-        assurance=AssurancePolicy(
-            log=TrustLog(".trust.jsonl"),
-            sanitize=SanitizationPolicy.hipaa(),   # built-in HIPAA preset
-        ),
-    )
+    # Zero-dep regex preset
+    agent = create_agent("billing-bot", model=model, assurance=AssurancePolicy(
+        sanitize=SanitizationPolicy.hipaa(),
+    ))
+
+    # ML-powered (requires pip install tvastar[presidio])
+    agent = create_agent("healthcare-bot", model=model, assurance=AssurancePolicy(
+        sanitize=SanitizationPolicy.presidio(languages=["en"]),
+    ))
 
     result = await harness.run("Patient Jane Smith SSN 123-45-6789 has diabetes")
-    # receipt.prompt == "Patient [NAME] SSN [SSN] has diabetes"
-    # receipt.verify() == True  (hash covers redacted form)
+    # receipt.prompt == "Patient [PERSON] SSN [US_SSN] has diabetes"
+    # receipt.verify() == True
 """
 
 from __future__ import annotations
@@ -33,7 +39,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 __all__ = ["SanitizationPolicy"]
 
@@ -112,6 +118,51 @@ class SanitizationPolicy:
         """All built-in patterns combined."""
         return cls(patterns=list(_PRESETS["all"]))
 
+    @classmethod
+    def presidio(
+        cls,
+        languages: Optional[List[str]] = None,
+        entities: Optional[List[str]] = None,
+        score_threshold: float = 0.5,
+    ) -> "SanitizationPolicy":
+        """ML-powered PII detection via Microsoft Presidio (optional dependency).
+
+        Presidio uses NLP + rule-based recognisers to detect 50+ entity types
+        across 15+ languages — catching names, locations, medical terms, and
+        custom entities that regex alone cannot find.
+
+        Requires ``pip install tvastar[presidio]`` (presidio-analyzer +
+        presidio-anonymizer). Raises ``ImportError`` with install instructions
+        at first ``scrub()`` call if the packages are absent.
+
+        Args:
+            languages:       List of BCP-47 language codes to analyse.
+                             Default: ``["en"]``.
+            entities:        Restrict to these Presidio entity types
+                             (e.g. ``["PERSON", "US_SSN", "EMAIL_ADDRESS"]``).
+                             ``None`` = all supported entities.
+            score_threshold: Minimum confidence score (0–1) for a match to be
+                             redacted. Default: ``0.5``.
+
+        Returns:
+            A ``_PresidioSanitizationPolicy`` instance. You can chain
+            ``.add_pattern()`` on it to layer additional regex patterns
+            after Presidio runs.
+
+        Example::
+
+            policy = SanitizationPolicy.presidio(languages=["en", "de"])
+            policy.add_pattern(r"ACCT-\\d+", "[ACCOUNT]")
+
+            agent = create_agent("hipaa-bot", model=model,
+                                 assurance=AssurancePolicy(sanitize=policy))
+        """
+        return _PresidioSanitizationPolicy(
+            languages=languages or ["en"],
+            entities=entities,
+            score_threshold=score_threshold,
+        )
+
     # ----------------------------------------------------------------- API
 
     def add_pattern(self, pattern: str, replacement: str) -> "SanitizationPolicy":
@@ -154,3 +205,92 @@ class SanitizationPolicy:
         clean_tools = self.scrub_tool_calls(tool_calls) if self.redact_tools else tool_calls
         clean_text = self.scrub(final_text) if self.redact_answer else final_text
         return clean_prompt, clean_tools, clean_text
+
+
+# ---------------------------------------------------------------------------
+# Presidio-backed implementation (optional dependency)
+# ---------------------------------------------------------------------------
+
+_PRESIDIO_INSTALL_HINT = (
+    "Microsoft Presidio is not installed. "
+    "Enable ML-powered PII detection with:\n\n"
+    "    pip install tvastar[presidio]\n\n"
+    "or directly:\n\n"
+    "    pip install presidio-analyzer presidio-anonymizer spacy\n"
+    "    python -m spacy download en_core_web_lg"
+)
+
+
+class _PresidioSanitizationPolicy(SanitizationPolicy):
+    """SanitizationPolicy backed by Microsoft Presidio NLP recognisers.
+
+    Lazy-imports presidio at first ``scrub()`` call so the class can be
+    instantiated freely without the optional dependency installed.
+    """
+
+    def __init__(
+        self,
+        languages: List[str],
+        entities: Optional[List[str]],
+        score_threshold: float,
+    ) -> None:
+        super().__init__()
+        self._languages = languages
+        self._entities = entities
+        self._score_threshold = score_threshold
+        self._analyzer = None
+        self._anonymizer = None
+
+    def _init_engines(self) -> None:
+        if self._analyzer is not None:
+            return
+        try:
+            from presidio_analyzer import AnalyzerEngine  # type: ignore[import]
+            from presidio_anonymizer import AnonymizerEngine  # type: ignore[import]
+        except ImportError as exc:
+            raise ImportError(_PRESIDIO_INSTALL_HINT) from exc
+        self._analyzer = AnalyzerEngine()
+        self._anonymizer = AnonymizerEngine()
+
+    def scrub(self, text: str) -> str:
+        """Redact PII using Presidio NLP, then apply any extra regex patterns."""
+        if not text:
+            return text
+        self._init_engines()
+
+        # Presidio imports are available after _init_engines()
+        from presidio_anonymizer.entities import OperatorConfig  # type: ignore[import]
+
+        for lang in self._languages:
+            results = self._analyzer.analyze(
+                text=text,
+                language=lang,
+                entities=self._entities,
+                score_threshold=self._score_threshold,
+            )
+            if results:
+                operators = {
+                    r.entity_type: OperatorConfig(
+                        "replace", {"new_value": f"[{r.entity_type}]"}
+                    )
+                    for r in results
+                }
+                text = self._anonymizer.anonymize(
+                    text=text,
+                    analyzer_results=results,
+                    operators=operators,
+                ).text
+
+        # Layer any additional regex patterns from the parent class
+        for regex, replacement in self.patterns:
+            text = regex.sub(replacement, text)
+
+        return text
+
+    def __repr__(self) -> str:
+        langs = ",".join(self._languages)
+        installed = self._analyzer is not None
+        return (
+            f"_PresidioSanitizationPolicy(languages={langs!r}, "
+            f"entities={self._entities!r}, initialized={installed})"
+        )

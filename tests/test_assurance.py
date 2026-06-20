@@ -1119,6 +1119,232 @@ class TestSanitizationPolicy:
 
 
 # ===========================================================================
+# Gap 3b: Presidio ML-powered PII detection
+# ===========================================================================
+
+
+class TestPresidioSanitizationPolicy:
+    def test_presidio_factory_returns_instance(self):
+        from tvastar.assurance.sanitize import _PresidioSanitizationPolicy
+        p = SanitizationPolicy.presidio()
+        assert isinstance(p, _PresidioSanitizationPolicy)
+
+    def test_presidio_default_language_is_en(self):
+        from tvastar.assurance.sanitize import _PresidioSanitizationPolicy
+        p = SanitizationPolicy.presidio()
+        assert p._languages == ["en"]
+
+    def test_presidio_custom_languages(self):
+        p = SanitizationPolicy.presidio(languages=["en", "de", "fr"])
+        assert p._languages == ["en", "de", "fr"]
+
+    def test_presidio_custom_entities(self):
+        p = SanitizationPolicy.presidio(entities=["PERSON", "EMAIL_ADDRESS"])
+        assert p._entities == ["PERSON", "EMAIL_ADDRESS"]
+
+    def test_presidio_custom_score_threshold(self):
+        p = SanitizationPolicy.presidio(score_threshold=0.8)
+        assert p._score_threshold == 0.8
+
+    def test_presidio_raises_import_error_when_not_installed(self):
+        import sys
+        # Temporarily hide presidio from the import system
+        presidio_mods = [k for k in sys.modules if "presidio" in k]
+        saved = {k: sys.modules.pop(k) for k in presidio_mods}
+        try:
+            p = SanitizationPolicy.presidio()
+            # Patch builtins.__import__ to simulate missing package
+            import builtins
+            real_import = builtins.__import__
+
+            def mock_import(name, *args, **kwargs):
+                if "presidio" in name:
+                    raise ImportError(f"No module named {name!r}")
+                return real_import(name, *args, **kwargs)
+
+            builtins.__import__ = mock_import
+            try:
+                with pytest.raises(ImportError, match="presidio"):
+                    p.scrub("Patient Jane Smith")
+            finally:
+                builtins.__import__ = real_import
+        finally:
+            sys.modules.update(saved)
+
+    def test_presidio_scrub_with_mock_engine(self):
+        from unittest.mock import MagicMock, patch
+
+        # Build mock Presidio objects
+        mock_result = MagicMock()
+        mock_result.entity_type = "PERSON"
+
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze.return_value = [mock_result]
+
+        mock_anon_result = MagicMock()
+        mock_anon_result.text = "Patient [PERSON] has diabetes"
+        mock_anonymizer = MagicMock()
+        mock_anonymizer.anonymize.return_value = mock_anon_result
+
+        mock_operator_config = MagicMock()
+
+        with patch.dict("sys.modules", {
+            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
+            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock(return_value=mock_anonymizer)),
+            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock(return_value=mock_operator_config)),
+        }):
+            p = SanitizationPolicy.presidio()
+            result = p.scrub("Patient Jane Smith has diabetes")
+
+        assert result == "Patient [PERSON] has diabetes"
+        mock_analyzer.analyze.assert_called_once()
+
+    def test_presidio_no_results_returns_text_unchanged(self):
+        from unittest.mock import MagicMock, patch
+
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze.return_value = []  # no PII found
+
+        with patch.dict("sys.modules", {
+            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
+            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
+            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+        }):
+            p = SanitizationPolicy.presidio()
+            result = p.scrub("No PII here at all.")
+
+        assert result == "No PII here at all."
+
+    def test_presidio_empty_string_skips_engine(self):
+        from unittest.mock import MagicMock, patch
+
+        mock_analyzer = MagicMock()
+        with patch.dict("sys.modules", {
+            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
+            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
+            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+        }):
+            p = SanitizationPolicy.presidio()
+            result = p.scrub("")
+
+        assert result == ""
+        mock_analyzer.analyze.assert_not_called()
+
+    def test_presidio_chains_regex_patterns_after_nlp(self):
+        from unittest.mock import MagicMock, patch
+
+        mock_result = MagicMock()
+        mock_result.entity_type = "PERSON"
+
+        mock_anon_out = MagicMock()
+        mock_anon_out.text = "[PERSON] opened account ACCT-99182"
+
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze.return_value = [mock_result]
+        mock_anonymizer = MagicMock()
+        mock_anonymizer.anonymize.return_value = mock_anon_out
+
+        with patch.dict("sys.modules", {
+            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
+            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock(return_value=mock_anonymizer)),
+            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+        }):
+            p = SanitizationPolicy.presidio()
+            p.add_pattern(r"ACCT-\d+", "[ACCOUNT]")
+            result = p.scrub("Jane Smith opened account ACCT-99182")
+
+        assert "[PERSON]" in result
+        assert "[ACCOUNT]" in result
+        assert "ACCT-99182" not in result
+
+    def test_presidio_engines_initialised_once(self):
+        from unittest.mock import MagicMock, patch
+
+        mock_analyzer_cls = MagicMock()
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze.return_value = []
+        mock_analyzer_cls.return_value = mock_analyzer
+
+        with patch.dict("sys.modules", {
+            "presidio_analyzer": MagicMock(AnalyzerEngine=mock_analyzer_cls),
+            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
+            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+        }):
+            p = SanitizationPolicy.presidio()
+            p.scrub("first call")
+            p.scrub("second call")
+
+        # AnalyzerEngine() constructor called only once despite two scrub() calls
+        assert mock_analyzer_cls.call_count == 1
+
+    def test_presidio_repr_shows_languages(self):
+        p = SanitizationPolicy.presidio(languages=["en", "fr"])
+        assert "en" in repr(p)
+        assert "fr" in repr(p)
+
+    def test_presidio_install_hint_in_error_message(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if "presidio" in name:
+                raise ImportError(f"No module named {name!r}")
+            return real_import(name, *args, **kwargs)
+
+        p = SanitizationPolicy.presidio()
+        builtins.__import__ = mock_import
+        try:
+            with pytest.raises(ImportError, match="pip install tvastar"):
+                p.scrub("some text")
+        finally:
+            builtins.__import__ = real_import
+
+    def test_presidio_is_subclass_of_sanitization_policy(self):
+        p = SanitizationPolicy.presidio()
+        assert isinstance(p, SanitizationPolicy)
+
+    def test_presidio_inherits_apply(self):
+        from unittest.mock import MagicMock, patch
+
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze.return_value = []
+
+        with patch.dict("sys.modules", {
+            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
+            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
+            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+        }):
+            p = SanitizationPolicy.presidio()
+            prompt, tools, text = p.apply(
+                prompt="Hello world",
+                tool_calls=[],
+                final_text="Safe text",
+            )
+
+        assert prompt == "Hello world"
+        assert text == "Safe text"
+
+    def test_presidio_multiple_languages_each_called(self):
+        from unittest.mock import MagicMock, patch, call
+
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze.return_value = []
+
+        with patch.dict("sys.modules", {
+            "presidio_analyzer": MagicMock(AnalyzerEngine=MagicMock(return_value=mock_analyzer)),
+            "presidio_anonymizer": MagicMock(AnonymizerEngine=MagicMock()),
+            "presidio_anonymizer.entities": MagicMock(OperatorConfig=MagicMock()),
+        }):
+            p = SanitizationPolicy.presidio(languages=["en", "de"])
+            p.scrub("some text")
+
+        calls = [c.kwargs.get("language") or c.args[1] if len(c.args) > 1 else c.kwargs.get("language")
+                 for c in mock_analyzer.analyze.call_args_list]
+        assert "en" in str(mock_analyzer.analyze.call_args_list)
+        assert "de" in str(mock_analyzer.analyze.call_args_list)
+
+
+# ===========================================================================
 # Gap 5: Human approver linkage
 # ===========================================================================
 

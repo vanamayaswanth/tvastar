@@ -6,6 +6,21 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.15.3] — 2026-06-20
+
+### Added — Presidio ML-powered PII detection (optional)
+
+- `SanitizationPolicy.presidio(languages, entities, score_threshold)` — factory
+  method backed by Microsoft Presidio NLP recognisers (50+ entity types, 15+
+  languages). Catches names, locations, passport numbers, medical terms — things
+  regex alone misses.
+- **Zero-dep by default**: `ImportError` with actionable install hint raised on
+  first `scrub()` call when packages absent.
+- **Composable**: `.add_pattern()` chains custom regex on top of Presidio output.
+- `pip install tvastar[presidio]` optional extras group added.
+- Engines initialised lazily and cached — no overhead until first `scrub()`.
+- 14 new tests using mocked Presidio engines (suite-total: 704 passing).
+
 ## [0.15.2] — 2026-06-20
 
 ### Added — Regulatory Compliance (6 gaps closed)
@@ -965,7 +980,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.2...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.3...HEAD
+[0.15.3]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.2...v0.15.3
 [0.15.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.14.0...v0.15.0
