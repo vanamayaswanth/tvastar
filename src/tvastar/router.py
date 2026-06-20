@@ -23,11 +23,11 @@ Install semantic-router for embedding accuracy::
 from __future__ import annotations
 
 import difflib
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from .profiles import AgentProfile
 
-__all__ = ["AgentRouter"]
+__all__ = ["AgentRouter", "AgentPruner"]
 
 
 class AgentRouter:
@@ -113,3 +113,72 @@ class AgentRouter:
     def __repr__(self) -> str:
         backend = "semantic-router" if self._layer else "difflib"
         return f"AgentRouter({list(self._profiles)!r}, backend={backend!r})"
+
+
+class AgentPruner:
+    """Drop underperforming AgentProfiles based on observed run quality.
+
+    Inspired by AgentDropout: after each task result is recorded, profiles
+    whose rolling average quality score falls below *threshold* are removed
+    from the active pool, concentrating compute on the better specialists.
+
+    Works standalone or paired with AgentRouter::
+
+        pruner = AgentPruner(threshold=60.0)
+        router = AgentRouter(pruner.active(all_profiles))
+
+        result = await sess.task("...", router=router)
+        pruner.update("coder", result)
+
+        # Rebuild router with pruned pool (drops any profile that fell below 60)
+        router = AgentRouter(pruner.active(all_profiles))
+
+    Args:
+        threshold: Minimum average quality score (0–100) to keep a profile.
+                   Profiles with no recorded runs are always kept (not yet observed).
+        min_runs:  Minimum number of runs before a profile is eligible for pruning.
+    """
+
+    def __init__(self, threshold: float = 50.0, *, min_runs: int = 1) -> None:
+        self._threshold = threshold
+        self._min_runs = min_runs
+        self._scores: dict[str, list[float]] = {}
+
+    def update(self, profile_name: str, result: "Any") -> None:
+        """Record a RunResult against *profile_name*.
+
+        The quality score is derived from the result's findings and stop state
+        via :func:`tvastar.quality.score_run`. Call this after each task() that
+        used a specific profile so the pruner can track per-profile performance.
+        """
+        from .quality import score_run
+        score = score_run(result).score
+        self._scores.setdefault(profile_name, []).append(score)
+
+    def avg_score(self, profile_name: str) -> Optional[float]:
+        """Return the rolling average score for *profile_name*, or None if unseen."""
+        scores = self._scores.get(profile_name)
+        return sum(scores) / len(scores) if scores else None
+
+    def should_prune(self, profile_name: str) -> bool:
+        """Return True if the profile has enough runs and falls below threshold."""
+        scores = self._scores.get(profile_name)
+        if not scores or len(scores) < self._min_runs:
+            return False
+        return (sum(scores) / len(scores)) < self._threshold
+
+    def active(self, profiles: Iterable[AgentProfile]) -> list[AgentProfile]:
+        """Return profiles that have not been pruned.
+
+        Profiles with no recorded runs are always included — they haven't had
+        a chance to prove themselves yet.
+        """
+        return [p for p in profiles if not self.should_prune(p.name)]
+
+    def pruned(self, profiles: Iterable[AgentProfile]) -> list[AgentProfile]:
+        """Return only the profiles that would be dropped."""
+        return [p for p in profiles if self.should_prune(p.name)]
+
+    def __repr__(self) -> str:
+        counts = {name: len(s) for name, s in self._scores.items()}
+        return f"AgentPruner(threshold={self._threshold}, runs={counts})"

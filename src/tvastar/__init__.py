@@ -123,7 +123,7 @@ from .outbound import (
     write_draft,
 )
 from .profiles import MAX_TASK_DEPTH, AgentProfile, define_agent_profile
-from .router import AgentRouter
+from .router import AgentPruner, AgentRouter
 from .sandbox import (
     AuditEntry,
     CredentialFilter,
@@ -266,6 +266,7 @@ __all__ = [
     "define_agent_profile",
     "MAX_TASK_DEPTH",
     "AgentRouter",
+    "AgentPruner",
     # dispatch
     "dispatch",
     "dispatch_and_wait",
