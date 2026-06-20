@@ -13,7 +13,68 @@ Category: loop quality / loop engineering framework -->
 [![CI](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml/badge.svg)](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Your agents complete tasks they didn't actually finish. They loop forever without telling you. They swallow errors and say "done." Tvastar detects this. Automatically. In any loop.**
+---
+
+## Table of Contents
+
+- [Why Tvastar](#why-tvastar)
+- [Loop in 60 seconds](#loop-in-60-seconds)
+- [What is a harness?](#what-is-a-harness)
+- [The five problems Tvastar solves](#the-five-problems-tvastar-solves)
+- [Works with any agent or model](#works-with-any-agent-or-model)
+- [See it in action: tvastar-fix](#see-it-in-action-tvastar-fix)
+- [When not to use Tvastar](#when-not-to-use-tvastar)
+- [What Tvastar handles so you do not have to](#what-tvastar-handles-so-you-do-not-have-to)
+- [How it works](#how-it-works)
+- [Install](#install)
+- [Environment variables](#environment-variables)
+- [Core concepts](#core-concepts)
+- [Tools](#tools)
+- [Sessions](#sessions)
+- [Structured output](#structured-output)
+- [Delegating to specialist sub-agents](#delegating-to-specialist-sub-agents)
+- [Parallel fan-out](#parallel-fan-out)
+- [Auto-topology](#auto-topology--describe-the-goal-get-the-parallel-graph)
+- [DAG task execution](#dag-task-execution--maximum-parallelism)
+- [Loop Engineering](#loop-engineering)
+- [Loop Quality](#loop-quality--score-every-run-automatically)
+- [Plug into anything](#plug-into-anything--wrap-any-agent-framework)
+- [Verifiable Execution](#verifiable-execution--the-audit-trail-your-regulator-will-actually-accept)
+- [Extended thinking](#extended-thinking)
+- [Workflows](#workflows--durable-inspectable-pipelines)
+- [Event-driven dispatch](#event-driven-dispatch)
+- [Context compaction](#context-compaction)
+- [Application-level file access](#application-level-file-access)
+- [Sandboxes](#sandboxes)
+- [MCP — use any published tool server](#mcp--use-any-published-tool-server)
+- [Durable execution](#durable-execution--survive-crashes)
+- [Serving over HTTP](#serving-over-http)
+- [Observability](#observability)
+- [Trace viewer UI](#trace-viewer-ui--inspect-every-run-locally)
+- [Tool masking](#tool-masking--show-the-model-only-the-tools-it-needs-now)
+- [Silent-failure detection](#silent-failure-detection)
+- [Untrusted content & prompt-injection detection](#untrusted-content--prompt-injection-detection)
+- [Dynamic Capability Governance](#dynamic-capability-governance--lock-dangerous-tools-to-specific-phases)
+- [Transactional Sandbox](#transactional-sandbox--atomic-rollback-on-failure)
+- [Long-Term Memory](#long-term-memory--remember-facts-across-sessions)
+- [CLI](#cli)
+- [Deploy anywhere](#deploy-anywhere)
+- [Custom model adapter](#custom-model-adapter)
+- [Evals](#evals--measure-agent-quality)
+- [Benchmarks](#benchmarks--measure-quality-against-the-real-world)
+- [Human-in-the-loop](#human-in-the-loop--require-approval-before-dangerous-actions)
+- [Cost tracking](#cost-tracking--know-what-every-run-costs)
+- [What we're building](#what-were-building)
+- [Roadmap](#roadmap)
+- [Testing](#testing)
+- [Troubleshooting](#troubleshooting)
+- [Further reading](#further-reading)
+
+---
+
+## Why Tvastar
+
+**Your agents complete tasks they didn't actually finish. They loop forever without telling you. They swallow errors and say "done." Tvastar detects this — automatically, in any loop.**
 
 ```python
 result = await harness.run("fix the failing tests")
@@ -198,36 +259,78 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 
 ## What Tvastar handles so you do not have to
 
-| Problem | How Tvastar handles it |
-|---|---|
-| Code execution without Docker | In-memory sandbox, zero setup |
-| Agent claims success but fails | Built-in silent failure detection |
-| Crash at step 47 of 50 | Step-level checkpoint and resume |
-| Deploy to Lambda, GitHub Actions, web | Single agent definition, any target |
-| Agent loops on the same tool | Built-in loop detection |
-| Context grows past model limit | Automatic compaction and summarisation |
-| Audit what the agent actually did | Full transcript stored every run |
-| Inspect runs visually | Built-in trace viewer UI (`tvastar ui`) |
-| Flaky network tools fail mid-run | Per-tool retry with exponential backoff |
-| Run 100 prompts at once | Built-in parallel fan-out |
-| Stream tokens to the browser | SSE endpoint out of the box |
-| Tool called in wrong execution phase | `GovernancePolicy` — tamper-proof phase enforcement |
-| Filesystem changes need atomic rollback | `harness.transaction()` + sandbox snapshot/restore |
-| Agent needs memory across sessions | `tvastar.contrib.ltm` — post-session LTM consolidation |
-| Session messages balloon past 50 MB | `memory_cap_mb` — hard cap with auto-compaction |
-| Regulator asks "what did your AI do?" | `ExecutionReceipt` — cryptographic proof, court-ready |
-| PHI / PII ends up in your audit log | `SanitizationPolicy` — redact before hashing, chain stays intact |
-| Agent runs a tool, no record of the output | `tool_calls[].output` — every input AND output captured |
-| No proof a human approved the action | `approvals[]` in receipt — who approved, when, what |
-| Anyone on the team can read the audit log | `TrustLog(can_read=...)` — role-based access, `PermissionError` if denied |
-| Audit log tampered silently | `on_breach` callback — fires immediately, per-receipt |
-| 7-year SOX retention, data must not grow forever | `RetentionPolicy` — archive old entries, legal hold freezes the log |
-| Model sees real SSNs before your policy strips them | `TokenVault` — tokens go in, originals come back only after model is done |
-| 100 providers, one interface, automatic cost routing | `LiteLLMModel` + Router — cheap model by default, expensive on fallback |
-| Writing `agent='reviewer'` on every task() call | `AgentRouter` — semantic matching picks the right profile automatically |
-| Bad agents waste compute in multi-agent pipelines | `AgentPruner` — drops underperformers below quality threshold automatically |
-| TaskGraph written by hand for every new pipeline | `auto_topology()` — describe the goal, get the graph |
-| Free-form prompt rewriting after failures | `DSPyOptimizer` — compiles better instructions from your failure history |
+### Execution & Safety
+
+| Problem | How Tvastar handles it | API |
+|---|---|---|
+| Code execution without Docker | In-memory sandbox, zero setup | `VirtualSandbox` (default) |
+| Real bash, jailed to a directory | Allowlist commands, network off | `LocalSandbox` + `SecurityPolicy` |
+| Filesystem changes need atomic rollback | Snapshot before, restore on exception | `harness.transaction()` |
+| Agent claims success but didn't | Silent failure detection on every run | `unverified_completion` detector |
+| Agent loops on the same tool | Thrash detection fires before the loop spins forever | `thrash_loop` detector |
+| Crash at step 47 of 50 | Step-level checkpoint + resume from last good state | `FileStore` + `harness.resume()` |
+| Flaky network tools fail mid-run | Per-tool retry with exponential backoff + jitter | `ToolRetryPolicy` |
+| Tool called in wrong execution phase | Governance runs in Python — injection-proof | `GovernancePolicy` |
+
+### Models & Routing
+
+| Problem | How Tvastar handles it | API |
+|---|---|---|
+| Locked to one model provider | Works with Anthropic, OpenAI, Ollama, Groq, and 100+ more | `AnthropicModel`, `OpenAIModel`, `LiteLLMModel` |
+| 100 providers, one interface | Single import, any litellm model string | `LiteLLMModel("groq/llama-3.1-70b")` |
+| Paying Opus prices for easy prompts | Router uses cheap model by default, escalates on failure | `LiteLLMModel(model_list=[...], fallbacks=[...])` |
+| Writing `agent='reviewer'` at every call site | Semantic matching picks the right profile from the prompt | `AgentRouter` + `sess.task(router=router)` |
+| Bad agents waste compute | Rolling quality score; drop underperformers automatically | `AgentPruner(threshold=60.0)` |
+| Wiring a TaskGraph by hand every time | Describe the goal; planner generates the parallel structure | `auto_topology(goal, harness=harness)` |
+| Free-form prompt rewriting guesses wrong | Compile better instructions from real failure evidence | `DSPyOptimizer` |
+
+### Context & Memory
+
+| Problem | How Tvastar handles it | API |
+|---|---|---|
+| Context grows past model limit | Automatic summarisation when message count threshold is hit | `CompactionPolicy` |
+| Session messages balloon past 50 MB | Hard cap with auto-compaction before the next call | `memory_cap_mb` |
+| Agent needs facts across sessions | BM25 retrieval (semantic optional) injected into system prompt | `tvastar.contrib.ltm.LTMStore` |
+| Agent forgets context mid-task | Named sessions persist history; resume any session by ID | `harness.session(name)` / `harness.resume(id)` |
+
+### Quality & Observability
+
+| Problem | How Tvastar handles it | API |
+|---|---|---|
+| No idea if the agent actually succeeded | Quality score 0–100 on every run, automatic | `score_run(result)` |
+| Audit what the agent actually did | Full transcript — every message, tool call, and result | `result.messages` |
+| Inspect runs visually | Local trace viewer, no cloud required | `tvastar ui --trace run.jsonl` |
+| Stream tokens to the browser | SSE endpoint out of the box | `GET /sessions/{id}/stream` |
+| No structured signal from failures | Typed findings with severity and evidence | `Finding(detector, severity, message)` |
+| Observability platform integration | OpenTelemetry GenAI conventions — drops into Braintrust, Datadog, Honeycomb | `OTelExporter` |
+
+### Compliance & Audit
+
+| Problem | How Tvastar handles it | API |
+|---|---|---|
+| Regulator asks "what did your AI do?" | Cryptographic receipt per run — hash + HMAC signature | `ExecutionReceipt` + `receipt.verify()` |
+| PHI / PII ends up in the audit log | Redact before hashing — proof of removal is baked in | `SanitizationPolicy.hipaa()` / `.pci()` / `.gdpr()` |
+| Model sees real SSNs before policy strips them | Tokenise before the model call; rehydrate after | `TokenVault` |
+| Regex misses names, locations, passport numbers | Microsoft Presidio ML — 50+ entity types, 15+ languages | `SanitizationPolicy.presidio()` |
+| No record of which tool returned what | Every input AND output captured, matched by call ID | `receipt.tool_calls[].output` |
+| No proof a human approved the action | Approval records in the receipt — who, when, what | `receipt.approvals[]` |
+| Anyone on the team can read audit logs | Role-based access; `PermissionError` on unauthorized read | `TrustLog(can_read=role_fn)` |
+| Audit log tampered silently | `on_breach` callback fires immediately per corrupted entry | `TrustLog(on_breach=alert_fn)` |
+| 7-year SOX / 6-year HIPAA retention | Archive old entries; legal hold freezes the log entirely | `RetentionPolicy` |
+| Quality SLA drops in production | Raise `SLABreached` or escalate when score falls below threshold | `AssurancePolicy(min_score=80, on_fail="raise")` |
+
+### Production & Scale
+
+| Problem | How Tvastar handles it | API |
+|---|---|---|
+| Deploy to Lambda, GitHub Actions, web | One agent definition, any target | `tvastar.deploy` |
+| Run 100 prompts at once | Concurrent fan-out, optional concurrency cap | `harness.fan_out(prompts, concurrency=8)` |
+| Webhook / chatbot message handling | Fire-and-forget dispatch; reply in `on_complete` callback | `dispatch()` |
+| Long-running pipeline survives restarts | Durable workflow with run history | `@workflow` + `WorkflowRun` |
+| Agent loop must never miss a failure | L0→L3 readiness audit before deploy | `audit_loop(loop)` |
+| Human must approve before irreversible action | Pause and wait — CLI, webhook, or event backend | `require_approval()` + `ApprovalGate` |
+| API or model spend spiralling | Hard budget ceiling per run | `BudgetPolicy(max_usd=0.50)` |
+| External tools (databases, SaaS, APIs) | Plug in any MCP server — fully transparent to the model | `connect_mcp_server()` |
 
 ---
 
@@ -1938,7 +2041,7 @@ tvastar loop run .tvastar/loops/ci_sweeper.py:loop
 - [Getting Started](docs/GETTING_STARTED.md) — install → first agent → first loop in 5 minutes
 - [Usage Guide](docs/USAGE.md) — decision trees for every API choice
 - [API Reference](docs/API.md) — every public symbol, fully typed
-- [Patterns Cookbook](docs/PATTERNS.md) — 25 copy-paste recipes
+- [Patterns Cookbook](docs/PATTERNS.md) — 38 copy-paste recipes
 - [12-Factor Agents map](docs/twelve-factor-agents.md) — how Tvastar maps to the production checklist (honest verdicts)
 - [AGENTS.md](AGENTS.md) — contributor guide for working in this repo
 - [CLAUDE.md](CLAUDE.md) — codebase map for AI assistants
