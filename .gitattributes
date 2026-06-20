@@ -1,0 +1,25 @@
+# Force LF line endings for all text files
+* text=auto eol=lf
+
+# Explicitly LF for source files
+*.py    text eol=lf
+*.toml  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.sh    text eol=lf
+*.lock  text eol=lf
+*.cfg   text eol=lf
+*.ini   text eol=lf
+
+# Binary — never touch line endings
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
