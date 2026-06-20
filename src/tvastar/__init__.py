@@ -83,6 +83,7 @@ from .graph import GraphResult, TaskGraph
 from .harness import Harness
 from .loop import FailureKind, Loop, LoopConfig, LoopEvent, LoopGeneration, LoopRun, LoopState
 from .loop.audit import ReadinessLevel, audit_loop
+from .quality import LoopQualityReport, score_run
 from .loop.handoff import CallbackHandoff, HandoffPolicy, LogHandoff, MultiHandoff
 from .loop.patterns import (
     ChangelogDrafter,
@@ -329,6 +330,9 @@ __all__ = [
     # loop readiness audit
     "ReadinessLevel",
     "audit_loop",
+    # loop quality scoring
+    "LoopQualityReport",
+    "score_run",
     # outbound sales agent
     "run_campaign",
     "CampaignResult",

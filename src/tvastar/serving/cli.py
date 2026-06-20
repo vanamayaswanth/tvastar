@@ -62,6 +62,11 @@ def main(argv: list[str] | None = None) -> int:
         "--registry", default=".tvastar-runs", help="path to run registry directory"
     )
 
+    quality_p = sub.add_parser("quality", help="run an agent and score behavioral quality (0–100)")
+    quality_p.add_argument("agent", help="agent reference, e.g. file.py:agent")
+    quality_p.add_argument("prompt", help="the prompt to run")
+    quality_p.add_argument("--trace", action="store_true", help="print trace spans")
+
     bench_p = sub.add_parser("bench", help="run standardised benchmarks (SWE-bench etc.)")
     bench_p.add_argument("agent", help="agent reference, e.g. file.py:agent")
     bench_p.add_argument(
@@ -118,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_audit(args.ref)
         return 1
 
+    if args.cmd == "quality":
+        return asyncio.run(_quality(args.agent, args.prompt, getattr(args, "trace", False)))
     if args.cmd == "ui":
         from tvastar.ui import run_ui
 
@@ -236,6 +243,37 @@ async def _bench(
         print(f"Report written to {out}")
 
     return 0 if report.score > 0 else 1
+
+
+async def _quality(ref: str, prompt: str, trace: bool) -> int:
+    spec = load_agent(ref)
+    harness = Harness(spec, tracer=_tracer(trace))
+    result = await harness.run(prompt)
+    _print_quality(result)
+    return 0 if result.quality.passed else 1
+
+
+def _print_quality(result) -> None:
+    report = result.quality
+    _hr = "━" * 52
+    print(f"\n{_hr}")
+    print("  Loop Quality Report")
+    print(_hr)
+    print(f"  Score:   {report.score} / 100")
+    print(f"  Grade:   {report.grade}")
+    print(f"  Steps:   {result.steps}")
+    print(f"  Stopped: {result.stopped}")
+
+    if report.findings:
+        print(f"\n  Findings ({len(report.findings)}):")
+        for f in report.findings:
+            sev = getattr(f.severity, "value", str(f.severity)).upper()
+            print(f"    [{sev}] {f.detector}: {f.message}")
+    else:
+        print("\n  Findings: none")
+
+    print(f"\n  Summary: {report.summary}")
+    print(f"{_hr}\n")
 
 
 if __name__ == "__main__":  # pragma: no cover

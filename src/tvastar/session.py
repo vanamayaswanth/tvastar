@@ -49,6 +49,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .agent import AgentSpec
     from .detect import Finding
     from .harness import Harness
+    from .quality import LoopQualityReport
 
 # How many times to retry structured-output parsing before giving up.
 _STRUCTURED_RETRIES = 2
@@ -90,6 +91,11 @@ class RunResult:
     @property
     def ok(self) -> bool:
         return self.stopped == "end_turn" and not self.warnings
+
+    @property
+    def quality(self) -> "LoopQualityReport":
+        from .quality import score_run
+        return score_run(self)
 
 
 @dataclass
