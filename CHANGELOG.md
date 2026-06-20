@@ -6,6 +6,130 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-06-20
+
+### Added
+
+- **Loop Quality scoring** (`tvastar.quality`) — `score_run(result)` computes a
+  0–100 quality score and `PASS / WARN / FAIL` grade from a `RunResult`'s findings
+  and stop reason. Returned as `LoopQualityReport(score, grade, summary)`.
+
+  ```python
+  from tvastar.quality import score_run
+
+  result = await harness.run("fix the failing tests")
+  report = score_run(result)
+  print(report.score)    # 40
+  print(report.grade)    # "FAIL"
+  print(report.summary)  # "1 error — final answer claims success but last tool result shows failure"
+  ```
+
+  Scoring deductions:
+  - `-30` per ERROR finding
+  - `-10` per WARNING finding
+  - `-20` when stopped by `max_steps` or `budget`
+  - `-50` when stopped by `error`
+
+  Grades: ≥ 80 → `PASS`, ≥ 60 → `WARN`, < 60 → `FAIL`.
+
+- **`tvastar quality` CLI command** — score any agent run from the terminal:
+
+  ```bash
+  tvastar quality my_agent.py:agent "fix the failing tests"
+  # Loop Quality: 40/100  [FAIL]
+  # exit 1 on FAIL, exit 0 on PASS/WARN
+  ```
+
+- **70-test quality suite** (`tests/test_quality.py`) — full coverage of scoring
+  logic, grading thresholds, summary generation, all stop reasons, ugly inputs
+  (unicode, null bytes, SQL injection), and IndexError regression for stop-only runs.
+
+### Fixed (security hardening — Bandit + pip-audit audit)
+
+- **B310 — scheme whitelist on `urlopen` callers** — three `urllib.request.urlopen`
+  call sites now validate that the URL starts with `http://` or `https://` before
+  opening it, preventing `file:///` and custom-scheme SSRF vectors:
+  - `fix/models.py`: Ollama health-check URL
+  - `mcp/transport.py`: `StreamableHttpTransport._post()` — raises `MCPError` on
+    non-http/https URLs
+  - `tools/builtin.py`: `_http_get()` (used by `web_browse` / `web_search`) — returns
+    `[error]` string instead of fetching dangerous schemes
+
+- **B615 — HF dataset revision pinning** (`bench/swebench.py`) — `load_dataset()`
+  now passes `revision="main"` to prevent silent dataset drift if the upstream
+  HuggingFace dataset is updated without a version bump.
+
+- **CVE-2025-71176** — `pytest` floor bumped to `>=9.0.3` in `pyproject.toml`.
+  The vulnerability allowed local privilege escalation via predictable `/tmp/pytest-of-{user}`
+  directory names on UNIX.
+
+### Fixed (source bugs — design-for-failure audit)
+
+- **`loop/schedule.py`** — two bugs:
+  1. Missing `f` prefix on second line of error message left `{len(parts)}` as
+     literal text instead of interpolating the field count.
+  2. Zero or negative cron step (`*/0`) caused `range(0, 60, 0)` → `ValueError`
+     inside the scheduler; now raises a clear `ValueError("Cron step must be positive")`.
+
+- **`sandbox/local.py`** — two bugs:
+  1. `if t` filter excluded `timeout=0.0` from the effective-timeout min; fixed to
+     `if t is not None`.
+  2. `proc.returncode or 0` silently masked non-zero exit codes (e.g. `-1 → 0`);
+     fixed to `proc.returncode if proc.returncode is not None else 0`.
+
+- **`outbound/leads.py`** — `open(..., encoding="utf-8")` → `encoding="utf-8-sig"`
+  so Excel-exported CSVs with a UTF-8 BOM no longer corrupt the first column header.
+
+- **`graph.py`** — `asyncio.CancelledError` (a `BaseException` subclass, not `Exception`)
+  was not caught in the task-failure path, causing a `KeyError` in dependents instead of
+  a clean cancellation. Fixed to `except BaseException`.
+
+- **`outbound/campaign.py`** — two bugs:
+  1. `Path` objects were not accepted as the `leads` argument; fixed with
+     `isinstance(leads, (str, Path))`.
+  2. `max_leads=0` processed all leads instead of zero; fixed to
+     `if max_leads is not None`.
+
+- **`masking.py`** — `GovernancePolicy.copy()` used `dataclasses.replace(self)` which
+  shallow-copied the `phases` dict, sharing mutable sets across sessions. Fixed to deep-copy
+  each phase set: `phases={k: set(v) for k, v in self.phases.items()}`.
+
+- **`ui/server.py`** — two bugs:
+  1. `get_stats()` returned `{"total_runs": 0}` when there were no runs, causing `KeyError`
+     for callers expecting the full schema. Now returns all five keys with zero values.
+  2. `finish_reasons=[]` (empty list from SSE events) caused `IndexError` in
+     `_group_into_runs()`; now safely returns `None` for empty lists.
+
+- **`mcp/transport.py`** — `asyncio.get_event_loop()` deprecated in Python 3.10+ and
+  raises `RuntimeError` in 3.12+. Replaced with `asyncio.get_running_loop()`.
+
+- **`bench/swebench.py`** — `--- a/` (old side of a unified diff) was incorrectly
+  collected as a test file path, causing false `FAIL` verdicts on renamed or deleted
+  test files. Only `+++ b/` (new side) is now collected.
+
+- **`eval.py`** — `EvalSuite(concurrency=0)` created `asyncio.Semaphore(0)`, deadlocking
+  every case permanently. Now raises `ValueError("concurrency must be >= 1, got 0")` at
+  construction time.
+
+- **`tools/builtin.py`** — `web_browse` concatenated the Jina Reader prefix with the
+  raw URL without percent-encoding, breaking URLs containing spaces or special characters.
+  Fixed to `urllib.parse.quote(url, safe=":/?#[]@!$&'()*+,;=")` (matching `web_search`).
+
+- **`sandbox/virtual.py`** — `_cmd_wc`, `_cmd_head`, and `_cmd_tail` raised an
+  uncaught `FileNotFoundError` on missing files. Each now returns `ExecResult(1, "", "cmd: path: No such file")`.
+
+- **`tools/schema.py`** — `_parse_arg_docs` missed section headers (`Returns:`,
+  `Raises:`) that appeared without a preceding blank line, causing their content to bleed
+  into argument descriptions. Fixed operator precedence in the `if` guard.
+
+### Changed
+
+- `__version__` bumped to `"0.13.0"`.
+- `tests/test_detect.py` expanded from 11 to **65 tests** — four detectors that had
+  zero coverage (`unknown_tool`, `ignored_tool_error`, `empty_answer`, `prompt_injection`)
+  now have full test coverage including boundary cases, fault-isolation of crashing
+  detectors, `thrash_loop` off-by-one, and `validate()` union / array / nested-object types.
+
 ## [0.12.2] — 2026-06-16
 
 ### Fixed (Munger standards deep audit — 4 gaps)
@@ -613,7 +737,20 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.12.2...v0.13.0
+[0.12.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.12.1...v0.12.2
+[0.12.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.8.4...v0.9.0
+[0.8.4]: https://github.com/vanamayaswanth/tvastar/compare/v0.8.3...v0.8.4
+[0.8.3]: https://github.com/vanamayaswanth/tvastar/compare/v0.8.2...v0.8.3
+[0.8.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.8.1...v0.8.2
+[0.8.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.3.2...v0.4.0

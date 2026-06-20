@@ -637,6 +637,42 @@ Every failure mode is handled before code runs, not discovered at 2am:
 
 ---
 
+## Loop Quality — score every run automatically
+
+Every `RunResult` has a quality score. `score_run()` computes it from findings and stop reason:
+
+```python
+from tvastar.quality import score_run
+
+result = await harness.run("fix the failing tests")
+report = score_run(result)
+
+print(report.score)    # 0–100
+print(report.grade)    # "PASS" | "WARN" | "FAIL"
+print(report.summary)  # human-readable explanation
+```
+
+Or from the CLI — useful as a CI gate:
+
+```bash
+tvastar quality my_agent.py:agent "fix the failing tests"
+# Loop Quality: 82/100  [PASS]
+# exit 0 on PASS/WARN, exit 1 on FAIL
+```
+
+Scoring deductions:
+
+| Deduction | Condition |
+|---|---|
+| −30 | Per ERROR finding (e.g. `unverified_completion`, `schema_mismatch`) |
+| −10 | Per WARNING finding (e.g. `thrash_loop`, `ignored_tool_error`) |
+| −20 | Run stopped by `max_steps` or `budget` |
+| −50 | Run stopped by `error` |
+
+Grades: ≥ 80 → `PASS` · ≥ 60 → `WARN` · < 60 → `FAIL`.
+
+---
+
 ## Extended thinking
 
 ```python
@@ -1427,8 +1463,9 @@ Products ship first. Framework features get added only when a product needs them
 | **SOTA safety** | Governance, transactions, LTM, memory cap, OpenAI retry | ✅ v0.10.0 |
 | **Loop Engineering** | `Loop`, 7 patterns, CLI, MakerChecker, L0→L3 audit | ✅ v0.11.0 |
 | **Self-Improving Loops** | `meta_model` prompt evolution, generational archive, MakerChecker cross-run memory | ✅ v0.12.0 |
-| **SlackHandoff + Webhooks** | Built-in Slack escalation + event-driven loop triggers | 📋 v0.12.0 |
-| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.12.1 |
+| **Loop Quality** | `score_run()`, `LoopQualityReport`, `tvastar quality` CLI, 14 source bug fixes, security hardening | ✅ v0.13.0 |
+| **SlackHandoff + Webhooks** | Built-in Slack escalation + event-driven loop triggers | 📋 v0.14.0 |
+| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.14.0 |
 | **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |
 | **tvastar-devops** | Auto-heal production incidents | 📋 v1.1.0 |
 | **tvastar-support** | Multi-platform customer support agent | 📋 v1.2.0 |
