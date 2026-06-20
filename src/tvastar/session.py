@@ -279,6 +279,7 @@ class Session:
         model: Optional[Any] = None,
         thinking_level: Optional[str] = None,
         max_steps: Optional[int] = None,
+        router: Optional[Any] = None,
     ) -> RunResult:
         """Delegate to a fresh child session and return its result.
 
@@ -294,7 +295,13 @@ class Session:
             model: Override model for this task (highest precedence).
             thinking_level: Override reasoning level for this task.
             max_steps: Override max steps for this task.
+            router: Optional AgentRouter. When agent is None, the router picks
+                    the best matching profile automatically via semantic similarity.
         """
+        # ── auto-route when no agent specified ───────────────────────────────
+        if agent is None and router is not None:
+            agent = router.route(prompt)
+
         # ── depth guard ─────────────────────────────────────────────────────
         if self._task_depth >= MAX_TASK_DEPTH:
             raise RuntimeError(

@@ -122,6 +122,7 @@ from .outbound import (
     write_draft,
 )
 from .profiles import MAX_TASK_DEPTH, AgentProfile, define_agent_profile
+from .router import AgentRouter
 from .sandbox import (
     AuditEntry,
     CredentialFilter,
@@ -171,7 +172,7 @@ from .workflow import (
 )
 from .wrap import WrappedResult, wrap
 
-__version__ = "0.15.5"
+__version__ = "0.16.2"
 
 __all__ = [
     "create_agent",
@@ -263,6 +264,7 @@ __all__ = [
     "AgentProfile",
     "define_agent_profile",
     "MAX_TASK_DEPTH",
+    "AgentRouter",
     # dispatch
     "dispatch",
     "dispatch_and_wait",

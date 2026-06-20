@@ -13,9 +13,10 @@ from .mock import MockModel
 
 if TYPE_CHECKING:  # pragma: no cover
     from .anthropic import AnthropicModel
+    from .litellm import LiteLLMModel
     from .openai import OpenAIModel
 
-__all__ = ["Model", "ModelRetryPolicy", "MockModel", "AnthropicModel", "OpenAIModel"]
+__all__ = ["Model", "ModelRetryPolicy", "MockModel", "AnthropicModel", "OpenAIModel", "LiteLLMModel"]
 
 
 def __getattr__(name: str):
@@ -27,4 +28,8 @@ def __getattr__(name: str):
         from .openai import OpenAIModel
 
         return OpenAIModel
+    if name == "LiteLLMModel":
+        from .litellm import LiteLLMModel
+
+        return LiteLLMModel
     raise AttributeError(f"module 'tvastar.model' has no attribute {name!r}")
