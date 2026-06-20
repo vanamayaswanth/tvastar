@@ -4,12 +4,6 @@ tvastar.approval — human-in-the-loop approval gate for agents.
 Pause an agent run and wait for a human to approve or reject before
 proceeding with a dangerous or irreversible action.
 
-Three approval backends are supported:
-
-    "cli"      — prints to stdout, reads from stdin (default, good for dev)
-    "webhook"  — sends a POST to a URL, waits for a callback
-    "event"    — waits on an asyncio.Event you control from outside
-
 Usage (as a tool)::
 
     from tvastar.approval import require_approval
@@ -27,7 +21,7 @@ Usage (standalone, outside a tool)::
 
     from tvastar.approval import ApprovalGate
 
-    gate = ApprovalGate(backend="cli")
+    gate = ApprovalGate()
     approved = await gate.request("Reformat the entire repo?", timeout=60)
     if not approved:
         raise RuntimeError("User declined")
@@ -99,13 +93,16 @@ class ApprovalGate:
     """
     Controls how approval requests are presented to a human.
 
+    Two backends:
+        ``"cli"``   — prints to stderr, reads from stdin (default).
+        ``"event"`` — calls ``on_request(req)`` immediately; caller resolves
+                      via ``req.approve()`` / ``req.deny()``. Useful for tests
+                      and programmatic control.
+
     Args:
-        backend:      "cli" | "webhook" | "event"
-        webhook_url:  Required when backend="webhook". POST target.
-        on_request:   Optional callback when a request is created
-                      (useful for backend="event" — call request.approve()/deny()).
-        approved_by_default: If True, auto-approve when no human responds
-                      before timeout. Default False (raises ApprovalTimeout).
+        backend:             ``"cli"`` | ``"event"``
+        on_request:          Called with the ApprovalRequest when backend="event".
+        approved_by_default: Auto-approve on timeout. Default False.
 
     Example::
 
@@ -115,18 +112,14 @@ class ApprovalGate:
 
     def __init__(
         self,
-        backend: Literal["cli", "webhook", "event"] = "cli",
+        backend: Literal["cli", "event"] = "cli",
         *,
-        webhook_url: str | None = None,
         on_request: Callable[[ApprovalRequest], None] | None = None,
         approved_by_default: bool = False,
     ) -> None:
         self.backend = backend
-        self.webhook_url = webhook_url
         self.on_request = on_request
         self.approved_by_default = approved_by_default
-        self._pending: dict[str, ApprovalRequest] = {}
-        self._last_approver: str = ""  # populated by event backend's approve(approver=)
 
     async def request(
         self,
@@ -141,15 +134,9 @@ class ApprovalGate:
         Returns True if approved, raises ApprovalDenied or ApprovalTimeout otherwise.
         """
         req = ApprovalRequest(message=message, timeout=timeout, metadata=metadata or {})
-
-        if self.backend == "cli":
-            return await self._cli_request(req)
-        elif self.backend == "webhook":
-            return await self._webhook_request(req)
-        elif self.backend == "event":
+        if self.backend == "event":
             return await self._event_request(req)
-        else:
-            raise ValueError(f"Unknown backend: {self.backend!r}")
+        return await self._cli_request(req)
 
     # ------------------------------------------------------------------
     # CLI backend
@@ -183,76 +170,7 @@ class ApprovalGate:
         raise ApprovalDenied(f"User denied: {req.message!r}")
 
     # ------------------------------------------------------------------
-    # Webhook backend
-    # ------------------------------------------------------------------
-
-    async def _webhook_request(self, req: ApprovalRequest) -> bool:
-        if not self.webhook_url:
-            raise ValueError("webhook_url is required for backend='webhook'")
-
-        import uuid
-
-        request_id = str(uuid.uuid4())
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future[bool] = loop.create_future()
-        req._future = future
-        self._pending[request_id] = req
-
-        if self.on_request:
-            self.on_request(req)
-
-        # POST the request to the webhook
-        try:
-            import json as _json
-            import urllib.request
-
-            payload = _json.dumps(
-                {
-                    "request_id": request_id,
-                    "message": req.message,
-                    "metadata": req.metadata,
-                }
-            ).encode()
-            http_req = urllib.request.Request(
-                self.webhook_url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            await asyncio.get_running_loop().run_in_executor(None, urllib.request.urlopen, http_req)
-        except Exception as e:
-            future.cancel()
-            del self._pending[request_id]
-            raise RuntimeError(f"Webhook POST failed: {e}") from e
-
-        try:
-            approved = await asyncio.wait_for(future, timeout=req.timeout)
-        except asyncio.TimeoutError:
-            self._pending.pop(request_id, None)
-            if self.approved_by_default:
-                return True
-            raise ApprovalTimeout(
-                f"Approval request timed out after {req.timeout}s: {req.message!r}"
-            )
-
-        del self._pending[request_id]
-        if not approved:
-            raise ApprovalDenied(f"User denied via webhook: {req.message!r}")
-        return True
-
-    def resolve_webhook(self, request_id: str, *, approved: bool) -> bool:
-        """Call this from your webhook handler to resolve a pending request."""
-        req = self._pending.get(request_id)
-        if req is None:
-            return False
-        if approved:
-            req.approve()
-        else:
-            req.deny()
-        return True
-
-    # ------------------------------------------------------------------
-    # Event backend (caller controls resolution)
+    # Event backend — programmatic control via req.approve() / req.deny()
     # ------------------------------------------------------------------
 
     async def _event_request(self, req: ApprovalRequest) -> bool:
@@ -261,7 +179,7 @@ class ApprovalGate:
         req._future = future
 
         if self.on_request:
-            self.on_request(req)  # caller calls req.approve() or req.deny()
+            self.on_request(req)
 
         try:
             approved = await asyncio.wait_for(future, timeout=req.timeout)
@@ -274,8 +192,6 @@ class ApprovalGate:
 
         if not approved:
             raise ApprovalDenied(f"Approval denied: {req.message!r}")
-        # Capture approver identity from req.approve(approver=...) call
-        self._last_approver = req.approved_by
         return True
 
 
@@ -283,8 +199,8 @@ class ApprovalGate:
 # Convenience function — used inside @tool functions
 # ---------------------------------------------------------------------------
 
-# Module-level default gate (CLI, swap with set_default_gate())
-_default_gate: ApprovalGate = ApprovalGate(backend="cli")
+# Module-level default gate — swap with set_default_gate()
+_default_gate: ApprovalGate = ApprovalGate()
 
 
 def set_default_gate(gate: ApprovalGate) -> None:
