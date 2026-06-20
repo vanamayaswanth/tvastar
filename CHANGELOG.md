@@ -6,6 +6,21 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.15.4] — 2026-06-20
+
+### Added — Gap 7: Retention policy for TrustLog
+
+- `RetentionPolicy(max_age_days, hold_until, archive_path)` — copy archivable
+  entries to a JSONL archive file without touching the active log, so the
+  chain-link invariant stays intact.
+- `TrustLog.apply_retention(policy)` — returns count of eligible entries;
+  writes them to `archive_path` if provided. Archive is a standalone verifiable
+  JSONL chain.
+- `hold_until` legal-hold field: if `time.time() < hold_until`, entire log is
+  frozen — nothing archived regardless of age. SOX/SEC litigation freeze pattern.
+- Exported from `tvastar.assurance` and `tvastar` top-level.
+- 8 new tests (712 passing total). Ruff clean.
+
 ## [0.15.3] — 2026-06-20
 
 ### Added — Presidio ML-powered PII detection (optional)
@@ -980,7 +995,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.3...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.4...HEAD
+[0.15.4]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.3...v0.15.4
 [0.15.3]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.2...v0.15.3
 [0.15.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.0...v0.15.1

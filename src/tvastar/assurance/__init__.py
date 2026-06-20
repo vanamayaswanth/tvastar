@@ -33,7 +33,7 @@ Quick start::
         print(receipt.run_id, receipt.quality_grade)
 """
 
-from .log import TrustLog
+from .log import RetentionPolicy, TrustLog
 from .policy import AssurancePolicy, SLABreached
 from .receipt import ExecutionReceipt
 from .sanitize import SanitizationPolicy
@@ -41,6 +41,7 @@ from .sanitize import SanitizationPolicy
 __all__ = [
     "AssurancePolicy",
     "ExecutionReceipt",
+    "RetentionPolicy",
     "SanitizationPolicy",
     "TrustLog",
     "SLABreached",

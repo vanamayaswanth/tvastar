@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from tvastar.assurance import AssurancePolicy, ExecutionReceipt, SLABreached, SanitizationPolicy, TrustLog
+from tvastar.assurance import AssurancePolicy, ExecutionReceipt, RetentionPolicy, SLABreached, SanitizationPolicy, TrustLog
 from tvastar.detect import Finding, Severity
 from tvastar.quality import LoopQualityReport
 from tvastar.types import Message, TextBlock, ToolResultBlock, ToolUseBlock, Usage
@@ -1789,3 +1789,75 @@ def _make_receipt_with_tools() -> ExecutionReceipt:
     d["content_hash"] = "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
     d["signature"] = ""
     return ExecutionReceipt.from_dict(d)
+
+
+class TestRetentionPolicy:
+    def _make_old(self, days=40, prev_hash="") -> ExecutionReceipt:
+        t = time.time() - days * 86400
+        return ExecutionReceipt.from_run_result(
+            _FakeResult(), agent="test-agent", model_name="mock-model",
+            prompt="fix tests", started_at=t, completed_at=t + 0.1,
+            prev_hash=prev_hash,
+        )
+
+    def test_no_age_returns_zero(self):
+        log = TrustLog()
+        log.append(_make_receipt())
+        assert log.apply_retention(RetentionPolicy()) == 0
+
+    def test_recent_entry_not_eligible(self):
+        log = TrustLog()
+        log.append(_make_receipt())
+        assert log.apply_retention(RetentionPolicy(max_age_days=30)) == 0
+
+    def test_old_entry_eligible(self):
+        log = TrustLog()
+        r = self._make_old(40)
+        log.append(r)
+        assert log.apply_retention(RetentionPolicy(max_age_days=30)) == 1
+
+    def test_writes_to_archive_path(self, tmp_path):
+        log = TrustLog()
+        r = self._make_old(40)
+        log.append(r)
+        archive = str(tmp_path / "archive.jsonl")
+        log.apply_retention(RetentionPolicy(max_age_days=30, archive_path=archive))
+        lines = Path(archive).read_text().strip().splitlines()
+        assert len(lines) == 1
+        assert json.loads(lines[0])["run_id"] == r.run_id
+
+    def test_active_log_chain_intact_after_archive(self, tmp_path):
+        log = TrustLog()
+        r0 = self._make_old(40)
+        r1 = _make_receipt(prev_hash=r0.content_hash)
+        log.append(r0)
+        log.append(r1)
+        log.apply_retention(RetentionPolicy(max_age_days=30, archive_path=str(tmp_path / "a.jsonl")))
+        # active log untouched — chain still valid
+        assert log.verify_chain()
+
+    def test_legal_hold_blocks_archival(self):
+        log = TrustLog()
+        r = self._make_old(40)
+        log.append(r)
+        future_hold = time.time() + 86400 * 365
+        count = log.apply_retention(RetentionPolicy(max_age_days=30, hold_until=future_hold))
+        assert count == 0
+
+    def test_expired_hold_allows_archival(self, tmp_path):
+        log = TrustLog()
+        r = self._make_old(40)
+        log.append(r)
+        past_hold = time.time() - 1
+        count = log.apply_retention(RetentionPolicy(max_age_days=30, hold_until=past_hold, archive_path=str(tmp_path / "a.jsonl")))
+        assert count == 1
+
+    def test_no_archive_path_returns_count_only(self):
+        log = TrustLog()
+        r0 = self._make_old(40)
+        r1 = self._make_old(40, prev_hash=r0.content_hash)
+        log.append(r0)
+        log.append(r1)
+        count = log.apply_retention(RetentionPolicy(max_age_days=30))
+        assert count == 2
+        assert len(log) == 2  # active log unchanged

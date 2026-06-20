@@ -43,12 +43,30 @@ Usage::
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, List, Optional
 
 from .receipt import ExecutionReceipt
 
-__all__ = ["TrustLog"]
+__all__ = ["TrustLog", "RetentionPolicy"]
+
+
+@dataclass
+class RetentionPolicy:
+    """When and where to archive receipts.
+
+    Args:
+        max_age_days: Archive entries older than this many days.
+        hold_until:   Epoch timestamp; if ``time.time() < hold_until`` the
+                      entire log is frozen (legal hold — nothing is archived).
+        archive_path: JSONL file to append archived receipts to.
+                      If None, apply_retention() just returns the eligible count.
+    """
+
+    max_age_days: Optional[int] = None
+    hold_until: Optional[float] = None
+    archive_path: Optional[str] = None
 
 
 class TrustLog:
@@ -175,6 +193,36 @@ class TrustLog:
     def __repr__(self) -> str:
         path_str = str(self._path) if self._path else "in-memory"
         return f"TrustLog({path_str!r}, entries={len(self._entries)})"
+
+    # ------------------------------------------------------------------ retention
+
+    def apply_retention(self, policy: "RetentionPolicy") -> int:
+        """Copy archivable entries to policy.archive_path. Active log untouched.
+
+        Returns the number of entries eligible for archival.
+
+        ponytail: copy-only — removes nothing from the active log, so the
+        chain stays intact. If you need the active file to shrink, rotate to
+        a new TrustLog after archiving and let ops manage the old file.
+        """
+        import time as _t
+
+        now = _t.time()
+        if policy.hold_until and now < policy.hold_until:
+            return 0  # legal hold active — freeze everything
+
+        if policy.max_age_days is None:
+            return 0
+
+        cutoff = now - policy.max_age_days * 86400
+        eligible = [r for r in self._entries if r.completed_at < cutoff]
+
+        if eligible and policy.archive_path:
+            with open(policy.archive_path, "a", encoding="utf-8") as fh:
+                for r in eligible:
+                    fh.write(r.to_json() + "\n")
+
+        return len(eligible)
 
     # ------------------------------------------------------------------ I/O
 
