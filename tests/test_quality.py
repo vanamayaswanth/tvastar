@@ -323,7 +323,6 @@ class TestStopReasons:
 
 class TestIntegration:
     def test_clean_run_quality(self):
-        import asyncio
 
         from tvastar import Harness, create_agent, default_detectors
         from tvastar.model.mock import MockModel
@@ -340,7 +339,6 @@ class TestIntegration:
 
     def test_quality_property_returns_consistent_report(self):
         """Calling .quality twice must return equivalent reports."""
-        import asyncio
 
         from tvastar import Harness, create_agent, default_detectors
         from tvastar.model.mock import MockModel
@@ -358,7 +356,6 @@ class TestIntegration:
 
     def test_no_detectors_still_has_quality(self):
         """Even with no detectors configured, .quality must not raise."""
-        import asyncio
 
         from tvastar import Harness, create_agent
         from tvastar.model.mock import MockModel

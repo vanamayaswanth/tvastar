@@ -84,8 +84,11 @@ def resolve_model(
 
 
 def _ollama_up(host: str) -> bool:
+    url = host.rstrip("/") + "/api/tags"
+    if not url.startswith(("http://", "https://")):
+        return False
     try:
-        with urllib.request.urlopen(host.rstrip("/") + "/api/tags", timeout=1.5) as r:
+        with urllib.request.urlopen(url, timeout=1.5) as r:  # noqa: S310
             return r.status == 200
     except Exception:
         return False

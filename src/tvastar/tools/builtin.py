@@ -144,9 +144,11 @@ _TIMEOUT = 20
 
 
 def _http_get(url: str, headers: dict) -> str:
+    if not url.startswith(("http://", "https://")):
+        return f"[error] only http/https URLs are allowed, got: {url[:40]!r}"
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:  # noqa: S310
             return resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         return f"[http {e.code}] {e.reason}"
@@ -164,7 +166,7 @@ async def web_browse(url: str, max_chars: int = 8000) -> str:
         url: Full URL to fetch (include https://).
         max_chars: Truncate response to this many characters (default 8000).
     """
-    target = _JINA_READER + url
+    target = _JINA_READER + urllib.parse.quote(url, safe=":/?#[]@!$&'()*+,;=")
     headers = {
         "Accept": "text/markdown",
         "X-Retain-Images": "none",

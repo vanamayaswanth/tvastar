@@ -95,7 +95,7 @@ def _load_from_hf(*, split: str, max_tasks: Optional[int], instructions: str) ->
         ) from e
 
     dataset_name = "princeton-nlp/SWE-bench_Lite" if split == "lite" else "princeton-nlp/SWE-bench"
-    ds = load_dataset(dataset_name, split="test")
+    ds = load_dataset(dataset_name, split="test", revision="main")
     rows = list(ds)
     if max_tasks is not None:
         rows = rows[:max_tasks]
@@ -155,7 +155,7 @@ def _verify_with_pytest(workspace: Path, *, test_patch: str = "") -> bool:
     test_files: list[str] = []
     if test_patch:
         for line in test_patch.splitlines():
-            if line.startswith("+++ b/") or line.startswith("--- a/"):
+            if line.startswith("+++ b/"):
                 candidate = line[6:].strip()
                 if candidate.startswith("test") or "/test" in candidate:
                     test_files.append(candidate)

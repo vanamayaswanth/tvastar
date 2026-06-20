@@ -126,7 +126,7 @@ class StdioTransport(Transport):
             raise MCPError("transport not started")
         self._next_id += 1
         mid = self._next_id
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[mid] = fut
         payload = {"jsonrpc": "2.0", "id": mid, "method": method}
         if params is not None:
@@ -208,6 +208,8 @@ class StreamableHttpTransport(Transport):
         await asyncio.to_thread(self._post, payload, False)
 
     def _post(self, payload: dict, expect_response: bool) -> Optional[dict]:
+        if not self.url.startswith(("http://", "https://")):
+            raise MCPError(f"Only http/https URLs are allowed for MCP transport, got: {self.url[:40]!r}")
         body = json.dumps(payload).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
@@ -218,7 +220,7 @@ class StreamableHttpTransport(Transport):
             headers["Mcp-Session-Id"] = self._session_id
         req = urllib.request.Request(self.url, data=body, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310
                 sid = resp.headers.get("Mcp-Session-Id")
                 if sid:
                     self._session_id = sid
