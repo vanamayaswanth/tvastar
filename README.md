@@ -673,6 +673,77 @@ Grades: ≥ 80 → `PASS` · ≥ 60 → `WARN` · < 60 → `FAIL`.
 
 ---
 
+## Plug into anything — wrap any agent framework
+
+`tvastar.wrap` is a quality layer you add on top of whatever agent
+infrastructure you already run. Zero changes to your existing loop.
+
+```python
+import tvastar
+
+# Decorator — any async function becomes quality-scored
+@tvastar.wrap
+async def my_loop(prompt: str) -> str:
+    return await some_external_agent(prompt)
+
+result = await my_loop("fix the failing tests")
+print(result.quality.score)   # 0–100
+print(result.quality.grade)   # "PASS" | "WARN" | "FAIL"
+print(result.ok)              # True if grade is PASS
+```
+
+### OpenAI function-calling loops
+
+```python
+from tvastar.adapters.openai import OpenAILoopWrapper
+
+with OpenAILoopWrapper() as loop:
+    loop.messages.append({"role": "user", "content": "Fix the tests."})
+    while True:
+        resp = client.chat.completions.create(
+            model="gpt-4o", messages=loop.messages, tools=my_tools
+        )
+        loop.messages.append(resp.choices[0].message.model_dump())
+        if resp.choices[0].finish_reason == "stop":
+            break
+        # handle tool calls …
+
+print(loop.result.quality.grade)   # full detector suite ran
+```
+
+### LangGraph graphs
+
+```python
+from tvastar.adapters.langgraph import LangGraphWrapper
+
+graph = build_my_graph().compile()
+wrapped = LangGraphWrapper(graph)
+
+result = await wrapped.ainvoke({"messages": [HumanMessage(content="Fix tests.")]})
+print(result.quality.score)
+```
+
+### AWS AgentCore (Bedrock Agents)
+
+```python
+from tvastar.adapters.agentcore import AgentCoreWrapper
+import boto3
+
+client = boto3.client("bedrock-agent-runtime")
+wrapper = AgentCoreWrapper(client)
+
+result = wrapper.invoke(
+    agent_id="ABCDEF1234", agent_alias_id="TSTALIASID",
+    session_id="session-1", input_text="Fix the failing tests.",
+)
+print(result.quality.grade)
+```
+
+All three adapters convert the framework's message format into Tvastar's types
+so the full silent-failure detector suite runs — not just text-level checks.
+
+---
+
 ## Extended thinking
 
 ```python
@@ -1464,8 +1535,9 @@ Products ship first. Framework features get added only when a product needs them
 | **Loop Engineering** | `Loop`, 7 patterns, CLI, MakerChecker, L0→L3 audit | ✅ v0.11.0 |
 | **Self-Improving Loops** | `meta_model` prompt evolution, generational archive, MakerChecker cross-run memory | ✅ v0.12.0 |
 | **Loop Quality** | `score_run()`, `LoopQualityReport`, `tvastar quality` CLI, 14 source bug fixes, security hardening | ✅ v0.13.0 |
-| **SlackHandoff + Webhooks** | Built-in Slack escalation + event-driven loop triggers | 📋 v0.14.0 |
-| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.14.0 |
+| **Plug into anything** | `tvastar.wrap`, `adapters.openai`, `adapters.langgraph`, `adapters.agentcore` — Loop Quality on any framework | ✅ v0.14.0 |
+| **SlackHandoff + Webhooks** | Built-in Slack escalation + event-driven loop triggers | 📋 v0.15.0 |
+| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.15.0 |
 | **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |
 | **tvastar-devops** | Auto-heal production incidents | 📋 v1.1.0 |
 | **tvastar-support** | Multi-platform customer support agent | 📋 v1.2.0 |

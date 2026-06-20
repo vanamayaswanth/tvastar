@@ -168,8 +168,9 @@ from .workflow import (
 from .workflow import (
     cli_logs as workflow_logs,
 )
+from .wrap import WrappedResult, wrap
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 
 __all__ = [
     "create_agent",
@@ -333,6 +334,9 @@ __all__ = [
     # loop quality scoring
     "LoopQualityReport",
     "score_run",
+    # adapter layer — wrap any external agent loop
+    "wrap",
+    "WrappedResult",
     # outbound sales agent
     "run_campaign",
     "CampaignResult",

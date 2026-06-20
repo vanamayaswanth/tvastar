@@ -6,6 +6,100 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-06-20
+
+### Added
+
+- **`tvastar.wrap` — Loop Quality for any callable** — add Tvastar's
+  silent-failure detection to ANY agent loop without changing the loop itself:
+
+  ```python
+  import tvastar
+
+  @tvastar.wrap
+  async def my_loop(prompt: str) -> str:
+      return await some_external_agent(prompt)
+
+  result = await my_loop("fix the failing tests")
+  print(result.quality.score)   # 0–100
+  print(result.quality.grade)   # "PASS" | "WARN" | "FAIL"
+  print(result.ok)              # True if grade is PASS
+  ```
+
+  Also works as a one-shot wrapper: `result = await tvastar.wrap(fn)(prompt)`.
+  Accepts `detectors=` and `extract_text=` keyword arguments for customisation.
+
+- **`WrappedResult`** — drop-in companion to `RunResult` returned by all
+  adapter entry points: `.text`, `.quality`, `.findings`, `.ok`, `.warnings`,
+  `.errors`, `.duration`, `.raw`.
+
+- **`tvastar.adapters.openai`** — wrap a raw OpenAI function-calling loop:
+
+  ```python
+  from tvastar.adapters.openai import OpenAILoopWrapper, score_openai_messages
+
+  # Context-manager — you own the loop, Tvastar scores on exit
+  with OpenAILoopWrapper() as loop:
+      loop.messages.append({"role": "user", "content": "Fix the tests."})
+      while True:
+          resp = client.chat.completions.create(model="gpt-4o", messages=loop.messages, tools=...)
+          loop.messages.append(resp.choices[0].message.model_dump())
+          if resp.choices[0].finish_reason == "stop":
+              break
+  print(loop.result.quality.grade)
+
+  # Post-hoc — score a messages list you already have
+  result = score_openai_messages(messages)
+  ```
+
+  Converts OpenAI tool call / tool result message shapes to Tvastar's internal
+  format so the full detector suite fires (`thrash_loop`, `ignored_tool_error`,
+  `unverified_completion`, etc.), not just text-level checks.
+
+- **`tvastar.adapters.langgraph`** — wrap a compiled LangGraph graph:
+
+  ```python
+  from tvastar.adapters.langgraph import LangGraphWrapper
+
+  graph = build_my_graph().compile()
+  wrapped = LangGraphWrapper(graph)
+
+  result = await wrapped.ainvoke({"messages": [HumanMessage(content="Fix tests.")]})
+  print(result.quality.score)
+  ```
+
+  Automatically converts `HumanMessage`, `AIMessage`, and `ToolMessage` objects
+  to Tvastar types. Supports custom `extract_text=` and `extract_messages=`
+  callables for non-standard state shapes.
+
+- **`tvastar.adapters.agentcore`** — wrap an AWS AgentCore (Bedrock Agents)
+  `invoke_agent` call:
+
+  ```python
+  from tvastar.adapters.agentcore import AgentCoreWrapper, score_agentcore_response
+
+  import boto3
+  client = boto3.client("bedrock-agent-runtime")
+  wrapper = AgentCoreWrapper(client)
+
+  result = wrapper.invoke(
+      agent_id="ABCDEF1234", agent_alias_id="TSTALIASID",
+      session_id="s1", input_text="Fix the failing tests.",
+  )
+  print(result.quality.grade)
+  ```
+
+  Parses Bedrock's event stream, extracts tool invocations and results from
+  orchestration trace events, and scores the full interaction.
+
+- **59 new tests** across `tests/test_wrap.py` and `tests/test_adapters.py`
+  covering all three adapters, the `wrap()` decorator, `WrappedResult`, and
+  `_default_extract_text` — 499 total tests now passing.
+
+### Changed
+
+- `__version__` bumped to `0.14.0`.
+
 ## [0.13.0] — 2026-06-20
 
 ### Added
@@ -737,7 +831,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.12.0...v0.12.1
