@@ -17,7 +17,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from ..agent import AgentSpec
@@ -125,6 +125,7 @@ class LoopConfig:
     circuit_breaker_limit: int = 5  # consecutive HANDOFF cycles → SUSPENDED
     handoff: "HandoffPolicy | None" = None
     meta_model: "Model | None" = None  # if set, rewrites instructions after each FAIL
+    optimizer: "Any | None" = None     # Callable[[str, list[LoopRun]], str] — takes precedence over meta_model
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -319,7 +320,7 @@ class Loop:
         # so the next retry (already scheduled after backoff) benefits from improved instructions
         if (
             run.state not in (LoopState.PASS, LoopState.SUSPENDED)
-            and self._config.meta_model is not None
+            and (self._config.optimizer is not None or self._config.meta_model is not None)
         ):
             t = asyncio.create_task(self._improve_instructions(run))
             self._bg_tasks.add(t)         # prevent GC before completion
@@ -585,10 +586,10 @@ class Loop:
             pass  # archive failure must not crash the run
 
     async def _improve_instructions(self, run: LoopRun) -> None:
-        """Run a meta-agent to rewrite the loop's instructions based on failure evidence.
+        """Rewrite loop instructions after a FAIL.
 
-        Fires asynchronously after a FAIL so the next retry (after backoff) benefits.
-        Never raises — a meta-improvement failure must not affect the loop lifecycle.
+        Tries optimizer first (DSPyOptimizer or any callable), falls back to
+        meta_model one-shot rewrite. Fires asynchronously — never raises.
         """
         failure_lines: list[str] = []
         if run.error:
@@ -604,48 +605,59 @@ class Loop:
         try:
             import dataclasses
 
-            from ..agent import create_agent
-            from ..harness import Harness
+            new_instructions: str | None = None
 
-            meta_spec = create_agent(
-                f"{self.name}:meta",
-                model=self._config.meta_model,
-                instructions=(
-                    "You are an expert prompt engineer specialising in AI agent reliability. "
-                    "You will receive agent instructions and failure evidence from a production loop. "
-                    "Your job: rewrite the instructions to prevent these failures. "
-                    "Preserve all existing rules and safety constraints. "
-                    "Add specific, actionable guidance to address each failure. "
-                    "Return ONLY the improved instructions — no preamble, no commentary, no quotes."
-                ),
-            )
-            prompt = (
-                f"Current agent instructions:\n{self._current_instructions}\n\n"
-                f"Failure evidence from run {run.run_id}:\n"
-                + "\n".join(failure_lines)
-                + "\n\nRewrite the instructions to prevent these failures. "
-                "Return ONLY the improved instructions."
-            )
-            # Hard timeout: use loop's cancel_after budget if set, otherwise 120s.
-            # A hanging meta-agent must never block future loop iterations.
-            meta_timeout = min(self._config.cancel_after or 120.0, 120.0)
-            result = await asyncio.wait_for(
-                Harness(meta_spec).run(prompt),
-                timeout=meta_timeout,
-            )
+            # ── optimizer path (DSPyOptimizer or any callable) ──────────────
+            if self._config.optimizer is not None:
+                all_runs: list[LoopRun] = list(
+                    self._store.get(f"loop:{self.name}:runs") or []
+                ) + [run]
+                new_instructions = self._config.optimizer(
+                    self._current_instructions, all_runs
+                )
 
-            if result.ok and result.text.strip():
-                new_instructions = result.text.strip()
+            # ── meta_model path (legacy one-shot rewrite) ───────────────────
+            elif self._config.meta_model is not None:
+                from ..agent import create_agent
+                from ..harness import Harness
+
+                meta_spec = create_agent(
+                    f"{self.name}:meta",
+                    model=self._config.meta_model,
+                    instructions=(
+                        "You are an expert prompt engineer specialising in AI agent reliability. "
+                        "You will receive agent instructions and failure evidence from a production loop. "
+                        "Your job: rewrite the instructions to prevent these failures. "
+                        "Preserve all existing rules and safety constraints. "
+                        "Add specific, actionable guidance to address each failure. "
+                        "Return ONLY the improved instructions — no preamble, no commentary, no quotes."
+                    ),
+                )
+                prompt = (
+                    f"Current agent instructions:\n{self._current_instructions}\n\n"
+                    f"Failure evidence from run {run.run_id}:\n"
+                    + "\n".join(failure_lines)
+                    + "\n\nRewrite the instructions to prevent these failures. "
+                    "Return ONLY the improved instructions."
+                )
+                meta_timeout = min(self._config.cancel_after or 120.0, 120.0)
+                result = await asyncio.wait_for(
+                    Harness(meta_spec).run(prompt),
+                    timeout=meta_timeout,
+                )
+                if result.ok and result.text.strip():
+                    new_instructions = result.text.strip()
+
+            if new_instructions and new_instructions != self._current_instructions:
                 new_spec = dataclasses.replace(self._base_spec, instructions=new_instructions)
                 new_harness = Harness(new_spec, store=self._store, tracer=self._tracer)
-                # Lock required: concurrent trigger() calls read self._harness
                 async with self._lock:
                     self._harness = new_harness
                     self._current_instructions = new_instructions
                 self._store.set(f"loop:{self.name}:meta_instructions", new_instructions)
                 self._emit(run, run.state, {"meta_improved": True, "gen": self._gen_counter})
         except Exception:
-            pass  # meta-improvement failure must never crash the loop
+            pass  # improvement failure must never crash the loop
 
     def _build_prompt(self, context: dict) -> str:
         parts = [f"Goal: {self._config.goal}"]
