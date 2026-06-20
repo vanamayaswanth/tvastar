@@ -25,6 +25,7 @@ Quick start::
 from __future__ import annotations
 
 from .agent import AgentSpec, create_agent
+from .assurance import AssurancePolicy, ExecutionReceipt, SLABreached, TrustLog
 from .approval import (
     ApprovalDenied,
     ApprovalGate,
@@ -170,7 +171,7 @@ from .workflow import (
 )
 from .wrap import WrappedResult, wrap
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 
 __all__ = [
     "create_agent",
@@ -337,6 +338,11 @@ __all__ = [
     # adapter layer — wrap any external agent loop
     "wrap",
     "WrappedResult",
+    # verifiable execution — signed receipts + SLA enforcement
+    "AssurancePolicy",
+    "ExecutionReceipt",
+    "TrustLog",
+    "SLABreached",
     # outbound sales agent
     "run_campaign",
     "CampaignResult",

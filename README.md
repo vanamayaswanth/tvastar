@@ -744,6 +744,48 @@ so the full silent-failure detector suite runs — not just text-level checks.
 
 ---
 
+## Verifiable Execution — cryptographic proof of every run
+
+Make AI agent runs as trustworthy as compiled code. One policy line attaches a
+signed, chain-linked receipt to every `RunResult`:
+
+```python
+from tvastar.assurance import AssurancePolicy, TrustLog
+
+agent = create_agent(
+    "billing-bot",
+    model=model,
+    assurance=AssurancePolicy(
+        key="prod-secret",                # HMAC-SHA256 signing key
+        log=TrustLog(".tvastar-trust.jsonl"),
+        min_score=80,                     # quality SLA: PASS required
+        on_fail="escalate",
+        on_escalate=lambda r: alert_team(r),
+    ),
+)
+
+result = await harness.run("Charge customer $50")
+
+# Cryptographic proof — verifiable by any auditor
+print(result.receipt.run_id)           # run_c3afc6fcc23c4322
+print(result.receipt.content_hash)     # sha256:d2e502ed...
+print(result.receipt.verify("prod-secret"))  # True
+
+# Tamper-evident chain — modify any entry and the next prev_hash breaks
+assert policy.log.verify_chain()
+
+# Replay any past run
+r = policy.log.get("run_c3afc6fcc23c4322")
+assert r.quality_grade == "PASS"
+```
+
+Every receipt captures: prompt, all tool calls + inputs, final answer, Loop
+Quality score, token usage, timestamps, and the hash of the previous receipt.
+Suitable as a SOC2 / HIPAA / PCI-DSS audit trail — the first in the AI agent
+space.
+
+---
+
 ## Extended thinking
 
 ```python
@@ -1536,8 +1578,9 @@ Products ship first. Framework features get added only when a product needs them
 | **Self-Improving Loops** | `meta_model` prompt evolution, generational archive, MakerChecker cross-run memory | ✅ v0.12.0 |
 | **Loop Quality** | `score_run()`, `LoopQualityReport`, `tvastar quality` CLI, 14 source bug fixes, security hardening | ✅ v0.13.0 |
 | **Plug into anything** | `tvastar.wrap`, `adapters.openai`, `adapters.langgraph`, `adapters.agentcore` — Loop Quality on any framework | ✅ v0.14.0 |
-| **SlackHandoff + Webhooks** | Built-in Slack escalation + event-driven loop triggers | 📋 v0.15.0 |
-| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.15.0 |
+| **Verifiable Execution** | `AssurancePolicy`, `ExecutionReceipt`, `TrustLog` — cryptographic receipts + SLA enforcement | ✅ v0.15.0 |
+| **tvastar-comply** | PII / PFI / PHI redaction layer — GDPR, HIPAA, PCI-DSS | 🔒 v0.16.0 |
+| **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |
 | **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |
 | **tvastar-devops** | Auto-heal production incidents | 📋 v1.1.0 |
 | **tvastar-support** | Multi-platform customer support agent | 📋 v1.2.0 |

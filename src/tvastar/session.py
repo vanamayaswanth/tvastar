@@ -78,6 +78,7 @@ class RunResult:
     findings: list["Finding"] = field(default_factory=list)
     data: Optional[Any] = None  # populated when result= schema is used
     cost: Optional[Cost] = None  # token cost for this run (model-priced)
+    receipt: Optional[Any] = None  # ExecutionReceipt when assurance is configured
 
     def __str__(self) -> str:
         return self.text
@@ -463,6 +464,7 @@ class Session:
         stopped = "end_turn"
         spec = self.spec
         _budget_approved = False
+        _run_started_at = time.time()
 
         while steps < spec.max_steps:
             steps += 1
@@ -594,6 +596,7 @@ class Session:
             cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
         )
         result.findings = self._detect(result)
+        result.receipt = self._assure(result, started_at=_run_started_at)
         return result
 
     def _detect(self, result: RunResult) -> list["Finding"]:
@@ -612,6 +615,28 @@ class Session:
         for f in findings:
             self.tracer_event("finding", detector=f.detector, severity=f.severity.value)
         return findings
+
+    def _assure(self, result: RunResult, *, started_at: float) -> Optional[Any]:
+        """Build a signed ExecutionReceipt and enforce SLA if assurance is configured."""
+        policy = getattr(self.spec, "assurance", None)
+        if policy is None:
+            return None
+        from .assurance.receipt import ExecutionReceipt
+
+        prev_hash = policy.log.tail_hash if policy.log is not None else ""
+        receipt = ExecutionReceipt.from_run_result(
+            result,
+            agent=self.spec.name,
+            prompt=self._last_user_text,
+            started_at=started_at,
+            completed_at=time.time(),
+            key=policy.key,
+            prev_hash=prev_hash,
+        )
+        if policy.log is not None:
+            policy.log.append(receipt)
+        policy.enforce_sla(receipt)
+        return receipt
 
     async def _execute_tools(self, uses: list[ToolUseBlock]) -> list[ToolResultBlock]:
         registry = self._active_tools()

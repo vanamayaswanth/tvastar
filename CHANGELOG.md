@@ -6,6 +6,75 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-06-20
+
+### Added
+
+- **`tvastar.assurance` — Verifiable Execution** — cryptographically signed,
+  chain-linked execution receipts. Every agent run now produces provable proof
+  of what was asked, every tool called, the final answer, and the Loop Quality
+  score. The first AI agent framework where runs are as verifiable as compiled
+  code.
+
+  ```python
+  from tvastar.assurance import AssurancePolicy, TrustLog
+
+  agent = create_agent(
+      "billing-bot",
+      model=model,
+      assurance=AssurancePolicy(
+          log=TrustLog(".tvastar-trust.jsonl"),
+          min_score=80,          # PASS required
+          on_fail="escalate",
+          on_escalate=lambda r: alert_team(r),
+      ),
+  )
+
+  result = await harness.run("Charge customer $50")
+  print(result.receipt.content_hash)   # sha256:abc123...
+  print(result.receipt.verify())       # True — mathematically provable
+  ```
+
+- **`ExecutionReceipt`** — immutable, chain-linked record of one run:
+  - `run_id` — unique identifier
+  - `content_hash` — SHA-256 of every field (prompt, tool calls, answer, score)
+  - `signature` — HMAC-SHA256 of the hash using your signing key
+  - `prev_hash` — links to the preceding receipt (tamper-evident chain)
+  - `verify(key?)` — recomputes hash + HMAC from scratch; returns `False` on any tampering
+  - Survives JSON serialisation: `to_json()` / `from_json()` / `from_dict()`
+
+- **`TrustLog`** — append-only, chain-linked ledger:
+  - In-memory (`TrustLog()`) or file-backed (`TrustLog(".tvastar-trust.jsonl")`)
+  - `append(receipt)` — enforces chain continuity, raises on break
+  - `verify_chain()` — walks every entry, recomputes hashes, detects tampering
+  - `get(run_id)` — O(n) lookup by run_id
+  - `to_jsonl()` — export full log as JSONL string
+  - File backend: WORM semantics — existing lines are never overwritten; corrupt
+    lines silently skipped on reload
+
+- **`AssurancePolicy`** — one-line config on any `AgentSpec`:
+  - `key` — HMAC signing key (or `TVASTAR_RECEIPT_KEY` env var)
+  - `log` — `TrustLog` instance; receipts auto-appended after every run
+  - `min_score` — Loop Quality SLA floor (0 = disabled)
+  - `on_fail` — `"ignore"` | `"raise"` | `"escalate"`
+  - `on_escalate` — sync or async callable invoked with the receipt on breach
+
+- **`SLABreached`** — exception raised when `on_fail="raise"` and quality
+  drops below `min_score`. Carries `.score`, `.min_score`, `.receipt`.
+
+- **`result.receipt`** — `ExecutionReceipt | None` on every `RunResult`.
+  `None` when no `AssurancePolicy` is configured; populated otherwise.
+
+- **93 new tests** in `tests/test_assurance.py` — design-for-failure coverage:
+  tampered receipts, broken chains, corrupt JSONL, wrong keys, ugly unicode,
+  null bytes, 100-tool-call receipts, full end-to-end through `MockModel`.
+
+### Changed
+
+- `AgentSpec` and `create_agent()` accept a new `assurance=` parameter.
+- `RunResult` gains a `receipt: ExecutionReceipt | None` field (default `None`).
+- `__version__` bumped to `0.15.0`.
+
 ## [0.14.0] — 2026-06-20
 
 ### Added
@@ -831,7 +900,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/vanamayaswanth/tvastar/compare/v0.12.1...v0.12.2

@@ -58,6 +58,9 @@ class AgentSpec:
     #: If the hook declares ``last_user_text`` the session passes the most-recent
     #: user message so retrieval can be keyed on actual intent, not static instructions.
     system_prompt_hook: Optional[Callable[..., str]] = None
+    #: optional verifiable-execution policy — produces a signed ExecutionReceipt
+    #: on every run and optionally enforces a Loop Quality SLA.
+    assurance: Optional[Any] = None  # AssurancePolicy
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self, *, last_user_text: str = "") -> str:
@@ -120,6 +123,7 @@ def create_agent(
     governance: Optional[Any] = None,
     system_prompt_hook: Optional[Callable[..., str]] = None,
     memory_cap_mb: Optional[float] = None,
+    assurance: Optional[Any] = None,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -193,5 +197,6 @@ def create_agent(
         governance=governance,
         system_prompt_hook=system_prompt_hook,
         memory_cap_mb=memory_cap_mb,
+        assurance=assurance,
         metadata=metadata,
     )
