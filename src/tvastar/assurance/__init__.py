@@ -36,13 +36,14 @@ Quick start::
 from .log import RetentionPolicy, TrustLog
 from .policy import AssurancePolicy, SLABreached
 from .receipt import ExecutionReceipt
-from .sanitize import SanitizationPolicy
+from .sanitize import SanitizationPolicy, TokenVault
 
 __all__ = [
     "AssurancePolicy",
     "ExecutionReceipt",
     "RetentionPolicy",
     "SanitizationPolicy",
+    "TokenVault",
     "TrustLog",
     "SLABreached",
 ]

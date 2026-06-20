@@ -25,7 +25,7 @@ Quick start::
 from __future__ import annotations
 
 from .agent import AgentSpec, create_agent
-from .assurance import AssurancePolicy, ExecutionReceipt, RetentionPolicy, SLABreached, SanitizationPolicy, TrustLog
+from .assurance import AssurancePolicy, ExecutionReceipt, RetentionPolicy, SLABreached, SanitizationPolicy, TokenVault, TrustLog
 from .approval import (
     ApprovalDenied,
     ApprovalGate,
@@ -345,6 +345,7 @@ __all__ = [
     "ExecutionReceipt",
     "RetentionPolicy",
     "SanitizationPolicy",
+    "TokenVault",
     "TrustLog",
     "SLABreached",
     # outbound sales agent

@@ -41,7 +41,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-__all__ = ["SanitizationPolicy"]
+__all__ = ["SanitizationPolicy", "TokenVault"]
 
 # ---------------------------------------------------------------------------
 # Built-in pattern library
@@ -77,6 +77,57 @@ _PRESETS: Dict[str, List[Tuple[re.Pattern, str]]] = {
     "gdpr": [_SSN, _CREDIT_CARD, _EMAIL, _PHONE, _IP_ADDR, _DOB, _BEARER, _API_KEY],
     "all": [_SSN, _CREDIT_CARD, _EMAIL, _PHONE, _IP_ADDR, _DOB, _BEARER, _API_KEY],
 }
+
+
+class TokenVault:
+    """Reversible PII tokenization for zero-PII agent prompts.
+
+    Replaces sensitive values with opaque tokens (``<<EMAIL_1>>``, ``<<SSN_1>>``, …)
+    so the model never sees real PII. After the model returns, ``rehydrate()``
+    swaps tokens back to the original values in the response.
+
+    Usage::
+
+        vault = TokenVault()
+        clean = vault.tokenize(prompt, SanitizationPolicy.hipaa())
+        result = await sess.prompt(clean)          # model sees only tokens
+        final  = vault.rehydrate(result.text)      # tokens → originals restored
+
+    The vault accumulates all tokenized values for the lifetime of the object —
+    create a new vault per session or per request as appropriate.
+    """
+
+    def __init__(self) -> None:
+        self._map: dict[str, str] = {}       # token  → original
+        self._counters: dict[str, int] = {}  # label → count
+
+    def _next_token(self, label: str) -> str:
+        n = self._counters.get(label, 0) + 1
+        self._counters[label] = n
+        tag = re.sub(r"[^A-Z0-9]", "_", label.upper())
+        return f"<<{tag}_{n}>>"
+
+    def tokenize(self, text: str, policy: "SanitizationPolicy") -> str:
+        """Apply *policy* patterns to *text*, storing originals. Returns tokenized text."""
+        for regex, label in policy.patterns:
+            def _replacer(m: re.Match, _lbl: str = label) -> str:
+                tok = self._next_token(_lbl)
+                self._map[tok] = m.group(0)
+                return tok
+            text = regex.sub(_replacer, text)
+        return text
+
+    def rehydrate(self, text: str) -> str:
+        """Replace all tokens in *text* with the originals captured during tokenize()."""
+        for tok, original in self._map.items():
+            text = text.replace(tok, original)
+        return text
+
+    def __len__(self) -> int:
+        return len(self._map)
+
+    def __repr__(self) -> str:
+        return f"TokenVault({len(self._map)} tokens)"
 
 
 @dataclass
