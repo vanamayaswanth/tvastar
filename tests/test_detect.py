@@ -162,6 +162,7 @@ class TestUnknownToolDetector:
         findings = unknown_tool(_ctx(msgs, tools=ToolRegistry()))
         assert len(findings) == 1
         assert findings[0].severity == Severity.ERROR
+        assert findings[0].detector == "unknown_tool"
         assert "ghost_tool" in findings[0].message
 
     def test_silent_when_tool_is_registered(self):
@@ -201,6 +202,7 @@ class TestIgnoredToolErrorDetector:
         findings = ignored_tool_error(_ctx(msgs, stopped="end_turn"))
         assert len(findings) == 1
         assert findings[0].severity == Severity.WARNING
+        assert findings[0].detector == "ignored_tool_error"
         assert "tool error" in findings[0].message
 
     def test_silent_when_stopped_max_steps(self):
@@ -233,6 +235,7 @@ class TestEmptyAnswerDetector:
         findings = empty_answer(_ctx(msgs, stopped="end_turn", final=""))
         assert len(findings) == 1
         assert findings[0].severity == Severity.WARNING
+        assert findings[0].detector == "empty_answer"
 
     def test_fires_on_whitespace_only(self):
         findings = empty_answer(_ctx([], stopped="end_turn", final="   \n\t  "))
@@ -279,6 +282,7 @@ class TestPromptInjectionDetector:
         findings = prompt_injection(ctx)
         assert len(findings) >= 1
         assert any(f.severity == Severity.WARNING for f in findings)
+        assert any(f.detector == "prompt_injection" for f in findings)
         assert any("bash" in f.message for f in findings)
 
     def test_fires_on_reveal_system_prompt(self):
@@ -327,6 +331,7 @@ class TestSchemaMismatchDetector:
         msgs = [_asst(ToolUseBlock(name="add", input={"a": 1}))]  # missing b
         findings = schema_mismatch(_ctx(msgs, reg))
         assert findings and findings[0].severity == Severity.ERROR
+        assert findings[0].detector == "schema_mismatch"
         assert "add" in findings[0].message
 
     def test_fires_on_wrong_type(self):
@@ -377,6 +382,7 @@ class TestThrashLoopDetector:
         same = [_asst(_use(name="ls", input={"path": "."}, id=str(i))) for i in range(3)]
         findings = thrash_loop(_ctx(same))
         assert findings and findings[0].detector == "thrash_loop"
+        assert findings[0].severity == Severity.WARNING
 
     def test_boundary_two_calls_does_not_fire(self):
         two = [_asst(_use(name="ls", input={"path": "."}, id=str(i))) for i in range(2)]
@@ -424,6 +430,7 @@ class TestUnverifiedCompletionDetector:
         ]
         findings = unverified_completion(_ctx(msgs, final="All tests pass now!"))
         assert findings and findings[0].severity == Severity.ERROR
+        assert findings[0].detector == "unverified_completion"
 
     def test_fires_when_last_result_is_error(self):
         msgs = [

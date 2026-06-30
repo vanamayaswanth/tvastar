@@ -11,7 +11,7 @@ import pytest
 
 from tvastar import create_agent
 from tvastar.loop import FailureKind, Loop, LoopConfig, LoopRun, LoopState
-from tvastar.loop.handoff import CallbackHandoff, LogHandoff, MultiHandoff
+from tvastar.loop.handoff import CallbackHandoff, HandoffPolicy, LogHandoff, MultiHandoff
 from tvastar.loop.schedule import next_run_time
 from tvastar.model.mock import MockModel
 
@@ -557,6 +557,340 @@ def test_pattern_extra_instructions_appended():
         extra_instructions="Always run: pytest -x --tb=short",
     )
     assert "pytest -x" in loop._harness.spec.instructions
+
+
+# ---------------------------------------------------------------------------
+# Task 9.1 — State machine unit tests (REQ 7.1–7.8)
+# ---------------------------------------------------------------------------
+
+
+async def test_full_state_transition_happy_path():
+    """Verify exact state order: IDLE → TRIGGERED → RUNNING → VERIFYING → PASS.
+
+    Validates: Requirements 7.1
+    """
+    states: list[LoopState] = []
+    loop = _loop()
+    loop.on_event(lambda e: states.append(e.state))
+    assert loop.state == LoopState.IDLE
+
+    run = await loop.trigger()
+    assert run.state == LoopState.PASS
+    # Must follow this exact sequence
+    assert states == [
+        LoopState.TRIGGERED,
+        LoopState.RUNNING,
+        LoopState.VERIFYING,
+        LoopState.PASS,
+    ]
+
+
+async def test_full_state_transition_fail_path():
+    """Verify IDLE → TRIGGERED → RUNNING → VERIFYING → FAIL → RETRY on failure.
+
+    Validates: Requirements 7.1, 7.2
+    """
+    states: list[LoopState] = []
+    loop = _loop(max_iterations=3)
+    loop.on_event(lambda e: states.append(e.state))
+
+    await _force_fail(loop)
+
+    assert LoopState.TRIGGERED in states
+    assert LoopState.RUNNING in states
+    assert LoopState.VERIFYING in states
+    assert LoopState.FAIL in states
+    assert LoopState.RETRY in states
+
+
+async def test_backoff_formula_exact_calculation():
+    """Verify backoff = base * 2^(iteration-1) seconds.
+
+    Validates: Requirements 7.2
+    """
+    loop = _loop(max_iterations=5)
+    loop._config.retry_backoff_base = 10.0
+
+    # iteration=1 → backoff = 10 * 2^0 = 10s
+    loop._iteration = 1
+    run1 = _run()
+    before = time.time()
+    async with loop._lock:
+        await loop._handle_fail(run1)
+    expected_1 = 10.0  # 10 * 2^(1-1) = 10
+    actual_1 = run1.retry_after - before
+    assert abs(actual_1 - expected_1) < 1.0
+
+    # iteration=2 → backoff = 10 * 2^1 = 20s
+    loop._iteration = 2
+    run2 = _run()
+    before = time.time()
+    async with loop._lock:
+        await loop._handle_fail(run2)
+    expected_2 = 20.0  # 10 * 2^(2-1) = 20
+    actual_2 = run2.retry_after - before
+    assert abs(actual_2 - expected_2) < 1.0
+
+    # iteration=3 → backoff = 10 * 2^2 = 40s
+    loop._iteration = 3
+    run3 = _run()
+    before = time.time()
+    async with loop._lock:
+        await loop._handle_fail(run3)
+    expected_3 = 40.0  # 10 * 2^(3-1) = 40
+    actual_3 = run3.retry_after - before
+    assert abs(actual_3 - expected_3) < 1.0
+
+
+async def test_handoff_when_retries_exhausted():
+    """FAIL → HANDOFF when iteration reaches max_iterations.
+
+    Validates: Requirements 7.3
+    """
+    handoff_calls = []
+
+    async def record_handoff(run, hist):
+        handoff_calls.append(run.run_id)
+
+    loop = _loop(max_iterations=1, handoff=CallbackHandoff(fn=record_handoff))
+    run = await _force_fail(loop)
+    await asyncio.sleep(0.1)  # let background task fire
+
+    # After max_iterations exhausted, state should transition to HANDOFF
+    assert run.state in (LoopState.HANDOFF, LoopState.IDLE)
+    assert len(handoff_calls) == 1
+
+
+async def test_handoff_policy_escalate_retries_three_times():
+    """HandoffPolicy.escalate failure retries up to 3 times before HANDOFF_FAILED.
+
+    Validates: Requirements 7.6
+    """
+    attempt_count = []
+
+    class FailingHandoff(HandoffPolicy):
+        async def escalate(self, run, history):
+            attempt_count.append(1)
+            raise RuntimeError("handoff service down")
+
+    loop = _loop(max_iterations=1, handoff=FailingHandoff())
+    run = await _force_fail(loop)
+    # Let the handoff task fire — it retries with sleep(10), sleep(20)
+    # We need to wait for all 3 attempts. The actual implementation uses
+    # asyncio.sleep(10 * (attempt + 1)) between retries.
+    # To avoid waiting 30+ seconds, let's inspect the final state.
+    await asyncio.sleep(0.5)  # Allow first attempt to fail immediately
+
+    # The _fire_handoff retries 3 times (attempts 0, 1, 2) with sleep(10), sleep(20)
+    # Since we can't wait 30s in tests, let's directly call _fire_handoff
+    # and verify it transitions to HANDOFF_FAILED after 3 failures.
+    # Reset and call directly with patched sleep:
+    loop._state = LoopState.IDLE
+    loop._iteration = 0
+    attempt_count.clear()
+
+    # Patch asyncio.sleep to not actually sleep
+    original_sleep = asyncio.sleep
+
+    async def fast_sleep(delay):
+        await original_sleep(0)
+
+    asyncio.sleep = fast_sleep
+    try:
+        loop._consecutive_failures = 0
+        loop._iteration = 0
+        # Manually set state to HANDOFF and fire
+        run2 = _run(LoopState.HANDOFF)
+        run2.run_id = "run_handoff_test"
+        await loop._fire_handoff(run2)
+    finally:
+        asyncio.sleep = original_sleep
+
+    assert len(attempt_count) == 3  # exactly 3 attempts
+    assert run2.state == LoopState.HANDOFF_FAILED
+
+
+async def test_handoff_policy_escalate_succeeds_on_second_attempt():
+    """HandoffPolicy.escalate retries and succeeds on 2nd attempt.
+
+    Validates: Requirements 7.6
+    """
+    attempt_count = []
+
+    class FlakeyHandoff(HandoffPolicy):
+        async def escalate(self, run, history):
+            attempt_count.append(1)
+            if len(attempt_count) < 2:
+                raise RuntimeError("transient failure")
+            # succeeds on 2nd attempt
+
+    loop = _loop(max_iterations=1, handoff=FlakeyHandoff())
+
+    original_sleep = asyncio.sleep
+
+    async def fast_sleep(delay):
+        await original_sleep(0)
+
+    asyncio.sleep = fast_sleep
+    try:
+        run = _run(LoopState.HANDOFF)
+        await loop._fire_handoff(run)
+    finally:
+        asyncio.sleep = original_sleep
+
+    assert len(attempt_count) == 2  # succeeded on 2nd attempt
+    assert run.state != LoopState.HANDOFF_FAILED
+
+
+async def test_circuit_breaker_suspends_at_limit():
+    """FAIL → SUSPENDED when consecutive_failures >= circuit_breaker_limit.
+
+    Validates: Requirements 7.4
+    """
+    handoff_calls = []
+
+    async def handoff(run, hist):
+        handoff_calls.append(1)
+
+    loop = _loop(max_iterations=1, handoff=CallbackHandoff(fn=handoff))
+    loop._config.circuit_breaker_limit = 3
+
+    original_sleep = asyncio.sleep
+
+    async def fast_sleep(delay):
+        await original_sleep(0)
+
+    asyncio.sleep = fast_sleep
+    try:
+        # Force 3 handoff cycles
+        for i in range(3):
+            loop._state = LoopState.IDLE
+            loop._iteration = 0
+            await _force_fail(loop)
+            await asyncio.sleep(0)  # let tasks run
+    finally:
+        asyncio.sleep = original_sleep
+
+    # After 3 consecutive handoffs, circuit breaker fires
+    assert loop._consecutive_failures >= 3
+    assert loop.state == LoopState.SUSPENDED
+
+
+async def test_crash_recovery_verifying_state():
+    """Crash recovery also handles orphaned VERIFYING state.
+
+    Validates: Requirements 7.5
+    """
+    import json
+
+    from tvastar.memory.store import InMemoryStore
+
+    store = InMemoryStore()
+    store.set(
+        "loop:test-loop:last_run",
+        json.dumps(
+            {
+                "run_id": "run_verifying",
+                "state": "verifying",
+                "iteration": 1,
+                "started_at": time.time() - 60,
+            }
+        ),
+    )
+    model = MockModel(["ok"])
+    spec = create_agent("test", model=model, instructions="", detect=False)
+    config = LoopConfig(name="test-loop", goal="do work", schedule="@manual")
+    loop = Loop(spec, config, store=store)
+
+    interrupted = [r for r in loop.history() if r.state == LoopState.INTERRUPTED]
+    assert len(interrupted) == 1
+    assert interrupted[0].run_id == "run_verifying"
+
+
+async def test_crash_recovery_triggered_state():
+    """Crash recovery handles orphaned TRIGGERED state.
+
+    Validates: Requirements 7.5
+    """
+    import json
+
+    from tvastar.memory.store import InMemoryStore
+
+    store = InMemoryStore()
+    store.set(
+        "loop:test-loop:last_run",
+        json.dumps(
+            {
+                "run_id": "run_triggered",
+                "state": "triggered",
+                "iteration": 1,
+                "started_at": time.time() - 120,
+            }
+        ),
+    )
+    model = MockModel(["ok"])
+    spec = create_agent("test", model=model, instructions="", detect=False)
+    config = LoopConfig(name="test-loop", goal="do work", schedule="@manual")
+    loop = Loop(spec, config, store=store)
+
+    interrupted = [r for r in loop.history() if r.state == LoopState.INTERRUPTED]
+    assert len(interrupted) == 1
+    assert interrupted[0].run_id == "run_triggered"
+
+
+def test_cron_validation_at_construction_rejects_invalid():
+    """Invalid cron expression raises ValueError at LoopConfig construction.
+
+    Validates: Requirements 7.8
+    """
+    with pytest.raises(ValueError, match="schedule"):
+        LoopConfig(name="test", goal="work", schedule="invalid cron")
+
+    with pytest.raises(ValueError, match="schedule"):
+        LoopConfig(name="test", goal="work", schedule="60 * * * *")  # invalid minute
+
+
+def test_cron_validation_at_construction_accepts_aliases():
+    """Standard aliases are accepted without error.
+
+    Validates: Requirements 7.8
+    """
+    # @manual does not trigger schedule validation
+    cfg_manual = LoopConfig(name="t", goal="g", schedule="@manual")
+    assert cfg_manual.schedule == "@manual"
+
+    # Standard cron aliases
+    cfg_hourly = LoopConfig(name="t", goal="g", schedule="@hourly")
+    assert cfg_hourly.schedule == "@hourly"
+
+    cfg_daily = LoopConfig(name="t", goal="g", schedule="@daily")
+    assert cfg_daily.schedule == "@daily"
+
+
+async def test_checkpoint_persisted_on_state_transition():
+    """Every state transition is checkpointed to the Store.
+
+    Validates: Requirements 7.7
+    """
+    import json
+
+    from tvastar.memory.store import InMemoryStore
+
+    store = InMemoryStore()
+    model = MockModel(["Work done. SUCCESS"])
+    spec = create_agent("test", model=model, instructions="", detect=False)
+    config = LoopConfig(name="test-loop", goal="do work", schedule="@manual")
+    loop = Loop(spec, config, store=store)
+
+    await loop.trigger()
+
+    # Verify checkpoint was written
+    raw = store.get("loop:test-loop:last_run")
+    assert raw is not None
+    data = json.loads(raw)
+    assert data["state"] == LoopState.PASS
+    assert "run_id" in data
+    assert "iteration" in data
 
 
 # ---------------------------------------------------------------------------

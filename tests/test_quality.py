@@ -416,3 +416,152 @@ class TestUglyInputs:
         original_copy = list(original)
         score_run(_R(original))
         assert original == original_copy
+
+
+# ---------------------------------------------------------------------------
+# Requirement 3: Quality Scoring — explicit acceptance-criteria tests
+# Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6
+# ---------------------------------------------------------------------------
+
+
+class TestAcceptanceCriteria:
+    """Tests mapped directly to REQ-QUALITY-001 acceptance criteria."""
+
+    # --- AC 3.1: Deduction arithmetic ---
+
+    def test_ac31_error_deduction_30(self):
+        """Each ERROR finding deducts exactly 30 from the starting score of 100."""
+        assert score_run(_R([_err()])).score == 70
+        assert score_run(_R([_err(), _err()])).score == 40
+
+    def test_ac31_warning_deduction_10(self):
+        """Each WARNING finding deducts exactly 10 from the starting score of 100."""
+        assert score_run(_R([_warn()])).score == 90
+        assert score_run(_R([_warn(), _warn()])).score == 80
+
+    def test_ac31_max_steps_deduction_20(self):
+        """The max_steps stop reason deducts exactly 20."""
+        assert score_run(_R(stopped="max_steps")).score == 80
+
+    def test_ac31_error_stop_deduction_50(self):
+        """The error stop reason deducts exactly 50."""
+        assert score_run(_R(stopped="error")).score == 50
+
+    def test_ac31_combined_deductions(self):
+        """All deductions accumulate: 100 - 30(err) - 10(warn) - 20(max_steps) = 40."""
+        rep = score_run(_R([_err(), _warn()], stopped="max_steps"))
+        assert rep.score == 40
+
+    # --- AC 3.2: Clamping to minimum of 0 ---
+
+    def test_ac32_clamped_to_zero_from_excessive_errors(self):
+        """Score never goes below 0 regardless of how many penalties apply."""
+        # 4 errors = -120, so raw = -20, clamped to 0
+        assert score_run(_R([_err()] * 4)).score == 0
+
+    def test_ac32_clamped_to_zero_from_combined_penalties(self):
+        """Mixed penalties exceeding 100 clamp to 0."""
+        # 2 errors (-60) + 5 warnings (-50) + error stop (-50) = -60 → 0
+        rep = score_run(_R([_err()] * 2 + [_warn()] * 5, stopped="error"))
+        assert rep.score == 0
+
+    # --- AC 3.3, 3.4, 3.5: Grade boundaries ---
+
+    def test_ac33_score_80_is_pass(self):
+        """Score exactly at 80 receives grade PASS (≥80 threshold)."""
+        # 2 warnings = 100 - 20 = 80
+        rep = score_run(_R([_warn(), _warn()]))
+        assert rep.score == 80
+        assert rep.grade == "PASS"
+
+    def test_ac34_score_70_is_warn(self):
+        """Score 70 (below 80, at or above 60) receives grade WARN."""
+        # 1 error = 100 - 30 = 70
+        rep = score_run(_R([_err()]))
+        assert rep.score == 70
+        assert rep.grade == "WARN"
+
+    def test_ac34_score_60_is_warn(self):
+        """Score exactly at 60 receives grade WARN (≥60 threshold)."""
+        # 1 error + 1 warning = 100 - 30 - 10 = 60
+        rep = score_run(_R([_err(), _warn()]))
+        assert rep.score == 60
+        assert rep.grade == "WARN"
+
+    def test_ac35_score_50_is_fail(self):
+        """Score 50 (below 60) receives grade FAIL."""
+        # error stop = 100 - 50 = 50
+        rep = score_run(_R(stopped="error"))
+        assert rep.score == 50
+        assert rep.grade == "FAIL"
+
+    def test_ac35_score_40_is_fail(self):
+        """Score 40 (below 60) receives grade FAIL."""
+        # 2 errors = 100 - 60 = 40
+        rep = score_run(_R([_err(), _err()]))
+        assert rep.score == 40
+        assert rep.grade == "FAIL"
+
+    def test_ac35_score_zero_is_fail(self):
+        """Score 0 receives grade FAIL."""
+        rep = score_run(_R([_err()] * 4))
+        assert rep.score == 0
+        assert rep.grade == "FAIL"
+
+    # --- AC 3.6 part 1: Pure function (same input → same output) ---
+
+    def test_ac_pure_function_idempotent(self):
+        """score_run is a pure function: same input always produces same output."""
+        r = _R([_err(), _warn()], stopped="max_steps")
+        results = [score_run(r) for _ in range(10)]
+        # All scores and grades must be identical
+        assert all(rep.score == results[0].score for rep in results)
+        assert all(rep.grade == results[0].grade for rep in results)
+        assert all(rep.summary == results[0].summary for rep in results)
+
+    def test_ac_pure_function_no_side_effects(self):
+        """score_run does not mutate its input."""
+        findings = [_err(), _warn()]
+        r = _R(list(findings), stopped="max_steps")
+        original_findings = list(r.findings)
+        original_stopped = r.stopped
+        score_run(r)
+        assert r.findings == original_findings
+        assert r.stopped == original_stopped
+
+    # --- AC 3.6 part 2: Lazy computation of RunResult.quality ---
+
+    def test_ac_lazy_quality_property(self):
+        """RunResult.quality computes the report lazily on access."""
+        from tvastar import Harness, create_agent
+        from tvastar.model.mock import MockModel
+
+        agent = create_agent("t", model=MockModel(script=["done"]))
+        result = asyncio.run(Harness(agent).run("go"))
+
+        # The property is not stored — it computes on each access
+        q1 = result.quality
+        q2 = result.quality
+        assert isinstance(q1, LoopQualityReport)
+        assert isinstance(q2, LoopQualityReport)
+        assert q1.score == q2.score
+        assert q1.grade == q2.grade
+        # They are separate objects (recomputed each time)
+        assert q1 is not q2
+
+    def test_ac_lazy_quality_reflects_mutations(self):
+        """Since quality is computed lazily, mutating findings changes the result."""
+        from tvastar import Harness, create_agent
+        from tvastar.model.mock import MockModel
+
+        agent = create_agent("t", model=MockModel(script=["done"]))
+        result = asyncio.run(Harness(agent).run("go"))
+
+        # Initially clean
+        assert result.quality.score == 100
+        assert result.quality.grade == "PASS"
+
+        # After adding findings, the computed quality changes
+        result.findings.append(_err())
+        assert result.quality.score == 70
+        assert result.quality.grade == "WARN"

@@ -30,6 +30,7 @@ Quick start::
 
 from .core import BenchReport, BenchResult, BenchSuite, BenchTask
 from .swebench import swe_bench_tasks
+from . import silent_failure
 
 __all__ = [
     "BenchTask",
@@ -37,4 +38,5 @@ __all__ = [
     "BenchReport",
     "BenchSuite",
     "swe_bench_tasks",
+    "silent_failure",
 ]

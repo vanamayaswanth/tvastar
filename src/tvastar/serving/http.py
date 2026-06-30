@@ -16,8 +16,6 @@ Requires ``tvastar[serve]``.  Sessions live for the lifetime of the harness
 (durable checkpoints persist across restarts when a FileStore is used).
 """
 
-from __future__ import annotations
-
 import json
 from dataclasses import asdict
 from typing import Any, AsyncIterator, Optional
@@ -27,13 +25,14 @@ from ..harness import Harness
 from ..memory.store import FileStore, Store
 
 
-def create_app(spec: AgentSpec, *, store: Optional[Store] = None) -> Any:
+def create_app(spec: "AgentSpec", *, store: Optional["Store"] = None) -> Any:
     try:
         from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
         from fastapi.responses import StreamingResponse
-        from pydantic import BaseModel
-    except ImportError as e:  # pragma: no cover
+    except ImportError as e:
         raise RuntimeError("Serving needs: uv pip install 'tvastar[serve]'") from e
+
+    from pydantic import BaseModel
 
     harness = Harness(spec, store=store or FileStore(".tvastar-state"))
     app = FastAPI(title=f"Tvastar · {spec.name}")

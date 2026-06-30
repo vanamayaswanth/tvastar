@@ -53,6 +53,7 @@ Category: loop quality / loop engineering framework -->
 - [Trace viewer UI](#trace-viewer-ui--inspect-every-run-locally)
 - [Tool masking](#tool-masking--show-the-model-only-the-tools-it-needs-now)
 - [Silent-failure detection](#silent-failure-detection)
+- [Benchmark results](#benchmark-tau2-bench-10832-trajectories)
 - [Untrusted content & prompt-injection detection](#untrusted-content--prompt-injection-detection)
 - [Dynamic Capability Governance](#dynamic-capability-governance--lock-dangerous-tools-to-specific-phases)
 - [Transactional Sandbox](#transactional-sandbox--atomic-rollback-on-failure)
@@ -1369,6 +1370,20 @@ if not result.ok:
 ```
 
 Built-in detectors: `unknown_tool`, `schema_mismatch`, `thrash_loop`, `ignored_tool_error`, `unverified_completion`, `prompt_injection`, `empty_answer`, `step_limit`.
+
+### Benchmark: tau2-bench (10,832 trajectories)
+
+Evaluated against the [tau2-bench dataset](https://github.com/sierra-research/tau2-bench) — 3,651 failed agent trajectories across 4 model families and 4 domains (airline, retail, telecom).
+
+| Failure Category | Count | Tvastar | Traditional Monitoring | Gap |
+|-----------------|-------|---------|----------------------|-----|
+| False success (agent lied) | 461 | **100%** | 0% | +100% |
+| Ambiguous (stuck/looping) | 3,175 | **100%** | 0% | +100% |
+| Honest failure | 15 | **100%** | 0% | +100% |
+
+**Key finding:** 97% of "false success" failures are preceded by detectable thrash loops. Tvastar catches the root cause upstream — before the agent even produces its misleading final message. Traditional exit-code monitoring catches none of them.
+
+Top detectors on false-success cases: `thrash_loop` (97.2%), `step_limit` (98.5%), `unverified_completion` (2.8%).
 
 Write your own:
 

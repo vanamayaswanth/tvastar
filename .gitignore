@@ -22,3 +22,16 @@ tvastar-trace.jsonl
 
 *.log
 .agent/
+
+# Downloaded datasets (large, external)
+data/
+CC-Bench-trajectories/
+
+# Benchmark outputs (generated)
+results/
+
+# One-off scripts (not part of the package)
+scripts/
+
+# Hypothesis test database
+.hypothesis/
