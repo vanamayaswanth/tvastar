@@ -240,6 +240,11 @@ class Harness:
         back to the state it was in before the block started. The exception is
         re-raised after rollback so callers can handle it.
 
+        Child tasks (via ``session.task()``) within a transaction are also
+        rolled back since they share the parent session's sandbox. The child
+        inherits the parent's sandbox instance, so a rollback restores the
+        filesystem for both parent and child operations.
+
         Only :class:`~tvastar.sandbox.virtual.VirtualSandbox` supports this
         today. For :class:`~tvastar.sandbox.local.LocalSandbox` the context
         manager yields normally but performs no snapshot/restore.
@@ -309,9 +314,7 @@ class Harness:
                  "cancel_after": 30.0},
             ])
         """
-        with self.tracer.span(
-            "harness.fan_out", agent=self.spec.name, n_prompts=len(prompts)
-        ):
+        with self.tracer.span("harness.fan_out", agent=self.spec.name, n_prompts=len(prompts)):
             return await self._fan_out_inner(prompts, concurrency=concurrency)
 
     async def _fan_out_inner(

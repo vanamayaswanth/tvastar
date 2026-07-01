@@ -1,6 +1,8 @@
 """Smoke tests for the three feature-synthesis integrations."""
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 
 from tvastar import (
@@ -93,6 +95,10 @@ async def test_loop_budget_suspends_when_exceeded():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not importlib.util.find_spec("cryptography"),
+    reason="cryptography package not installed",
+)
 def test_encrypted_filestore_roundtrip(tmp_path):
     from tvastar.memory.store import FileStore
 

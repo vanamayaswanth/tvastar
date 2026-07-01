@@ -28,11 +28,13 @@ Usage::
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Optional, Protocol, runtime_checkable
 
 from .agent import AgentSpec
 from .harness import Harness
@@ -175,6 +177,8 @@ class WorkflowContext:
     - ``run_id``   — unique ID for this invocation
     - ``log``      — structured logging (info/warn/error)
     - ``init()``   — initialise an AgentSpec into a Harness bound to this run
+    - ``checkpoint()`` — persist step data via the configured backend
+    - ``get_checkpoint()`` — retrieve previously checkpointed data
     """
 
     run_id: str
@@ -183,6 +187,8 @@ class WorkflowContext:
     _registry: RunRegistry
     _tracer: Optional["Tracer"] = None
     _harnesses: list[Harness] = field(default_factory=list)
+    _checkpoint_backend: Optional[WorkflowCheckpoint] = None
+    _checkpoint_cache: dict[str, Any] = field(default_factory=dict)
 
     # ---- logging -----------------------------------------------------------
 
@@ -224,6 +230,53 @@ class WorkflowContext:
         wh = WorkflowHarness(harness, run=self._run, registry=self._registry)
         self._harnesses.append(harness)
         return wh
+
+    # ---- checkpointing ------------------------------------------------------
+
+    async def checkpoint(self, step_name: str, data: Any) -> None:
+        """Persist step data via the configured checkpoint backend.
+
+        Does nothing if no checkpoint backend is configured.
+        Raises on filesystem error (checkpoint failure = data loss risk).
+        """
+        if self._checkpoint_backend is None:
+            return
+        await self._checkpoint_backend.save(self.run_id, step_name, data)
+        self._checkpoint_cache[step_name] = data
+
+    async def get_checkpoint(self, step_name: str) -> Optional[Any]:
+        """Retrieve previously checkpointed data for step_name, or None."""
+        return self._checkpoint_cache.get(step_name)
+
+    async def skip_if_checkpointed(self, step_name: str) -> Optional[Any]:
+        """Return checkpointed data if step was previously completed, else None.
+
+        Convenience for the common pattern::
+
+            data = await ctx.skip_if_checkpointed("analyze")
+            if data is not None:
+                return data  # skip this phase
+            # ... do the work ...
+            await ctx.checkpoint("analyze", result_data)
+        """
+        return await self.get_checkpoint(step_name)
+
+    def build_receipt(self) -> dict:
+        """Build a unified execution receipt for this workflow run.
+
+        Aggregates timing, cost, and outcome data across all sessions
+        and sub-agent invocations within this workflow.
+        """
+        return {
+            "run_id": self.run_id,
+            "workflow_name": self._run.workflow_name,
+            "status": self._run.status.value,
+            "started_at": self._run.started_at,
+            "ended_at": self._run.ended_at,
+            "duration_seconds": (self._run.ended_at or 0) - self._run.started_at,
+            "events_count": len(self._run.events),
+            "output": self._run.output,
+        }
 
 
 # ── WorkflowHarness ──────────────────────────────────────────────────────────
@@ -328,6 +381,7 @@ class Workflow:
         *,
         run_id: Optional[str] = None,
         tracer: Optional["Tracer"] = None,
+        checkpoint_backend: Optional[WorkflowCheckpoint] = None,
     ) -> WorkflowRun:
         """Invoke the workflow and return the completed WorkflowRun."""
         rid = run_id or f"run_{uuid.uuid4().hex[:16]}"
@@ -340,8 +394,19 @@ class Workflow:
         wrun.add_event("run_start", workflow=self.name, run_id=rid)
         self.registry.save(wrun)
 
+        # Pre-load checkpoint cache from backend if available
+        checkpoint_cache: dict[str, Any] = {}
+        if checkpoint_backend is not None:
+            checkpoint_cache = await checkpoint_backend.load(rid)
+
         ctx = WorkflowContext(
-            run_id=rid, payload=payload, _run=wrun, _registry=self.registry, _tracer=tracer
+            run_id=rid,
+            payload=payload,
+            _run=wrun,
+            _registry=self.registry,
+            _tracer=tracer,
+            _checkpoint_backend=checkpoint_backend,
+            _checkpoint_cache=checkpoint_cache,
         )
 
         try:
@@ -415,6 +480,65 @@ def workflow(
     if fn is not None:
         return wrap(fn)
     return wrap
+
+
+# ── Checkpoint Protocol & Implementation ─────────────────────────────────────
+
+
+@runtime_checkable
+class WorkflowCheckpoint(Protocol):
+    """Protocol for checkpoint persistence backends."""
+
+    async def save(self, run_id: str, step_name: str, data: Any) -> None: ...
+    async def load(self, run_id: str) -> dict[str, Any]: ...
+
+
+class FileCheckpoint:
+    """JSON-file-backed checkpoint implementation.
+
+    Stores one JSON file per run_id in the configured directory.
+    Each file maps step_name -> data.
+    """
+
+    def __init__(self, directory: str = ".tvastar-checkpoints/") -> None:
+        self._directory = Path(directory)
+
+    async def save(self, run_id: str, step_name: str, data: Any) -> None:
+        """Persist step data into the run's JSON file.
+
+        Creates the directory and file if they don't exist.
+        Raises filesystem errors (e.g. permission denied, disk full).
+        """
+        self._directory.mkdir(parents=True, exist_ok=True)
+        file_path = self._directory / f"{run_id}.json"
+
+        # Load existing data if the file exists
+        existing: dict[str, Any] = {}
+        if file_path.exists():
+            try:
+                existing = json.loads(file_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, ValueError):
+                existing = {}
+
+        existing[step_name] = data
+        file_path.write_text(json.dumps(existing), encoding="utf-8")
+
+    async def load(self, run_id: str) -> dict[str, Any]:
+        """Load the checkpoint dict for a run_id.
+
+        Returns {} on missing or corrupt file.
+        """
+        file_path = self._directory / f"{run_id}.json"
+        if not file_path.exists():
+            return {}
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            result = json.loads(content)
+            if not isinstance(result, dict):
+                return {}
+            return result
+        except (json.JSONDecodeError, ValueError, OSError):
+            return {}
 
 
 # ── CLI helper (tvastar logs <run_id>) ───────────────────────────────────────

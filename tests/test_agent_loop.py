@@ -513,8 +513,8 @@ async def test_structured_output_fallback_produces_warning_finding():
 
     assert isinstance(r.data, str), "data should fall back to raw text"
     assert not r.ok, "run.ok must be False when structured output falls back"
-    fallback_findings = [f for f in r.findings if f.detector == "structured_output_fallback"]
-    assert fallback_findings, "structured_output_fallback Finding not raised"
+    fallback_findings = [f for f in r.findings if f.detector == "structured_parse_failure"]
+    assert fallback_findings, "structured_parse_failure Finding not raised"
     assert fallback_findings[0].severity == Severity.WARNING
 
 

@@ -15,6 +15,7 @@ from .base import (
     RunContext,
     Severity,
     ToolEvent,
+    detect_from_messages,
     run_detectors,
 )
 from .detectors import (
@@ -36,6 +37,7 @@ __all__ = [
     "RunContext",
     "Severity",
     "ToolEvent",
+    "detect_from_messages",
     "run_detectors",
     "default_detectors",
     "validate",

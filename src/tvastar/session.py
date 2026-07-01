@@ -66,6 +66,18 @@ _OVERFLOW_PHRASES = (
 )
 
 
+class StructuredOutputError(RuntimeError):
+    """Raised when strict structured output parsing fails after all retries."""
+
+    def __init__(self, schema: Any, raw_text: str, parse_error: str) -> None:
+        self.schema = schema
+        self.raw_text = raw_text
+        self.parse_error = parse_error
+        super().__init__(
+            f"Structured output parsing failed for {type(schema).__name__}: {parse_error}"
+        )
+
+
 @dataclass
 class RunResult:
     """Outcome of a ``prompt`` call."""
@@ -213,6 +225,7 @@ class Session:
         images: Optional[list[ImageBlock]] = None,
         result: Optional[Any] = None,
         cancel_after: Optional[float] = None,
+        strict: bool = False,
     ) -> RunResult:
         """Send a user message and run the loop to completion.
 
@@ -223,6 +236,8 @@ class Session:
                     retried up to ``_STRUCTURED_RETRIES`` times before falling
                     back to raw text.
             cancel_after: Optional timeout in seconds.
+            strict: If True, raise StructuredOutputError on final parse failure
+                    instead of falling back to raw text.
         """
         if not self._started:
             await self.start()
@@ -246,10 +261,10 @@ class Session:
         with self.tracer.span("session.prompt", session=self.id, agent=self.spec.name):
             if cancel_after is not None:
                 _run_result = await asyncio.wait_for(
-                    self._run_with_schema(result), timeout=cancel_after
+                    self._run_with_schema(result, strict=strict), timeout=cancel_after
                 )
             else:
-                _run_result = await self._run_with_schema(result)
+                _run_result = await self._run_with_schema(result, strict=strict)
         if _vault is not None:
             _run_result.text = _vault.rehydrate(_run_result.text)
         return _run_result
@@ -295,6 +310,7 @@ class Session:
         thinking_level: Optional[str] = None,
         max_steps: Optional[int] = None,
         router: Optional[Any] = None,
+        strict: bool = False,
     ) -> RunResult:
         """Delegate to a fresh child session and return its result.
 
@@ -359,24 +375,38 @@ class Session:
 
         async def _run_child() -> RunResult:
             async with child:
-                return await child.prompt(full_prompt, result=result)
+                return await child.prompt(full_prompt, result=result, strict=strict)
 
-        with self.tracer.span(
-            "session.task",
-            parent=self.id,
-            depth=child._task_depth,
-            profile=agent or "anonymous",
-        ):
-            if cancel_after is not None:
-                try:
-                    _task_result = await asyncio.wait_for(_run_child(), timeout=cancel_after)
-                except asyncio.TimeoutError:
-                    raise asyncio.TimeoutError(
-                        f"Task cancelled after {cancel_after}s "
-                        f"(agent={agent or 'anonymous'}, prompt={prompt[:60]!r})"
-                    )
-            else:
-                _task_result = await _run_child()
+        # ── profile-keyed mock routing ──────────────────────────────────────
+        # If the effective model supports profile routing (duck-type check),
+        # set the profile so MockModel.generate() picks the right script.
+        _effective_model = child_spec.model
+        _profile_name = agent or "anonymous"
+        _has_profile = hasattr(_effective_model, "_profile")
+        _prev_profile = _effective_model._profile if _has_profile else None
+        if _has_profile:
+            _effective_model._profile = _profile_name
+
+        try:
+            with self.tracer.span(
+                "session.task",
+                parent=self.id,
+                depth=child._task_depth,
+                profile=agent or "anonymous",
+            ):
+                if cancel_after is not None:
+                    try:
+                        _task_result = await asyncio.wait_for(_run_child(), timeout=cancel_after)
+                    except asyncio.TimeoutError:
+                        raise asyncio.TimeoutError(
+                            f"Task cancelled after {cancel_after}s "
+                            f"(agent={agent or 'anonymous'}, prompt={prompt[:60]!r})"
+                        )
+                else:
+                    _task_result = await _run_child()
+        finally:
+            if _has_profile:
+                _effective_model._profile = _prev_profile
         # auto-update pruner so slow/failing agents are demoted before the next routing decision
         _pruner = getattr(self.spec, "pruner", None)
         if _pruner is not None and agent is not None:
@@ -453,17 +483,19 @@ class Session:
 
     # ---- structured-output retry wrapper ------------------------------------
 
-    async def _run_with_schema(self, schema: Optional[Any]) -> RunResult:
+    async def _run_with_schema(self, schema: Optional[Any], *, strict: bool = False) -> RunResult:
         """Run the agent loop; if structured output fails to parse, correct and retry."""
         run_result = await self._run_loop()
         if schema is None:
             return run_result
 
         parsed, ok = _try_parse(run_result.text, schema)
+        parse_error_msg = ""
         for _ in range(_STRUCTURED_RETRIES):
             if ok:
                 break
             self.tracer_event("structured_output_retry")
+            parse_error_msg = str(parsed) if not ok else ""
             self.messages.append(Message("user", _correction_message(parsed, schema)))
             run_result = await self._run_loop()
             parsed, ok = _try_parse(run_result.text, schema)
@@ -471,13 +503,19 @@ class Session:
         if ok:
             run_result.data = parsed
         else:
+            # Capture the final parse error message
+            parse_error_msg = str(parsed)
+
+            if strict:
+                raise StructuredOutputError(schema, run_result.text, parse_error_msg)
+
             # Fall back to raw text and surface a warning so run.ok → False.
             run_result.data = run_result.text
             from .detect import Finding, Severity
 
             run_result.findings = list(run_result.findings) + [
                 Finding(
-                    "structured_output_fallback",
+                    "structured_parse_failure",
                     Severity.WARNING,
                     f"structured output parsing failed after {_STRUCTURED_RETRIES + 1} attempt(s);"
                     " falling back to raw text",
@@ -550,8 +588,13 @@ class Session:
             total = total + resp.usage
             self.messages.append(resp.message)
 
-            # enforce the cost budget against realized usage
+            # attribute per-step cost to the active budget phase (if any)
             budget = getattr(spec, "budget", None)
+            if budget is not None:
+                step_cost = Cost(resp.usage.input_tokens, resp.usage.output_tokens, spec.model.name)
+                budget.attribute(step_cost)
+
+            # enforce the cost budget against realized usage
             if budget is not None and not _budget_approved:
                 running = Cost(total.input_tokens, total.output_tokens, spec.model.name)
                 if budget.should_warn(running):
@@ -565,8 +608,7 @@ class Session:
                     )
                     # Only record once per threshold crossing per run
                     if not any(
-                        getattr(f, "detector", None) == "budget_warning"
-                        for f in _budget_warnings
+                        getattr(f, "detector", None) == "budget_warning" for f in _budget_warnings
                     ):
                         _budget_warnings.append(warn_finding)
                 if running.usd >= budget.max_usd:
@@ -647,6 +689,7 @@ class Session:
         result.receipt = self._assure(result, started_at=_run_started_at)
         if getattr(spec, "scrub_after_run", False):
             import hashlib as _hl
+
             for _msg in self.messages:
                 _h = _hl.sha256(str(_msg.content).encode()).hexdigest()
                 _msg.content = f"[scrubbed:sha256:{_h[:16]}]"

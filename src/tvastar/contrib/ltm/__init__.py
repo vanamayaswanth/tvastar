@@ -373,7 +373,7 @@ class LTMStore:
         """
         # Gate on whether the session ran to completion, not result.ok.
         # result.ok is False whenever any WARNING finding is present (including
-        # structured_output_fallback), but those runs still produced valid
+        # structured_parse_failure), but those runs still produced valid
         # conversation knowledge worth preserving.
         if result.stopped != "end_turn":
             return []

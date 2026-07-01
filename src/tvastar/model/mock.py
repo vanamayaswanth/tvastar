@@ -25,17 +25,29 @@ from ..types import (
 )
 from .base import Model
 
-Scripted = Union[str, ToolUseBlock, Message]
+Scripted = Union[str, ToolUseBlock, Message, dict]
 
 
 class MockModel(Model):
     name = "mock"
     system = "mock"
 
-    def __init__(self, script: Optional[Sequence[Scripted]] = None):
+    def __init__(
+        self,
+        script: Optional[Sequence[Scripted]] = None,
+        scripts: Optional[dict[str, list[Scripted]]] = None,
+    ):
         self._script = list(script or [])
         self._cursor = 0
+        self._scripts: dict[str, list[Scripted]] = dict(scripts or {})
+        self._cursors: dict[str, int] = {k: 0 for k in self._scripts}
+        self._profile: Optional[str] = None
         self.calls: list[list[Message]] = []
+
+    @property
+    def cursors(self) -> dict[str, int]:
+        """Read-only view of per-profile cursor positions."""
+        return dict(self._cursors)
 
     async def generate(
         self,
@@ -50,6 +62,19 @@ class MockModel(Model):
     ) -> ModelResponse:
         self.calls.append(list(messages))
 
+        # 1. Profile-keyed script: if _profile matches a key and cursor not exhausted
+        if (
+            self._profile is not None
+            and self._profile in self._scripts
+            and self._cursors[self._profile] < len(self._scripts[self._profile])
+        ):
+            item = self._scripts[self._profile][self._cursors[self._profile]]
+            self._cursors[self._profile] += 1
+            if isinstance(item, BaseException):
+                raise item
+            return self._wrap(item)
+
+        # 2. Flat script fallback
         if self._cursor < len(self._script):
             item = self._script[self._cursor]
             self._cursor += 1
@@ -57,7 +82,7 @@ class MockModel(Model):
                 raise item
             return self._wrap(item)
 
-        # No more scripted items: end the turn with a canned summary.
+        # 3. No more scripted items: end the turn with a canned summary.
         last_user = next((m for m in reversed(messages) if m.role == "user"), None)
         snippet = (last_user.text[:160] if last_user else "").strip()
         thinking_note = f" [thinking={thinking_level}]" if thinking_level else ""
@@ -73,6 +98,13 @@ class MockModel(Model):
             msg = item
         elif isinstance(item, ToolUseBlock):
             msg = Message("assistant", [item])
+        elif isinstance(item, dict):
+            # Structured output: serialize to JSON text so the session's
+            # structured output parser can decode it.
+            import json
+
+            text = json.dumps(item)
+            msg = Message("assistant", [TextBlock(text=text)])
         else:  # str
             msg = Message("assistant", [TextBlock(text=item)])
         stop = (

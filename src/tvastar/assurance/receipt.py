@@ -95,8 +95,8 @@ class ExecutionReceipt:
     prev_hash: str
     content_hash: str
     signature: str
-    pqc_signature: str = ""       # ML-DSA-65 (Dilithium3) signature, base64; "" when oqs absent
-    pqc_public_key: str = ""      # base64 ML-DSA-65 public key needed to verify pqc_signature
+    pqc_signature: str = ""  # ML-DSA-65 (Dilithium3) signature, base64; "" when oqs absent
+    pqc_public_key: str = ""  # base64 ML-DSA-65 public key needed to verify pqc_signature
     version: str = _RECEIPT_VERSION
 
     # ------------------------------------------------------------------ build
@@ -361,6 +361,7 @@ def _sign_pqc(content_hash: str, pqc_key_b64: str) -> tuple:
     try:
         import base64 as _b64
         import oqs  # type: ignore[import]
+
         priv = _b64.b64decode(pqc_key_b64)
         signer = oqs.Signature("ML-DSA-65", secret_key=priv)
         sig = signer.sign(content_hash.encode())
@@ -377,8 +378,11 @@ def _verify_pqc(content_hash: str, sig_b64: str, pub_b64: str) -> bool:
     try:
         import base64 as _b64
         import oqs  # type: ignore[import]
+
         verifier = oqs.Signature("ML-DSA-65")
-        return verifier.verify(content_hash.encode(), _b64.b64decode(sig_b64), _b64.b64decode(pub_b64))
+        return verifier.verify(
+            content_hash.encode(), _b64.b64decode(sig_b64), _b64.b64decode(pub_b64)
+        )
     except (ImportError, Exception):
         return True  # oqs absent — can't verify, don't fail legacy receipts
 
@@ -395,6 +399,7 @@ def generate_pqc_keypair() -> tuple:
     """
     import base64 as _b64
     import oqs  # type: ignore[import]
+
     signer = oqs.Signature("ML-DSA-65")
     pub = signer.generate_keypair()
     priv = signer.export_secret_key()

@@ -115,3 +115,104 @@ def _final_text(messages: list[Message]) -> str:
             if text:
                 return text
     return ""
+
+
+# ---------------------------------------------------------------------------
+# Private helper: empty tool registry for detect_from_messages
+# ---------------------------------------------------------------------------
+
+
+class _EmptyToolRegistry:
+    """Minimal tool registry stub reporting no tools registered.
+
+    Used when running detectors against a raw message list where we don't
+    have access to the original agent's tool definitions.
+    """
+
+    def __contains__(self, name: str) -> bool:
+        return False
+
+    def __iter__(self):
+        return iter([])
+
+    def get(self, name: str):
+        return None
+
+
+class _KnownToolsRegistry:
+    """Minimal tool registry stub that reports a fixed set of names as registered.
+
+    Used when running detectors with known_tools to suppress unknown_tool
+    false positives without needing real ToolSpec definitions.
+    """
+
+    def __init__(self, names: list[str]) -> None:
+        self._names = set(names)
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._names
+
+    def __iter__(self):
+        return iter(self._names)
+
+    def get(self, name: str):
+        return name if name in self._names else None
+
+
+# ---------------------------------------------------------------------------
+# Public convenience: detect_from_messages
+# ---------------------------------------------------------------------------
+
+
+def detect_from_messages(
+    messages: list[Message],
+    *,
+    detectors: list[Detector] | None = None,
+    stopped: str = "end_turn",
+    known_tools: list[str] | None = None,
+) -> list[Finding]:
+    """Run detectors against a raw message list without needing a RunContext.
+
+    This is the easy path for running detection against arbitrary trajectories
+    (e.g., loaded from JSONL files, sub-agent transcripts, etc.).
+
+    Args:
+        messages: The message list to analyze.
+        detectors: Detectors to run. Defaults to default_detectors().
+        stopped: Stop reason to assume. Defaults to "end_turn".
+            Heuristic: if the last assistant message has tool_use blocks
+            but no text, auto-infers "tool_use".
+        known_tools: Optional list of tool names the model had access to.
+            When provided, suppresses unknown_tool false positives by
+            reporting those tools as registered. When None, uses an empty
+            registry (existing behavior).
+
+    Returns:
+        List of findings from all detectors.
+    """
+    from .detectors import default_detectors as _default_detectors
+
+    if not messages:
+        return []
+
+    # Auto-infer stopped from last assistant message
+    _stopped = stopped
+    for m in reversed(messages):
+        if m.role == "assistant":
+            has_tool_use = any(isinstance(b, ToolUseBlock) for b in m.blocks)
+            has_text = any(
+                isinstance(b, TextBlock) and b.text.strip() for b in m.blocks
+            )
+            if has_tool_use and not has_text:
+                _stopped = "tool_use"
+            break
+
+    final_text = _final_text(messages)
+    tools_registry = _KnownToolsRegistry(known_tools) if known_tools is not None else _EmptyToolRegistry()
+    ctx = RunContext(
+        messages=messages,
+        tools=tools_registry,
+        stopped=_stopped,
+        final_text=final_text,
+    )
+    return run_detectors(ctx, detectors or _default_detectors())

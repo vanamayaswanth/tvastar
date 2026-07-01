@@ -43,7 +43,15 @@ from .approval import (
     set_default_gate,
 )
 from .bench import BenchReport, BenchResult, BenchSuite, BenchTask, swe_bench_tasks
-from .boundary import looks_like_injection, scan_for_injection, wrap_untrusted
+from .boundary import (
+    InjectionScanResult,
+    RedactionResult,
+    looks_like_injection,
+    redact_messages,
+    scan_for_injection,
+    scan_messages_for_injection,
+    wrap_untrusted,
+)
 from .compaction import CompactionPolicy, compact_messages, compact_session, should_compact
 from .cost import COST_TABLE, BudgetExceeded, BudgetPolicy, Cost, cost_for_model
 from .detect import (
@@ -51,6 +59,7 @@ from .detect import (
     RunContext,
     Severity,
     default_detectors,
+    detect_from_messages,
     prompt_injection,
     run_detectors,
 )
@@ -93,7 +102,7 @@ from .topology import auto_topology
 from .harness import Harness
 from .loop import FailureKind, Loop, LoopConfig, LoopEvent, LoopGeneration, LoopRun, LoopState
 from .loop.audit import ReadinessLevel, audit_loop
-from .quality import LoopQualityReport, score_run
+from .quality import LoopQualityReport, score_pipeline, score_run
 from .loop.handoff import CallbackHandoff, HandoffPolicy, LogHandoff, MultiHandoff
 from .loop.patterns import (
     ChangelogDrafter,
@@ -142,7 +151,7 @@ from .sandbox import (
     SecurityPolicy,
     VirtualSandbox,
 )
-from .session import RunResult, Session
+from .session import RunResult, Session, StructuredOutputError
 from .skills import Skill, SkillLibrary, parse_skill
 from .tools import (
     Tool,
@@ -167,10 +176,12 @@ from .types import (
 )
 from .ui import create_ui_app, run_ui
 from .workflow import (
+    FileCheckpoint,
     RunEvent,
     RunRegistry,
     RunStatus,
     Workflow,
+    WorkflowCheckpoint,
     WorkflowContext,
     WorkflowHarness,
     WorkflowRun,
@@ -181,7 +192,7 @@ from .workflow import (
 )
 from .wrap import WrappedResult, wrap
 
-__version__ = "0.18.0"
+__version__ = "0.19.0"
 
 __all__ = [
     "create_agent",
@@ -191,6 +202,8 @@ __all__ = [
     "RunResult",
     "workflow",
     "Workflow",
+    "WorkflowCheckpoint",
+    "FileCheckpoint",
     "WorkflowContext",
     "WorkflowHarness",
     "WorkflowRun",
@@ -232,12 +245,17 @@ __all__ = [
     "Severity",
     "RunContext",
     "default_detectors",
+    "detect_from_messages",
     "run_detectors",
     "prompt_injection",
     # content boundary / injection scan (honest mitigation, not protection)
     "wrap_untrusted",
     "scan_for_injection",
+    "scan_messages_for_injection",
+    "InjectionScanResult",
     "looks_like_injection",
+    "redact_messages",
+    "RedactionResult",
     # tool masking + invocation-layer governance
     "MaskContext",
     "ToolPolicy",
@@ -264,6 +282,7 @@ __all__ = [
     "SkillError",
     "SandboxError",
     "SecurityViolation",
+    "StructuredOutputError",
     # compaction
     "CompactionPolicy",
     "compact_session",
@@ -348,6 +367,7 @@ __all__ = [
     # loop quality scoring
     "LoopQualityReport",
     "score_run",
+    "score_pipeline",
     # adapter layer — wrap any external agent loop
     "wrap",
     "WrappedResult",

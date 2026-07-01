@@ -165,6 +165,6 @@ async def test_run_result_data_populated_from_valid_json(
 
     # No fallback findings should be present
     fallback_findings = [
-        f for f in run_result.findings if f.detector == "structured_output_fallback"
+        f for f in run_result.findings if f.detector == "structured_parse_failure"
     ]
     assert len(fallback_findings) == 0

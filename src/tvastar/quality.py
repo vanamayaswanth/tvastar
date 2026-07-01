@@ -6,6 +6,12 @@ Usage::
     print(result.quality.score)    # 70
     print(result.quality.grade)    # "WARN"
     print(result.quality.summary)  # "1 warning — tool 'bash' called 3x with identical arguments"
+
+Pipeline scoring::
+
+    from tvastar.quality import score_pipeline
+    report = score_pipeline([result1, result2], strategy="worst")
+    print(report.score)  # min score across all results
 """
 
 from __future__ import annotations
@@ -18,7 +24,7 @@ from .detect import Finding, Severity
 if TYPE_CHECKING:  # pragma: no cover
     from .session import RunResult
 
-__all__ = ["LoopQualityReport", "score_run"]
+__all__ = ["LoopQualityReport", "score_run", "score_pipeline"]
 
 _ERROR_PENALTY = 30
 _WARNING_PENALTY = 10
@@ -92,5 +98,86 @@ def score_run(result: "RunResult") -> LoopQualityReport:
         errors=errors,
         warnings=warnings,
         findings=result.findings,
+        summary=summary,
+    )
+
+
+def score_pipeline(
+    results: "list[RunResult]",
+    *,
+    strategy: str = "worst",
+) -> LoopQualityReport:
+    """Score a pipeline of multiple RunResult objects.
+
+    Strategies:
+    - "worst": pipeline score = min score across all results (strictest)
+    - "average": pipeline score = mean score across all results
+    - "all_pass": score=100 if all results pass individually, else min score
+
+    Aggregates findings from all results.
+    """
+    if not results:
+        return LoopQualityReport(
+            score=100,
+            grade="PASS",
+            errors=[],
+            warnings=[],
+            findings=[],
+            summary="No issues detected.",
+        )
+
+    reports = [score_run(r) for r in results]
+
+    # Aggregate all findings
+    all_findings: list[Finding] = []
+    all_errors: list[Finding] = []
+    all_warnings: list[Finding] = []
+    for rep in reports:
+        all_findings.extend(rep.findings)
+        all_errors.extend(rep.errors)
+        all_warnings.extend(rep.warnings)
+
+    scores = [rep.score for rep in reports]
+
+    if strategy == "worst":
+        score = min(scores)
+    elif strategy == "average":
+        score = int(sum(scores) / len(scores))
+    elif strategy == "all_pass":
+        if all(rep.passed for rep in reports):
+            score = 100
+        else:
+            score = min(scores)
+    else:
+        raise ValueError(f"Unknown strategy: {strategy!r}")
+
+    if score >= 80:
+        grade = "PASS"
+    elif score >= 60:
+        grade = "WARN"
+    else:
+        grade = "FAIL"
+
+    parts = []
+    if all_errors:
+        parts.append(f"{len(all_errors)} error{'s' if len(all_errors) != 1 else ''}")
+    if all_warnings:
+        parts.append(f"{len(all_warnings)} warning{'s' if len(all_warnings) != 1 else ''}")
+
+    if not parts:
+        summary = "No issues detected."
+    elif all_errors:
+        summary = ", ".join(parts) + f" — {all_errors[0].message}"
+    elif all_warnings:
+        summary = ", ".join(parts) + f" — {all_warnings[0].message}"
+    else:
+        summary = ", ".join(parts)
+
+    return LoopQualityReport(
+        score=score,
+        grade=grade,
+        errors=all_errors,
+        warnings=all_warnings,
+        findings=all_findings,
         summary=summary,
     )

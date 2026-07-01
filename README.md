@@ -573,6 +573,35 @@ print(report.severity)
 
 Works with Pydantic v2, Pydantic v1, dataclasses, plain `dict`, or any callable validator.
 
+### Strict mode — fail loudly on parse failure
+
+```python
+from tvastar import StructuredOutputError
+
+try:
+    result = await sess.prompt("Analyse this.", result=Report, strict=True)
+except StructuredOutputError as e:
+    print(f"Schema: {type(e.schema).__name__}")
+    print(f"Raw text: {e.raw_text[:100]}")
+    print(f"Parse error: {e.parse_error}")
+```
+
+Without `strict=True` (the default), parse failures fall back to raw text and
+surface a `"structured_parse_failure"` finding in `result.findings`.
+
+### Testing structured output with MockModel
+
+Script dict entries for deterministic structured output in tests:
+
+```python
+from tvastar import MockModel
+
+model = MockModel(scripts={
+    "analyst": [{"summary": "All clear", "issues": [], "severity": "low"}],
+})
+# session.task(agent="analyst", result=Report) will parse the JSON correctly
+```
+
 ---
 
 ## Delegating to specialist sub-agents
@@ -1159,6 +1188,19 @@ for past_run in summarise_document.list_runs():
     print(past_run.run_id, past_run.status)
 ```
 
+### Workflow receipts
+
+Get a unified execution receipt after a workflow run:
+
+```python
+@workflow
+async def my_workflow(ctx: WorkflowContext) -> dict:
+    # ... do work ...
+    receipt = ctx.build_receipt()
+    # {"run_id": "run_abc", "status": "completed", "duration_seconds": 12.3, ...}
+    return {"result": data, "receipt": receipt}
+```
+
 ---
 
 ## Event-driven dispatch
@@ -1257,6 +1299,35 @@ harness = Harness(agent, store=FileStore(".tvastar-state"))
 
 # On restart — resume from last checkpoint
 sess = harness.resume("sess_abc123") or harness.session()
+```
+
+### Workflow-level checkpoints
+
+For multi-phase workflows, checkpoint at the orchestration level so re-invocation
+skips completed phases:
+
+```python
+from tvastar import workflow, WorkflowContext, FileCheckpoint
+
+@workflow
+async def my_pipeline(ctx: WorkflowContext) -> dict:
+    # Skip if already completed
+    data = await ctx.skip_if_checkpointed("phase_1")
+    if data is None:
+        data = await do_expensive_work()
+        await ctx.checkpoint("phase_1", data)
+
+    # Phase 2 uses phase 1 output
+    result = await do_more_work(data)
+    await ctx.checkpoint("phase_2", result)
+    return result
+
+# Run with checkpoint persistence
+run = await my_pipeline.run(
+    {"input": "..."},
+    checkpoint_backend=FileCheckpoint(".tvastar-checkpoints/"),
+)
+# On crash + re-run with same run_id: skips completed phases automatically
 ```
 
 ---
@@ -1419,6 +1490,37 @@ def slow_run(ctx):
 create_agent(..., detect=[*default_detectors(), slow_run])
 ```
 
+### Detect from raw trajectories — no RunContext needed
+
+Run detectors against any message list (JSONL trajectories, sub-agent transcripts):
+
+```python
+from tvastar import detect_from_messages
+
+# Load a trajectory from a file and run all detectors
+from tvastar.types import Message
+messages = [...]  # parsed from JSONL
+
+findings = detect_from_messages(messages)
+for f in findings:
+    print(f)  # [WARNING] thrash_loop: tool 'bash' called 3x with identical args
+
+# Suppress false positives for known tools
+findings = detect_from_messages(messages, known_tools=["bash", "read_file", "write_file"])
+```
+
+### Score a pipeline of multiple runs
+
+```python
+from tvastar.quality import score_pipeline
+
+report = score_pipeline([result1, result2, result3], strategy="worst")
+print(report.score)    # min score across all results
+print(report.grade)    # "PASS" | "WARN" | "FAIL"
+```
+
+Strategies: `"worst"` (strictest — min score), `"average"` (mean), `"all_pass"` (100 if all pass, else min).
+
 ---
 
 ## Untrusted content & prompt-injection detection
@@ -1438,6 +1540,37 @@ from tvastar import wrap_untrusted, scan_for_injection
 @tool
 async def fetch(url: str) -> str:
     "Fetch a web page."
+    page = await http_get(url)
+    return wrap_untrusted(page, source=url)   # the model sees it as DATA
+
+# the prompt_injection detector flags suspicious tool output automatically:
+result = await harness.run("Summarise that page.")
+for f in result.warnings:
+    if f.detector == "prompt_injection":
+        print("⚠ possible injection in tool output:", f.message)
+```
+
+### Scan full message lists for injection
+
+```python
+from tvastar import scan_messages_for_injection
+
+result = scan_messages_for_injection(messages)
+if result.is_adversarial:
+    for e in result.evidence:
+        print(e)  # [msg 3, tool_result] pattern 'override_instructions': "ignore all previous..."
+```
+
+### Redact PII from message lists
+
+```python
+from tvastar import redact_messages
+
+result = redact_messages(messages)
+print(result.redaction_count)    # 3
+print(result.redacted_types)     # ["email", "phone"]
+# Messages now contain [EMAIL_1], [PHONE_2] placeholders instead of real PII
+```
     page = await http_get(url)
     return wrap_untrusted(page, source=url)   # the model sees it as DATA
 
@@ -1473,6 +1606,12 @@ agent = create_agent("assistant", model=..., governance=gov)
 
 # Elevate at runtime (per-session — concurrent sessions are isolated):
 gov.set_phase("write")
+
+# Single-call enforcement for custom tool pipelines:
+block = await gov.enforce("write_file", tool_use_id="call_123")
+if block is not None:
+    # block is a ToolResultBlock(is_error=True) — feed it back to the model
+    print(block.content)  # [governance] denied: tool 'write_file' not permitted in phase 'read'
 
 # Wire masking and governance together from one object:
 create_agent(..., governance=gov, tool_policy=gov.as_tool_policy())
@@ -1756,6 +1895,28 @@ if hasattr(result, "cost"):
     print(f"Run cost: ${result.cost.usd:.4f}")
 ```
 
+### Per-phase cost attribution
+
+Track which workflow phases consume the most budget:
+
+```python
+budget = BudgetPolicy(max_usd=2.0, on_exceed="stop")
+
+async with budget.phase("planning"):
+    result1 = await sess.prompt("Plan the approach")
+
+async with budget.phase("execution"):
+    result2 = await sess.prompt("Execute the plan")
+
+# See where the money went
+for phase, cost in budget.cost_breakdown().items():
+    print(f"  {phase}: ${cost.usd:.4f}")
+# planning: $0.0120
+# execution: $0.0450
+
+budget.reset_phases()  # clear for next run
+```
+
 Supported models with automatic pricing: Claude (all tiers), GPT-4o, GPT-4o-mini, o1, o3-mini, Llama via Groq, and more. Add custom rates to `COST_TABLE`.
 
 ---
@@ -1929,6 +2090,9 @@ Products ship first. Framework features get added only when a product needs them
 | **Audit reports** | `receipt.to_audit_report()` — text + HTML, hand to a lawyer | ✅ v0.15.1 |
 | **7 regulatory gaps** | model tracking, tool outputs, PII redaction, human approver, access control, breach alert, retention | ✅ v0.15.2–v0.15.4 |
 | **Presidio ML PII** | `SanitizationPolicy.presidio()` — 50+ entity types, 15+ languages | ✅ v0.15.3 |
+| **Silent-failure benchmark** | tau2-bench 10,832 trajectories — 100% detection on false-success | ✅ v0.18.0 |
+| **Core primitives upgrade** | `enforce()`, durable checkpoints, profile-keyed MockModel, `score_pipeline`, `detect_from_messages`, `redact_messages`, `scan_messages_for_injection`, composable tracer helpers | ✅ v0.19.0 |
+| **Agent Debugger example** | Meta-agent that diagnoses, fixes, and verifies failing trajectories — exercises every framework feature | ✅ v0.19.0 |
 | **tvastar-comply** | Token-vault PII rehydration, CCPA / GLBA coverage, enterprise dashboard | 🔒 v0.16.0 |
 | **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |
 | **tvastar-devops** | Auto-heal production incidents | 📋 v1.1.0 |

@@ -177,9 +177,7 @@ class TaskGraph:
         self._validate()
 
         # Resolve tracer — harness exposes it as .tracer (public) or ._tracer (fallback)
-        _tracer = getattr(self._harness, "tracer", None) or getattr(
-            self._harness, "_tracer", None
-        )
+        _tracer = getattr(self._harness, "tracer", None) or getattr(self._harness, "_tracer", None)
 
         completed: dict[str, "RunResult"] = {}
         errors: dict[str, BaseException] = {}
@@ -247,11 +245,7 @@ class TaskGraph:
 
         from contextlib import nullcontext
 
-        _graph_ctx = (
-            _tracer.span("graph.run")
-            if _tracer is not None
-            else nullcontext()
-        )
+        _graph_ctx = _tracer.span("graph.run") if _tracer is not None else nullcontext()
         with _graph_ctx:
             await asyncio.gather(*[_run_one(n) for n in self._nodes])
 

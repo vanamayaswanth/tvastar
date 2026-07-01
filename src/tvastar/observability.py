@@ -124,6 +124,27 @@ class Tracer:
             self._stack.pop()
             self._emit(span)
 
+    @contextmanager
+    def phase(self, name: str, **attributes: Any):
+        """Create a span for a workflow phase."""
+        merged = {**attributes, "phase.name": name}
+        with self.span(f"phase.{name}", **merged) as sp:
+            yield sp
+
+    @contextmanager
+    def agent_call(self, name: str, **attributes: Any):
+        """Create a span for an agent/subagent invocation."""
+        merged = {**attributes, "agent.name": name}
+        with self.span(f"agent.{name}", **merged) as sp:
+            yield sp
+
+    @contextmanager
+    def detector(self, name: str, **attributes: Any):
+        """Create a span for a detector run."""
+        merged = {**attributes, "detector.name": name}
+        with self.span(f"detector.{name}", **merged) as sp:
+            yield sp
+
     def event(self, span: Span, name: str, **data: Any) -> None:
         span.events.append({"name": name, "at": time.time(), **data})
 

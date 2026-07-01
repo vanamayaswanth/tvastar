@@ -31,11 +31,13 @@ def _make_fernet(key: Optional[str]):
         return None
     try:
         from cryptography.fernet import Fernet
+
         # Derive a 32-byte Fernet key from the user-supplied string via SHA-256.
         fernet_key = base64.urlsafe_b64encode(hashlib.sha256(raw.encode()).digest())
         return Fernet(fernet_key)
     except ImportError:
         import warnings
+
         warnings.warn("pip install cryptography to enable encrypted FileStore", stacklevel=3)
         return None
 
@@ -150,7 +152,9 @@ class FileStore(Store):
             return None
         try:
             raw = p.read_bytes()
-            text = self._fernet.decrypt(raw).decode("utf-8") if self._fernet else raw.decode("utf-8")
+            text = (
+                self._fernet.decrypt(raw).decode("utf-8") if self._fernet else raw.decode("utf-8")
+            )
             return json.loads(text)
         except Exception:
             return None

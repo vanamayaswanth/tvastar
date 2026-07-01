@@ -6,6 +6,33 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-07-01
+
+### Added
+
+- **Agent Debugger example** (`examples/agent_debugger/`): full meta-agent that diagnoses, fixes, and verifies failing agent trajectories — exercises every major Tvastar feature.
+- **`GovernancePolicy.enforce()`** — async method returning `ToolResultBlock | None` on violation, integrating approval gate flow. Eliminates external wrapper functions.
+- **Durable workflow checkpoints** — `WorkflowCheckpoint` protocol + `FileCheckpoint` implementation + `ctx.checkpoint()` / `ctx.get_checkpoint()` / `ctx.skip_if_checkpointed()` on WorkflowContext.
+- **Profile-keyed MockModel** — `MockModel(scripts={"agent_name": [...]})` for deterministic multi-agent testing with independent per-profile cursors.
+- **`StructuredOutputError`** — raised when `strict=True` and structured output parsing fails after retries. `"structured_parse_failure"` finding added on fallback.
+- **Per-phase budget attribution** — `BudgetPolicy.phase()` async context manager + `cost_breakdown()` + `attribute()` + `reset_phases()`.
+- **Composable tracer helpers** — `tracer.phase()`, `tracer.agent_call()`, `tracer.detector()` context managers on `Tracer`.
+- **`detect_from_messages()`** — one-liner detection on raw message lists without manual RunContext construction. Supports `known_tools` parameter to suppress false positives.
+- **`scan_messages_for_injection()`** — scans all message content for injection patterns, returns structured `InjectionScanResult`.
+- **`redact_messages()`** — PII redaction on `list[Message]` with indexed placeholders and metadata (`RedactionResult`).
+- **`score_pipeline()`** — pipeline-level quality scoring with "worst", "average", and "all_pass" strategies.
+- **`ctx.build_receipt()`** — unified workflow execution receipt aggregating timing, cost, and outcome.
+
+### Fixed
+
+- Dev dependencies now include `pydantic>=2.0` and `cryptography>=41.0` — tests no longer skip or fail based on installation order.
+- Replaced `"structured_output_fallback"` finding name with `"structured_parse_failure"` across all tests and code.
+
+### Changed
+
+- `MockModel` `Scripted` type extended to include `dict` — dict entries are serialized to JSON text for structured output testing.
+- `harness.transaction()` docstring clarified: child tasks are also rolled back since they share the parent's sandbox.
+
 ## [0.18.0] — 2026-06-28
 
 ### Added

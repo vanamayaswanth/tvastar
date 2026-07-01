@@ -209,9 +209,7 @@ def _load_jsonl(path: Path) -> list[RawTrajectory]:
             try:
                 entry = json.loads(stripped)
             except json.JSONDecodeError as exc:
-                logger.warning(
-                    "Malformed JSON at %s line %d: %s", path.name, line_no, exc
-                )
+                logger.warning("Malformed JSON at %s line %d: %s", path.name, line_no, exc)
                 continue
             traj = _parse_entry(entry, f"{path.name}:{line_no}")
             if traj is not None:
@@ -256,9 +254,7 @@ def _load_json_file(path: Path) -> list[RawTrajectory]:
 def _load_directory(dir_path: Path) -> list[RawTrajectory]:
     """Load trajectories from a directory of JSON/JSONL files."""
     results: list[RawTrajectory] = []
-    json_files = sorted(
-        p for p in dir_path.iterdir() if p.suffix in (".json", ".jsonl")
-    )
+    json_files = sorted(p for p in dir_path.iterdir() if p.suffix in (".json", ".jsonl"))
     if not json_files:
         logger.warning("No .json or .jsonl files found in %s", dir_path)
     for file_path in json_files:
@@ -284,9 +280,7 @@ def load_trajectories(dataset_path: Path) -> list[RawTrajectory]:
         FileNotFoundError: If dataset_path does not exist.
     """
     if not dataset_path.exists():
-        raise FileNotFoundError(
-            f"Dataset path does not exist: {dataset_path}"
-        )
+        raise FileNotFoundError(f"Dataset path does not exist: {dataset_path}")
 
     if dataset_path.is_dir():
         return _load_directory(dataset_path)
@@ -375,7 +369,9 @@ def adapt_trajectory(raw: RawTrajectory) -> RunContext:
                 tc_id = tc.get("id", f"call_{id(tc):x}")
                 blocks.append(ToolUseBlock(name=tc_name, input=args, id=tc_id))
 
-            messages.append(Message(role="assistant", content=blocks if blocks else [TextBlock(text="")]))
+            messages.append(
+                Message(role="assistant", content=blocks if blocks else [TextBlock(text="")])
+            )
 
         else:
             # user or system
@@ -498,9 +494,7 @@ def run_benchmark(dataset_path: Path) -> list[TrajectoryResult]:
                 )
             )
         except Exception as exc:
-            logger.warning(
-                "Failed to process trajectory %s: %s", raw.id, exc
-            )
+            logger.warning("Failed to process trajectory %s: %s", raw.id, exc)
             continue
 
     return results
@@ -585,13 +579,11 @@ def aggregate_results(results: list[TrajectoryResult]) -> AggregatedResults:
     for r in results:
         detectors_fired = sorted({f.detector for f in r.tvastar_findings})
         for i, d1 in enumerate(detectors_fired):
-            for d2 in detectors_fired[i + 1:]:
+            for d2 in detectors_fired[i + 1 :]:
                 cooccurrence[(d1, d2)] += 1
 
     detector_cooccurrence = [
-        (d1, d2, count) for (d1, d2), count in sorted(
-            cooccurrence.items(), key=lambda x: -x[1]
-        )
+        (d1, d2, count) for (d1, d2), count in sorted(cooccurrence.items(), key=lambda x: -x[1])
     ]
 
     return AggregatedResults(
@@ -654,17 +646,17 @@ def generate_report(agg: AggregatedResults, paper_cite: str = "arXiv:2606.09863"
     # Methodology
     lines.append("## Methodology")
     lines.append("")
-    lines.append(
-        "Each trajectory with `reward=0` from the tau2-bench dataset was:"
-    )
+    lines.append("Each trajectory with `reward=0` from the tau2-bench dataset was:")
     lines.append("")
-    lines.append("1. Labeled using the paper's three-class taxonomy (false success, honest failure, ambiguous)")
+    lines.append(
+        "1. Labeled using the paper's three-class taxonomy (false success, honest failure, ambiguous)"
+    )
     lines.append("2. Converted to a Tvastar `RunContext` for detector analysis")
-    lines.append("3. Evaluated by both the full Tvastar detector suite and a naive exit-code baseline")
-    lines.append("")
     lines.append(
-        f"Reference: \"{paper_cite}\" — From Confident Closing to Silent Failure."
+        "3. Evaluated by both the full Tvastar detector suite and a naive exit-code baseline"
     )
+    lines.append("")
+    lines.append(f'Reference: "{paper_cite}" — From Confident Closing to Silent Failure.')
     lines.append("")
 
     # Per-Detector Analysis
@@ -732,12 +724,9 @@ def generate_report(agg: AggregatedResults, paper_cite: str = "arXiv:2606.09863"
         f"| +{detection_gap:.1%} |"
     )
     tvastar_only = sum(
-        1 for r in agg.trajectory_results
-        if r.tvastar_findings and not r.baseline_findings
+        1 for r in agg.trajectory_results if r.tvastar_findings and not r.baseline_findings
     )
-    lines.append(
-        f"| Unique Catches | {tvastar_only} | — | — |"
-    )
+    lines.append(f"| Unique Catches | {tvastar_only} | — | — |")
     lines.append("")
     lines.append(
         f"Tvastar detects **{detection_gap:.1%}** more silent failures than "
@@ -775,8 +764,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="tvastar.bench.silent_failure",
         description=(
-            "Evaluate Tvastar detectors against tau2-bench silent-failure data "
-            "(arXiv:2606.09863)."
+            "Evaluate Tvastar detectors against tau2-bench silent-failure data (arXiv:2606.09863)."
         ),
     )
     parser.add_argument(
@@ -813,14 +801,16 @@ def main(argv: list[str] | None = None) -> None:
     agg = aggregate_results(results)
 
     # Print summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Silent Failure Benchmark Results")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Total trajectories analyzed: {agg.total_failures}")
     print(f"Tvastar detection rate:      {agg.overall_detection_rate:.1%}")
     print(f"Naive baseline rate:         {agg.baseline_detection_rate:.1%}")
-    print(f"Detection gap:               +{agg.overall_detection_rate - agg.baseline_detection_rate:.1%}")
-    print(f"{'='*60}\n")
+    print(
+        f"Detection gap:               +{agg.overall_detection_rate - agg.baseline_detection_rate:.1%}"
+    )
+    print(f"{'=' * 60}\n")
 
     # Write outputs
     output_dir = args.output_dir
@@ -846,9 +836,7 @@ def main(argv: list[str] | None = None) -> None:
                 d: {"trajectories": s.trajectories, "detection_rate": round(s.detection_rate, 4)}
                 for d, s in agg.by_domain.items()
             },
-            "per_detector": {
-                d: round(r, 4) for d, r in agg.per_detector_rates.items()
-            },
+            "per_detector": {d: round(r, 4) for d, r in agg.per_detector_rates.items()},
         }
         json_path.write_text(json.dumps(json_data, indent=2), encoding="utf-8")
         print(f"JSON results written to: {json_path}")

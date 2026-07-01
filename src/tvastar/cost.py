@@ -13,8 +13,9 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from typing import AsyncIterator, Literal
 
 __all__ = [
     "Cost",
@@ -133,6 +134,9 @@ class BudgetPolicy:
     on_exceed: Literal["raise", "stop", "approve"] = "raise"
     warn_at: float | None = 0.8
 
+    _phase_stack: list[str] = field(default_factory=list, init=False, repr=False)
+    _phase_costs: dict[str, Cost] = field(default_factory=dict, init=False, repr=False)
+
     def check(self, cost: Cost) -> None:
         """Raise BudgetExceeded if cost exceeds the limit."""
         if cost.usd >= self.max_usd:
@@ -143,6 +147,34 @@ class BudgetPolicy:
         if self.warn_at is None:
             return False
         return cost.usd >= self.max_usd * self.warn_at
+
+    @asynccontextmanager
+    async def phase(self, phase_name: str) -> AsyncIterator[None]:
+        """Attribute costs within this context to the named phase."""
+        if not phase_name:
+            raise ValueError("phase_name must not be empty")
+        if len(self._phase_stack) >= 10:
+            raise RuntimeError("Maximum phase nesting depth (10) exceeded")
+        self._phase_stack.append(phase_name)
+        try:
+            yield
+        finally:
+            self._phase_stack.pop()
+
+    def attribute(self, cost: Cost) -> None:
+        """Called internally by the session loop to route cost to active phase."""
+        phase = self._phase_stack[-1] if self._phase_stack else "_unattributed"
+        if phase not in self._phase_costs:
+            self._phase_costs[phase] = Cost(0, 0, cost.model)
+        self._phase_costs[phase] = self._phase_costs[phase] + cost
+
+    def cost_breakdown(self) -> dict[str, Cost]:
+        """Return per-phase cost accumulations."""
+        return dict(self._phase_costs)
+
+    def reset_phases(self) -> None:
+        """Clear all per-phase accumulators."""
+        self._phase_costs.clear()
 
 
 # ---------------------------------------------------------------------------

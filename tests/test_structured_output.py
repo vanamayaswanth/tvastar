@@ -159,7 +159,7 @@ class TestSuccessfulParse:
         agent = _make_agent(['{"name": "Carol", "age": 40}'])
         r = await Harness(agent).run("get user", result=UserV2)
         fallback_findings = [
-            f for f in r.findings if f.detector == "structured_output_fallback"
+            f for f in r.findings if f.detector == "structured_parse_failure"
         ]
         assert len(fallback_findings) == 0
 
@@ -248,13 +248,13 @@ class TestFallbackBehavior:
         assert isinstance(r.data, str)
 
     async def test_fallback_emits_warning_finding(self):
-        """Fallback should emit a structured_output_fallback WARNING finding."""
+        """Fallback should emit a structured_parse_failure WARNING finding."""
         total = _STRUCTURED_RETRIES + 1
         script = ["bad"] * total
         agent = _make_agent(script)
         r = await Harness(agent).run("get user", result=UserV2)
         fallback_findings = [
-            f for f in r.findings if f.detector == "structured_output_fallback"
+            f for f in r.findings if f.detector == "structured_parse_failure"
         ]
         assert len(fallback_findings) == 1
         assert fallback_findings[0].severity == Severity.WARNING
@@ -266,7 +266,7 @@ class TestFallbackBehavior:
         agent = _make_agent(script)
         r = await Harness(agent).run("get user", result=UserV2)
         fallback_findings = [
-            f for f in r.findings if f.detector == "structured_output_fallback"
+            f for f in r.findings if f.detector == "structured_parse_failure"
         ]
         msg = fallback_findings[0].message
         assert f"{_STRUCTURED_RETRIES + 1} attempt" in msg

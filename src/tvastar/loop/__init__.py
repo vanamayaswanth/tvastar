@@ -642,8 +642,12 @@ class Loop:
                     {
                         "run_id": r.run_id if hasattr(r, "run_id") else r.get("run_id", ""),
                         "state": r.state if hasattr(r, "state") else r.get("state", ""),
-                        "started_at": r.started_at if hasattr(r, "started_at") else r.get("started_at", 0),
-                        "result_text": r.result_text if hasattr(r, "result_text") else r.get("result_text"),
+                        "started_at": r.started_at
+                        if hasattr(r, "started_at")
+                        else r.get("started_at", 0),
+                        "result_text": r.result_text
+                        if hasattr(r, "result_text")
+                        else r.get("result_text"),
                         "failure_kind": (
                             r.failure_kind.value
                             if hasattr(r, "failure_kind") and r.failure_kind is not None

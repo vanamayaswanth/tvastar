@@ -28,6 +28,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Iterable, Optional
 
+from .types import ToolResultBlock
+
 if TYPE_CHECKING:  # pragma: no cover
     from .approval import ApprovalGate
     from .types import Message
@@ -231,3 +233,64 @@ class GovernancePolicy:
         import dataclasses
 
         return dataclasses.replace(self, phases={k: set(v) for k, v in self.phases.items()})
+
+    async def enforce(
+        self,
+        tool_name: str,
+        tool_use_id: str = "",
+    ) -> Optional[ToolResultBlock]:
+        """Check governance and return an error block on violation, or None if allowed.
+
+        This is the single-call API for custom tool execution pipelines.
+        Returns ``None`` when the tool is permitted (either directly or via
+        approval gate). Returns a ``ToolResultBlock(is_error=True)`` when
+        blocked.
+
+        Algorithm:
+            1. If the tool is allowed in the current phase → return None.
+            2. If current_phase is not in phases → fail closed (error block).
+            3. If an approval_gate is configured → await the gate:
+               - Approved → return None.
+               - ApprovalDenied / ApprovalTimeout → return error block.
+            4. No gate → return error block (hard block).
+        """
+        from .approval import ApprovalDenied, ApprovalTimeout
+
+        # 1. Tool is permitted in the current phase.
+        if self.is_allowed(tool_name):
+            return None
+
+        # 2. Unknown phase → fail closed.
+        if self.current_phase not in self.phases:
+            return ToolResultBlock(
+                tool_use_id=tool_use_id,
+                content=f"[governance] denied: tool {tool_name!r} blocked — unknown phase {self.current_phase!r}",
+                is_error=True,
+            )
+
+        # 3. Gate configured → ask for approval.
+        if self.approval_gate is not None:
+            try:
+                await self.approval_gate.request(
+                    f"Tool {tool_name!r} is not permitted in phase {self.current_phase!r}. Approve?",
+                )
+                return None
+            except ApprovalDenied as exc:
+                return ToolResultBlock(
+                    tool_use_id=tool_use_id,
+                    content=f"[governance] denied: {exc}",
+                    is_error=True,
+                )
+            except ApprovalTimeout as exc:
+                return ToolResultBlock(
+                    tool_use_id=tool_use_id,
+                    content=f"[governance] denied: {exc}",
+                    is_error=True,
+                )
+
+        # 4. No gate → hard block.
+        return ToolResultBlock(
+            tool_use_id=tool_use_id,
+            content=f"[governance] denied: tool {tool_name!r} is not permitted in phase {self.current_phase!r}",
+            is_error=True,
+        )
