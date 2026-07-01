@@ -6,6 +6,24 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-06-28
+
+### Added
+
+- **Silent-failure benchmark** (`tvastar.bench.silent_failure`): evaluate Tvastar's detectors against tau2-bench academic data (10,832 trajectories, 3,651 failures). Run via `python -m tvastar.bench.silent_failure`.
+- **Benchmark results in README**: 100% detection rate on false-success trajectories vs. 0% for traditional monitoring.
+- **Vidura BA verification suite**: 1,440 property-based and unit tests covering all 24 requirements and 35 correctness properties (tests/pbt/).
+
+### Fixed
+
+- Removed `pqc` optional extra (`oqs-python` is not available on PyPI) — unblocks `uv sync` on all platforms.
+- Fixed `from __future__ import annotations` in serving module that broke Pydantic model resolution with FastAPI.
+- Fixed `adapt_trajectory` handling of `tool_calls: null` in tau2-bench data.
+
+### Changed
+
+- Hypothesis PBT profile reduced from 100 to 10 examples for faster CI (~76s full suite).
+
 ## [0.15.5] — 2026-06-20
 
 ### Changed — ponytail-audit cuts (~-60 lines)

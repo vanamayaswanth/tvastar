@@ -11,7 +11,28 @@ Category: loop quality / loop engineering framework -->
 [![PyPI](https://img.shields.io/pypi/v/tvastar.svg)](https://pypi.org/project/tvastar/)
 [![Python](https://img.shields.io/pypi/pyversions/tvastar.svg)](https://pypi.org/project/tvastar/)
 [![CI](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml/badge.svg)](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
+**The agent harness that catches when AI agents lie about success.**
+
+```python
+# pip install tvastar
+from tvastar import Harness, create_agent, default_toolset
+from tvastar.model import AnthropicModel
+
+agent = create_agent(
+    "my-agent",
+    model=AnthropicModel("claude-sonnet-4-6"),
+    tools=default_toolset(),
+)
+result = await Harness(agent).run("Fix the failing tests")
+
+print(result.quality.grade)    # "FAIL"
+print(result.quality.summary)  # "agent claimed success but last tool shows failure"
+print(result.ok)               # False — Tvastar caught the lie
+```
+
+> **Benchmark:** 3,651 failed agent trajectories from [tau2-bench](https://github.com/sierra-research/tau2-bench). Tvastar detected **100%**. Traditional monitoring detected **0%**. [Details →](#benchmark-tau2-bench-10832-trajectories)
 
 ---
 
