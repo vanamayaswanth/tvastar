@@ -23,6 +23,7 @@ tvastar-trace.jsonl
 .cursor/
 
 *.log
+.env
 .agent/
 
 # Downloaded datasets (large, external)
