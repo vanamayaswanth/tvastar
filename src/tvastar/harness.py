@@ -20,7 +20,7 @@ from typing import Any, Optional
 
 from .agent import AgentSpec
 from .durable import Checkpointer
-from .memory.store import InMemoryStore, Store
+from .memory.store import FileStore, InMemoryStore, Store
 from .observability import NULL_TRACER, Tracer
 from .session import RunResult, Session
 
@@ -233,12 +233,13 @@ class Harness:
 
     @asynccontextmanager
     async def transaction(self, session: Session) -> AsyncIterator[Session]:
-        """Snapshot the session sandbox before the block; restore on exception.
+        """Snapshot the session sandbox and messages before the block; restore on exception.
 
         Makes a group of agent steps atomically safe: if any step (or any code
-        in the ``async with`` block) raises, the sandbox filesystem is rolled
-        back to the state it was in before the block started. The exception is
-        re-raised after rollback so callers can handle it.
+        in the ``async with`` block) raises, the sandbox filesystem and session
+        messages are rolled back to the state they were in before the block
+        started. The exception is re-raised after rollback so callers can
+        handle it.
 
         Child tasks (via ``session.task()``) within a transaction are also
         rolled back since they share the parent session's sandbox. The child
@@ -247,7 +248,8 @@ class Harness:
 
         Only :class:`~tvastar.sandbox.virtual.VirtualSandbox` supports this
         today. For :class:`~tvastar.sandbox.local.LocalSandbox` the context
-        manager yields normally but performs no snapshot/restore.
+        manager yields normally but performs no snapshot/restore (for the
+        filesystem portion).
 
         Example::
 
@@ -255,7 +257,7 @@ class Harness:
                 async with harness.transaction(sess) as s:
                     await s.prompt("Write the migration script")
                     await s.prompt("Run the tests")
-                # On exception: filesystem rolled back, exception re-raised.
+                # On exception: messages + filesystem rolled back, exception re-raised.
         """
         sandbox = getattr(session, "sandbox", None)
         snap = None
@@ -265,9 +267,15 @@ class Harness:
             except NotImplementedError:
                 snap = None  # sandbox doesn't support snapshots; proceed without
 
+        # Snapshot session messages before the block
+        messages_snapshot = list(session.messages)
+
         try:
             yield session
         except Exception:
+            # Rollback session messages to pre-transaction state
+            session.messages[:] = messages_snapshot
+
             if snap is not None:
                 try:
                     sandbox.restore(snap)

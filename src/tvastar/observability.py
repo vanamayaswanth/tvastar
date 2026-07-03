@@ -12,6 +12,7 @@ swallowed and logged, never propagated.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import sys
 import time
@@ -19,6 +20,8 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Protocol
+
+_span_stack: contextvars.ContextVar[list[str]] = contextvars.ContextVar("_span_stack", default=[])
 
 
 @dataclass
@@ -104,16 +107,18 @@ class Tracer:
     ):
         self.exporters: list[Exporter] = exporters or [NullExporter()]
         self.content_filter = content_filter
-        self._stack: list[str] = []
 
     @contextmanager
     def span(self, name: str, **attributes: Any):
+        stack = _span_stack.get()
         span = Span(
             name=name,
             attributes=attributes,
-            parent_id=self._stack[-1] if self._stack else None,
+            parent_id=stack[-1] if stack else None,
         )
-        self._stack.append(span.span_id)
+        # Copy-on-write: create a new list for this context
+        new_stack = stack + [span.span_id]
+        token = _span_stack.set(new_stack)
         try:
             yield span
         except Exception as e:
@@ -121,7 +126,7 @@ class Tracer:
             raise
         finally:
             span.end = time.time()
-            self._stack.pop()
+            _span_stack.reset(token)
             self._emit(span)
 
     @contextmanager

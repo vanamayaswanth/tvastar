@@ -6,6 +6,75 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.20.0] — 2025-07-14
+
+### Added — Maximum Dynamism Audit
+
+A comprehensive refactoring delivering 34 requirements across 7 categories. The guiding principle: **this is a LIB, not a product — keep as dynamic as possible so users have full control over everything.**
+
+#### Configurable Parameters (formerly hardcoded)
+
+- **`structured_retries: int = 2`** on `AgentSpec` — configure structured-output parsing retry count (0 = no retries).
+- **`max_task_depth: int = 4`** on `AgentSpec` — configure maximum task delegation depth. `MAX_TASK_DEPTH` constant retained for backward compat.
+- **`tool_concurrency: Optional[int] = None`** on `AgentSpec` — limit parallel tool execution with an asyncio semaphore. `None` = unlimited (current behavior).
+- **`cooldown: float = 30.0`** on `CompactionPolicy` — seconds between reactive compaction attempts.
+- **`summary_max_tokens: int = 1024`** and **`summary_temperature: float = 0.3`** on `CompactionPolicy` — control summary generation model calls.
+- **`max_tokens` documentation** — default 4096 now clearly documented in `create_agent()` and `AgentSpec`.
+
+#### Registration APIs (runtime extensibility)
+
+- **`register_model_cost(model_name, input_per_million, output_per_million)`** — register custom model pricing at runtime. Exported from `tvastar`.
+- **`register_injection_pattern(name, pattern)`** — register custom prompt-injection detection patterns. Named replacement supported.
+- **`register_overflow_phrase(phrase)`** — register custom context-overflow detection phrases (case-insensitive).
+
+#### Extension Points (hooks, middleware, fallbacks)
+
+- **`pre_tool_hook`** — observe/modify tool arguments before execution. Returns dict to modify, None to pass through. Never breaks a run.
+- **`post_tool_hook`** — observe/modify tool results after execution. Returns string to modify, None to pass through. Never breaks a run.
+- **`step_callback`** — invoked after each model generate call with (step, response, messages). Never breaks a run.
+- **`stop_predicate`** — custom termination condition; if returns True, loop ends with `stopped="predicate"`. Never breaks a run.
+- **`middleware`** — ordered list of message pipeline interceptors applied before each generate call. Each receives and returns a message list. Never breaks a run.
+- **`fallback_models`** — ordered list of fallback Model instances tried on primary model non-overflow failure. Overflow exceptions bypass fallbacks (handled by compaction).
+- **`tool_order_fn`** — function to reorder tool-use requests before execution. Never breaks a run.
+- **`scoring_fn`** on `AgentRouter` — inject custom profile scoring logic instead of built-in difflib word-overlap.
+
+#### Stream/Prompt Parity
+
+- `Session.stream()` now enforces **budget**, **governance**, **compaction**, **memory_cap**, and **detectors** — same policies as `prompt()`.
+
+#### Type Safety (Protocol types)
+
+- **8 new Protocol types** in `types.py`: `Detector`, `ApprovalGate`, `BudgetPolicy`, `ToolPolicy`, `GovernancePolicy`, `AssurancePolicy`, `AgentPruner`, `ToolRetryPolicy`. All `@runtime_checkable`.
+- `AgentSpec` fields replaced from `Optional[Any]` to proper Protocol types. IDE autocompletion and type checking now work.
+- `AgentProfile.model` typed as `Optional[Model]`.
+
+#### Bug Fixes
+
+- **Dispatch LRU eviction** — fixed to compare harness `id` keys against agent IDs from active tasks (not dispatch IDs). Inactive entries are correctly evicted first.
+- **Profile routing race condition** — replaced mutation of shared Model instance's `_profile` field with per-child `_ProfiledModelWrapper`. Concurrent `task()` calls are now safe.
+- **`_build_child_spec` detection** — now respects `profile.detect` field: `None` = inherit parent, `False` = disable, `True`/list = configure accordingly.
+
+#### Architecture Improvements
+
+- **`DispatchPool` class** — encapsulates all dispatch module state (`_active`, `_session_locks`, `_harnesses`, `_observers`). Configurable `max_harness_cache`. `close()` method for cleanup. Module-level `dispatch()` delegates to default pool for backward compat.
+- **Lazy fleet imports** — `import tvastar` no longer loads the fleet module. Fleet symbols resolved on first access via `__getattr__`.
+- **Checkpoint error surfacing** — `session.last_checkpoint_error` attribute + tracer event on `_checkpoint()` failure. Loop never broken.
+- **Injection detection deduplication** — `scan_messages_for_injection()` is canonical. `detect_from_messages()` is a thin deprecated alias with `DeprecationWarning`.
+- **Error handling documentation** — `docs/error-handling.md` classifies all operations into "swallow + warn" vs "raise" categories.
+
+#### Test Coverage
+
+- 134+ new tests covering: stream basics, overflow recovery, scrub_after_run, harness transaction rollback, dispatch state cleanup, harness shell/fs, lazy fleet import, deprecation warning.
+- Full suite: **1887 passed**, 2 skipped, 0 failures.
+
+### Changed
+
+- `__version__` bumped to `0.20.0`.
+- `AgentProfile` gains `detect: Optional[Union[bool, list]] = None` field.
+- `CompactionPolicy` gains `cooldown`, `summary_max_tokens`, `summary_temperature` fields.
+- `AgentSpec` gains 10 new fields (all with backward-compatible defaults).
+- `AgentRouter.__repr__` shows "custom" when `scoring_fn` is provided.
+
 ## [0.19.0] — 2026-07-01
 
 ### Added

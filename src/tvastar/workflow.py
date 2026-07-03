@@ -76,6 +76,9 @@ class RunEvent:
 # ── WorkflowRun ──────────────────────────────────────────────────────────────
 
 
+_MAX_RUN_EVENTS = 1000
+
+
 @dataclass
 class WorkflowRun:
     """The record of one workflow invocation."""
@@ -92,6 +95,9 @@ class WorkflowRun:
 
     def add_event(self, type: str, **data: Any) -> None:
         self.events.append(RunEvent(type=type, data=data))
+        # Prevent unbounded event accumulation in long-running workflows
+        if len(self.events) > _MAX_RUN_EVENTS:
+            self.events = self.events[-_MAX_RUN_EVENTS:]
 
     def log(self, level: str, message: str, **attrs: Any) -> None:
         self.add_event("log", level=level, message=message, **attrs)

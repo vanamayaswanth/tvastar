@@ -8,7 +8,7 @@ and config. A Harness then runs it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 from .compaction import CompactionPolicy
 from .model.base import Model
@@ -16,6 +16,19 @@ from .sandbox.base import Sandbox
 from .sandbox.virtual import VirtualSandbox
 from .skills.loader import Skill, SkillLibrary
 from .tools.base import Tool, ToolRegistry
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .profiles import AgentProfile
+    from .types import (
+        AgentPruner,
+        ApprovalGate,
+        AssurancePolicy,
+        BudgetPolicy,
+        Detector,
+        GovernancePolicy,
+        ToolPolicy,
+        ToolRetryPolicy,
+    )
 
 SandboxFactory = Callable[[], Sandbox]
 
@@ -29,25 +42,28 @@ class AgentSpec:
     skills: SkillLibrary = field(default_factory=SkillLibrary)
     sandbox_factory: SandboxFactory = field(default=VirtualSandbox)
     max_steps: int = 20
+    #: Maximum number of tokens the model may generate per response.
+    #: Passed to the model's ``generate()`` call as the token budget for each
+    #: completion. Defaults to 4096.
     max_tokens: int = 4096
     temperature: float = 1.0
     thinking_level: Optional[str] = None  # 'low' | 'medium' | 'high' | None
     #: failure detectors run after each run (empty list disables detection)
-    detectors: list = field(default_factory=list)
+    detectors: list[Detector] = field(default_factory=list)
     #: optional auto-compaction policy (None = disabled)
     compaction: Optional[CompactionPolicy] = None
     #: optional harness-wide tool retry policy
-    tool_retry: Optional[Any] = None
+    tool_retry: Optional[ToolRetryPolicy] = None
     #: named subagent profiles available for session.task(agent='name')
-    subagents: dict = field(default_factory=dict)  # name -> AgentProfile
+    subagents: dict[str, AgentProfile] = field(default_factory=dict)
     #: optional cost ceiling enforced during the run (None = unlimited)
-    budget: Optional[Any] = None  # BudgetPolicy
+    budget: Optional[BudgetPolicy] = None
     #: optional human-in-the-loop approval gate, exposed to tools via ctx
-    approval_gate: Optional[Any] = None  # ApprovalGate
+    approval_gate: Optional[ApprovalGate] = None
     #: optional tool-masking policy applied before each model call (None = expose all)
-    tool_policy: Optional[Any] = None  # masking.ToolPolicy
+    tool_policy: Optional[ToolPolicy] = None
     #: optional invocation-layer governance (phase-based enforcement, separate from masking)
-    governance: Optional[Any] = None  # masking.GovernancePolicy
+    governance: Optional[GovernancePolicy] = None
     #: optional session message-size cap in megabytes. When the accumulated
     #: messages exceed this limit the run compacts (if possible) then stops
     #: with stopped="memory_cap". None = unlimited (default).
@@ -60,13 +76,41 @@ class AgentSpec:
     system_prompt_hook: Optional[Callable[..., str]] = None
     #: optional verifiable-execution policy — produces a signed ExecutionReceipt
     #: on every run and optionally enforces a Loop Quality SLA.
-    assurance: Optional[Any] = None  # AssurancePolicy
+    assurance: Optional[AssurancePolicy] = None
     #: optional agent pruner — auto-updated after sess.task() completes so slow/failing
     #: agents are demoted before the next routing decision.
-    pruner: Optional[Any] = None  # AgentPruner
+    pruner: Optional[AgentPruner] = None
     #: when True, replace every message's content with its SHA-256 hash after each run
     #: so PII in the conversation history cannot be recovered from the session object.
     scrub_after_run: bool = False
+    #: number of retries when structured-output parsing fails (0 = no retries)
+    structured_retries: int = 2
+    #: maximum depth for nested session.task() delegation chains
+    max_task_depth: int = 4
+    #: maximum number of concurrent tool executions per step (None = unlimited)
+    tool_concurrency: Optional[int] = None
+    #: hook invoked before each tool execution; receives (tool_name, args_dict)
+    #: and may return a modified args dict or None to use originals.
+    pre_tool_hook: Optional[Callable[["str", "dict"], Optional["dict"]]] = None
+    #: hook invoked after each tool execution; receives (tool_name, args_dict, result_str)
+    #: and may return a modified result string or None to use original.
+    post_tool_hook: Optional[Callable[["str", "dict", "str"], Optional["str"]]] = None
+    #: callback invoked after each model generate call (before tool execution);
+    #: receives (step_number, model_response, current_messages).
+    step_callback: Optional[Callable[["int", Any, "list"], None]] = None
+    #: predicate checked after each model response; if returns True the loop
+    #: terminates with stopped="predicate".
+    stop_predicate: Optional[Callable[[Any], bool]] = None
+    #: ordered list of middleware callables applied to messages before each
+    #: model generate call. Each receives the message list and returns a
+    #: (possibly modified) message list.
+    middleware: Optional[list[Callable[["list"], "list"]]] = None
+    #: fallback models tried in order when the primary model raises a
+    #: non-overflow exception during generate().
+    fallback_models: Optional[list[Model]] = None
+    #: function to reorder tool-use requests before execution; receives the
+    #: list of tool-use blocks and returns a sorted list.
+    tool_order_fn: Optional[Callable[["list"], "list"]] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self, *, last_user_text: str = "") -> str:
@@ -102,7 +146,7 @@ class AgentSpec:
                 )
         return prompt
 
-    def get_subagent(self, name: str) -> Optional[Any]:
+    def get_subagent(self, name: str) -> Optional[AgentProfile]:
         """Return a registered AgentProfile by name, or None."""
         return self.subagents.get(name)
 
@@ -122,16 +166,26 @@ def create_agent(
     detect: Union[bool, list, None] = True,
     subagents: Optional[list] = None,
     compaction: Optional[CompactionPolicy] = None,
-    tool_retry: Optional[Any] = None,
-    budget: Optional[Any] = None,
-    approval_gate: Optional[Any] = None,
-    tool_policy: Optional[Any] = None,
-    governance: Optional[Any] = None,
+    tool_retry: Optional[ToolRetryPolicy] = None,
+    budget: Optional[BudgetPolicy] = None,
+    approval_gate: Optional[ApprovalGate] = None,
+    tool_policy: Optional[ToolPolicy] = None,
+    governance: Optional[GovernancePolicy] = None,
     system_prompt_hook: Optional[Callable[..., str]] = None,
     memory_cap_mb: Optional[float] = None,
-    assurance: Optional[Any] = None,
-    pruner: Optional[Any] = None,
+    assurance: Optional[AssurancePolicy] = None,
+    pruner: Optional[AgentPruner] = None,
     scrub_after_run: bool = False,
+    structured_retries: int = 2,
+    max_task_depth: int = 4,
+    tool_concurrency: Optional[int] = None,
+    pre_tool_hook: Optional[Callable[["str", "dict"], Optional["dict"]]] = None,
+    post_tool_hook: Optional[Callable[["str", "dict", "str"], Optional["str"]]] = None,
+    step_callback: Optional[Callable[["int", Any, "list"], None]] = None,
+    stop_predicate: Optional[Callable[[Any], bool]] = None,
+    middleware: Optional[list[Callable[["list"], "list"]]] = None,
+    fallback_models: Optional[list[Model]] = None,
+    tool_order_fn: Optional[Callable[["list"], "list"]] = None,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -144,6 +198,11 @@ def create_agent(
         skills: List of Skill objects or a SkillLibrary.
         sandbox: A Sandbox instance, a zero-arg factory, or None (VirtualSandbox).
         max_steps: Max model<->tool turns per prompt before stopping.
+        max_tokens: Maximum number of tokens the model may generate per
+            response. This value is passed to the model's ``generate()`` call
+            as the token budget for each completion, limiting how long a single
+            model reply can be. Defaults to 4096.
+        temperature: Sampling temperature for model generation.
         thinking_level: Reasoning effort for extended thinking models
             ('low' | 'medium' | 'high'). None disables extended thinking.
         detect: Failure detection. ``True`` (default) uses the built-in suite,
@@ -180,7 +239,7 @@ def create_agent(
     else:
         detectors = []
 
-    subagent_map: dict[str, Any] = {}
+    subagent_map: dict[str, AgentProfile] = {}
     for p in subagents or []:
         subagent_map[p.name] = p
 
@@ -208,5 +267,15 @@ def create_agent(
         assurance=assurance,
         pruner=pruner,
         scrub_after_run=scrub_after_run,
+        structured_retries=structured_retries,
+        max_task_depth=max_task_depth,
+        tool_concurrency=tool_concurrency,
+        pre_tool_hook=pre_tool_hook,
+        post_tool_hook=post_tool_hook,
+        step_callback=step_callback,
+        stop_predicate=stop_predicate,
+        middleware=middleware,
+        fallback_models=fallback_models,
+        tool_order_fn=tool_order_fn,
         metadata=metadata,
     )

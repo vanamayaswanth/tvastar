@@ -57,6 +57,14 @@ class CompactionPolicy:
         summary_instruction: Instruction sent to the model when summarising.
         token_estimator: Optional ``(messages) -> int`` callable for accurate
                          token counting (e.g. tiktoken for OpenAI models).
+        cooldown: Seconds between compaction attempts. While a previous
+                  compaction occurred less than ``cooldown`` seconds ago,
+                  reactive overflow compaction is skipped. Set to 0.0 to allow
+                  compaction on every overflow event.
+        summary_max_tokens: Maximum tokens for the summary generation model
+                            call. Defaults to 1024.
+        summary_temperature: Temperature for the summary generation model call.
+                             Defaults to 0.3.
     """
 
     max_messages: int = 60
@@ -70,6 +78,14 @@ class CompactionPolicy:
         "original messages to save context space."
     )
     summary_model: Optional[Any] = None
+    cooldown: float = 30.0
+    """Seconds between compaction attempts. While a previous compaction occurred
+    less than ``cooldown`` seconds ago, reactive overflow compaction is skipped.
+    Set to 0.0 to allow compaction on every overflow event."""
+    summary_max_tokens: int = 1024
+    """Maximum tokens for the summary generation model call."""
+    summary_temperature: float = 0.3
+    """Temperature for the summary generation model call."""
 
 
 def _estimate_tokens(messages: list[Message]) -> int:
@@ -136,8 +152,8 @@ async def compact_messages(
             summary_messages,
             system=system or "You are a helpful summariser.",
             tools=None,
-            max_tokens=1024,
-            temperature=0.3,
+            max_tokens=policy.summary_max_tokens,
+            temperature=policy.summary_temperature,
         )
         summary_text = resp.message.text.strip()
     except Exception:

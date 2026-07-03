@@ -48,12 +48,13 @@ from .boundary import (
     RedactionResult,
     looks_like_injection,
     redact_messages,
+    register_injection_pattern,
     scan_for_injection,
     scan_messages_for_injection,
     wrap_untrusted,
 )
 from .compaction import CompactionPolicy, compact_messages, compact_session, should_compact
-from .cost import COST_TABLE, BudgetExceeded, BudgetPolicy, Cost, cost_for_model
+from .cost import COST_TABLE, BudgetExceeded, BudgetPolicy, Cost, cost_for_model, register_model_cost
 from .detect import (
     Finding,
     RunContext,
@@ -66,6 +67,7 @@ from .detect import (
 from .dispatch import (
     DispatchEvent,
     DispatchInput,
+    DispatchPool,
     cancel_dispatch,
     dispatch,
     dispatch_and_wait,
@@ -151,7 +153,7 @@ from .sandbox import (
     SecurityPolicy,
     VirtualSandbox,
 )
-from .session import RunResult, Session, StructuredOutputError
+from .session import RunResult, Session, StructuredOutputError, register_overflow_phrase
 from .skills import Skill, SkillLibrary, parse_skill
 from .tools import (
     Tool,
@@ -165,6 +167,7 @@ from .tools import (
     web_toolset,
 )
 from .types import (
+    Detector,
     ImageBlock,
     Message,
     ModelResponse,
@@ -192,7 +195,43 @@ from .workflow import (
 )
 from .wrap import WrappedResult, wrap
 
-__version__ = "0.19.0"
+# Fleet engineering layer — lazy-imported to avoid loading fleet submodules on
+# plain `import tvastar`.  Symbols are resolved on first attribute access.
+_FLEET_SYMBOLS = {
+    "Fleet",
+    "FleetConfig",
+    "FleetBudgetConfig",
+    "FleetRegistry",
+    "FleetGateway",
+    "SharedStateStore",
+    "EventBus",
+    "FleetBudget",
+    "FleetObserver",
+    "FleetDefaults",
+    "FleetError",
+}
+
+_LAZY_MODULES = {"fleet": ".fleet"}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_MODULES:
+        import importlib
+
+        mod = importlib.import_module(_LAZY_MODULES[name], __name__)
+        globals()[name] = mod
+        return mod
+    if name in _FLEET_SYMBOLS:
+        import importlib
+
+        fleet_mod = importlib.import_module(".fleet", __name__)
+        # Cache all fleet symbols at once to avoid repeated imports
+        for sym in _FLEET_SYMBOLS:
+            globals()[sym] = getattr(fleet_mod, sym)
+        return globals()[name]
+    raise AttributeError(f"module 'tvastar' has no attribute {name!r}")
+
+__version__ = "0.20.0"
 
 __all__ = [
     "create_agent",
@@ -254,6 +293,7 @@ __all__ = [
     "scan_messages_for_injection",
     "InjectionScanResult",
     "looks_like_injection",
+    "register_injection_pattern",
     "redact_messages",
     "RedactionResult",
     # tool masking + invocation-layer governance
@@ -267,6 +307,7 @@ __all__ = [
     "ConsoleExporter",
     "JSONLExporter",
     "OTelExporter",
+    "Detector",
     "ImageBlock",
     "Message",
     "ModelResponse",
@@ -283,6 +324,8 @@ __all__ = [
     "SandboxError",
     "SecurityViolation",
     "StructuredOutputError",
+    # overflow phrase registration
+    "register_overflow_phrase",
     # compaction
     "CompactionPolicy",
     "compact_session",
@@ -299,6 +342,7 @@ __all__ = [
     "dispatch_and_wait",
     "DispatchInput",
     "DispatchEvent",
+    "DispatchPool",
     "observe_dispatch",
     "cancel_dispatch",
     "list_active_dispatches",
@@ -321,6 +365,7 @@ __all__ = [
     "BudgetPolicy",
     "BudgetExceeded",
     "cost_for_model",
+    "register_model_cost",
     "COST_TABLE",
     # approval gate
     "ApprovalGate",
@@ -394,4 +439,16 @@ __all__ = [
     "EmailSender",
     "SendResult",
     "StdoutSender",
+    # Fleet engineering
+    "Fleet",
+    "FleetConfig",
+    "FleetBudgetConfig",
+    "FleetRegistry",
+    "FleetGateway",
+    "SharedStateStore",
+    "EventBus",
+    "FleetBudget",
+    "FleetObserver",
+    "FleetDefaults",
+    "FleetError",
 ]

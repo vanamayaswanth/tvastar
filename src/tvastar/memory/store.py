@@ -203,8 +203,18 @@ class Memory:
         self._prefix = f"mem:{scope}:"
 
     def get(self, key: str, default: Any = None) -> Any:
+        """Retrieve a value by key, returning default if not found.
+
+        NOTE: Since the underlying Store uses None as the "not found" sentinel,
+        storing None via set(key, None) and then calling get(key) will return
+        the default, not None. This is a known limitation of JSON-backed stores
+        where null and "missing" are indistinguishable. Use a wrapper value
+        (e.g., {"value": None}) if you need to store None explicitly.
+        """
         v = self._store.get(self._prefix + key)
-        return default if v is None else v
+        if v is None:
+            return default
+        return v
 
     def set(self, key: str, value: Any) -> None:
         self._store.set(self._prefix + key, value)

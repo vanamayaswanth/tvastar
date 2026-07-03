@@ -2093,6 +2093,7 @@ Products ship first. Framework features get added only when a product needs them
 | **Silent-failure benchmark** | tau2-bench 10,832 trajectories — 100% detection on false-success | ✅ v0.18.0 |
 | **Core primitives upgrade** | `enforce()`, durable checkpoints, profile-keyed MockModel, `score_pipeline`, `detect_from_messages`, `redact_messages`, `scan_messages_for_injection`, composable tracer helpers | ✅ v0.19.0 |
 | **Agent Debugger example** | Meta-agent that diagnoses, fixes, and verifies failing trajectories — exercises every framework feature | ✅ v0.19.0 |
+| **Maximum Dynamism Audit** | 34 requirements: configurable params, registration APIs, extension points (hooks/middleware/fallbacks), stream parity, Protocol types, bug fixes, DispatchPool, lazy imports | ✅ v0.20.0 |
 | **tvastar-comply** | Token-vault PII rehydration, CCPA / GLBA coverage, enterprise dashboard | 🔒 v0.16.0 |
 | **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |
 | **tvastar-devops** | Auto-heal production incidents | 📋 v1.1.0 |

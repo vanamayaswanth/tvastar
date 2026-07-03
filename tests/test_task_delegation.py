@@ -366,3 +366,45 @@ class TestNonExistentProfile:
         async with sess:
             with pytest.raises(ValueError, match="No subagent profile named"):
                 await sess.task("go", agent="Reviewer")
+
+
+# ── Custom max_task_depth enforcement ─────────────────────────────────────────
+
+
+class TestMaxTaskDepthFromSpec:
+    """Tests for spec.max_task_depth overriding the module-level constant."""
+
+    async def test_custom_depth_limit_raises_at_configured_value(self):
+        """RuntimeError raised when _task_depth >= spec.max_task_depth."""
+        spec = _agent(["x"], max_task_depth=2)
+        h = Harness(spec)
+        sess = h.session()
+        sess._task_depth = 2
+        async with sess:
+            with pytest.raises(RuntimeError, match="Task depth limit.*2"):
+                await sess.task("go")
+
+    async def test_custom_depth_limit_allows_below_limit(self):
+        """task() succeeds when _task_depth < spec.max_task_depth."""
+        spec = _agent(["Done."], max_task_depth=2)
+        h = Harness(spec)
+        sess = h.session()
+        sess._task_depth = 1
+        async with sess:
+            result = await sess.task("go")
+        assert result.text == "Done."
+
+    async def test_default_depth_limit_matches_module_constant(self):
+        """Default spec.max_task_depth equals the module-level MAX_TASK_DEPTH."""
+        spec = _agent(["x"])
+        assert spec.max_task_depth == MAX_TASK_DEPTH
+
+    async def test_deeper_limit_allows_more_nesting(self):
+        """A higher max_task_depth allows delegation at depths beyond the default."""
+        spec = _agent(["ok."], max_task_depth=8)
+        h = Harness(spec)
+        sess = h.session()
+        sess._task_depth = 5  # Would fail with default limit of 4
+        async with sess:
+            result = await sess.task("go")
+        assert result.text == "ok."

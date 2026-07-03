@@ -101,3 +101,62 @@ class TestAgentRouterIntegration:
             await sess.task("Write unit tests for login.py", router=router)
 
         assert resolved["agent"] == "tester"
+
+
+class TestAgentRouterCustomScoring:
+    """Tests for the custom scoring_fn parameter."""
+
+    def test_custom_scoring_fn_picks_highest_scorer(self):
+        profiles = _profiles()
+        # Always return highest score for "devops"
+        def scorer(text, profile):
+            return 1.0 if profile.name == "devops" else 0.0
+
+        r = AgentRouter(profiles, scoring_fn=scorer)
+        assert r.route("Write unit tests") == "devops"
+
+    def test_custom_scoring_fn_respects_threshold(self):
+        profiles = _profiles()
+        # All scores below threshold
+        def scorer(text, profile):
+            return 0.1
+
+        r = AgentRouter(profiles, threshold=0.5, scoring_fn=scorer)
+        assert r.route("anything") is None
+
+    def test_custom_scoring_fn_receives_correct_args(self):
+        profiles = [AgentProfile(name="solo", description="Only one")]
+        calls = []
+
+        def scorer(text, profile):
+            calls.append((text, profile))
+            return 0.9
+
+        r = AgentRouter(profiles, scoring_fn=scorer)
+        r.route("hello world")
+        assert len(calls) == 1
+        assert calls[0][0] == "hello world"
+        assert calls[0][1].name == "solo"
+
+    def test_no_scoring_fn_uses_difflib(self):
+        # Without scoring_fn, the difflib logic should still work
+        r = AgentRouter(_profiles())
+        assert r.route("Write unit tests for auth.py") == "tester"
+
+    def test_repr_shows_custom_backend(self):
+        r = AgentRouter(_profiles(), scoring_fn=lambda t, p: 0.5)
+        assert "custom" in repr(r)
+
+    def test_empty_profiles_with_scoring_fn_returns_none(self):
+        r = AgentRouter([], scoring_fn=lambda t, p: 1.0)
+        assert r.route("anything") is None
+
+    def test_custom_scoring_fn_picks_among_multiple(self):
+        profiles = _profiles()
+        # Score based on length of profile name
+        def scorer(text, profile):
+            return len(profile.name) / 10.0
+
+        r = AgentRouter(profiles, threshold=0.0, scoring_fn=scorer)
+        # "reviewer" has 8 chars -> 0.8, "devops" has 6 -> 0.6, "tester" has 6 -> 0.6, "coder" has 5 -> 0.5
+        assert r.route("irrelevant") == "reviewer"

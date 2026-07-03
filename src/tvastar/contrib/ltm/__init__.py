@@ -52,7 +52,20 @@ if TYPE_CHECKING:  # pragma: no cover
     from tvastar.session import RunResult
     from tvastar.types import Message
 
-__all__ = ["LTMNode", "LTMStore"]
+from .store import Episode, Fact, Knowledge
+from .store import LTMStore as SQLiteLTMStore
+from .vectors import SearchResult, VectorIndex
+
+__all__ = [
+    "LTMNode",
+    "LTMStore",
+    "SQLiteLTMStore",
+    "Fact",
+    "Episode",
+    "Knowledge",
+    "SearchResult",
+    "VectorIndex",
+]
 
 # ---------------------------------------------------------------------------
 # Node types

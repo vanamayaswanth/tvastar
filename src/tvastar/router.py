@@ -18,7 +18,7 @@ Usage::
 from __future__ import annotations
 
 import difflib
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from .profiles import AgentProfile
 
@@ -32,14 +32,19 @@ class AgentRouter:
         profiles:   Iterable of AgentProfile — the pool to route into.
         threshold:  Minimum match score (0–1) to accept a route.
                     Below this, ``route()`` returns ``None``.
-        encoder:    Optional semantic-router encoder instance. If ``None``,
-                    semantic-router is tried automatically; falls back to
-                    difflib word-overlap when the package is absent.
+        scoring_fn: Optional custom scoring function. If provided, it is called
+                    with ``(text, profile)`` for each profile and must return a
+                    float score. The profile with the highest score (at or above
+                    *threshold*) wins. When ``None``, the built-in difflib
+                    word-overlap heuristic is used.
 
     Example::
 
         router = AgentRouter([reviewer, coder, tester])
         name = router.route("Write unit tests for auth.py")  # "tester"
+
+        # Custom scoring:
+        router = AgentRouter(profiles, scoring_fn=my_scorer)
     """
 
     def __init__(
@@ -47,14 +52,25 @@ class AgentRouter:
         profiles: Iterable[AgentProfile],
         *,
         threshold: float = 0.3,
+        scoring_fn: Optional[Callable[[str, AgentProfile], float]] = None,
     ):
         self._profiles = {p.name: p for p in profiles}
         self._threshold = threshold
+        self._scoring_fn = scoring_fn
 
     def route(self, text: str) -> Optional[str]:
         """Return the best-matching profile name, or ``None`` if below threshold."""
         if not self._profiles:
             return None
+
+        if self._scoring_fn:
+            # Use custom scoring function
+            best_name, best_score = None, 0.0
+            for name, profile in self._profiles.items():
+                score = self._scoring_fn(text, profile)
+                if score > best_score:
+                    best_score, best_name = score, name
+            return best_name if best_score >= self._threshold else None
 
         # difflib word-overlap — no deps
         words = set(text.lower().split())
@@ -74,7 +90,11 @@ class AgentRouter:
         return best_name if best_score >= self._threshold else None
 
     def __repr__(self) -> str:
-        return f"AgentRouter({list(self._profiles)!r}, backend='difflib')"
+        backend = "custom" if self._scoring_fn else "difflib"
+        return f"AgentRouter({list(self._profiles)!r}, backend={backend!r})"
+
+
+_MAX_SCORE_HISTORY = 100
 
 
 class AgentPruner:
@@ -116,7 +136,11 @@ class AgentPruner:
         from .quality import score_run
 
         score = score_run(result).score
-        self._scores.setdefault(profile_name, []).append(score)
+        scores = self._scores.setdefault(profile_name, [])
+        scores.append(score)
+        # Cap history to prevent unbounded growth
+        if len(scores) > _MAX_SCORE_HISTORY:
+            self._scores[profile_name] = scores[-_MAX_SCORE_HISTORY:]
 
     def avg_score(self, profile_name: str) -> Optional[float]:
         """Return the rolling average score for *profile_name*, or None if unseen."""

@@ -22,6 +22,7 @@ __all__ = [
     "BudgetPolicy",
     "BudgetExceeded",
     "cost_for_model",
+    "register_model_cost",
     "COST_TABLE",
 ]
 
@@ -54,6 +55,35 @@ COST_TABLE: dict[str, dict[str, float]] = {
     "llama-3.1-70b-versatile": {"input": 0.59, "output": 0.79},
     "mixtral-8x7b-32768": {"input": 0.24, "output": 0.24},
 }
+
+
+# ---------------------------------------------------------------------------
+# Registration API
+# ---------------------------------------------------------------------------
+
+
+def register_model_cost(
+    model_name: str,
+    input_per_million: float,
+    output_per_million: float,
+) -> None:
+    """Register or update model pricing at runtime.
+
+    New entries are available immediately for all subsequent cost calculations.
+    Re-registering an existing model name updates that entry.
+
+    Args:
+        model_name: The model identifier (e.g. "my-custom-model").
+        input_per_million: USD cost per million input tokens.
+        output_per_million: USD cost per million output tokens.
+
+    Example::
+
+        register_model_cost("my-fine-tune", input_per_million=2.0, output_per_million=8.0)
+        cost = cost_for_model("my-fine-tune", input_tokens=1_000_000, output_tokens=0)
+        assert cost.usd == 2.0
+    """
+    COST_TABLE[model_name] = {"input": input_per_million, "output": output_per_million}
 
 
 # ---------------------------------------------------------------------------

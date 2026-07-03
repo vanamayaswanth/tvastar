@@ -1654,6 +1654,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nats-py"
+version = "2.15.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/02/f0/fc5e93f2b0dd14a202590ad9d30eda1955ea872039b5204357348d0f4b1e/nats_py-2.15.0.tar.gz", hash = "sha256:6622c547d9a7d2313d9c147d46c386188f4ec2c7b5c9f9a0438a4d1b55f54a93", size = 75995, upload-time = "2026-06-05T07:34:03.904Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/db/a8/b55606c7c621fb813c8ec78baf201d2c78bf6051091ec0c7ada572999e95/nats_py-2.15.0-py3-none-any.whl", hash = "sha256:9f8d36aa52a9926a88b8f1d70cf1fdce0ad387941479b500ee9ab3e51073cefd", size = 90334, upload-time = "2026-06-05T07:34:02.81Z" },
+]
+
+[[package]]
 name = "numpy"
 version = "2.2.6"
 source = { registry = "https://pypi.org/simple" }
@@ -3340,7 +3349,7 @@ wheels = [
 
 [[package]]
 name = "tvastar"
-version = "0.19.0"
+version = "0.20.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
@@ -3377,6 +3386,9 @@ encrypted = [
 litellm = [
     { name = "litellm" },
 ]
+nats = [
+    { name = "nats-py" },
+]
 openai = [
     { name = "openai" },
 ]
@@ -3407,6 +3419,7 @@ requires-dist = [
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100.0" },
     { name = "litellm", marker = "extra == 'all'", specifier = ">=1.40.0" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.40.0" },
+    { name = "nats-py", marker = "extra == 'nats'", specifier = ">=2.0" },
     { name = "openai", marker = "extra == 'all'", specifier = ">=1.40.0" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.40.0" },
     { name = "opentelemetry-api", marker = "extra == 'all'", specifier = ">=1.20.0" },
@@ -3428,7 +3441,7 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'all'", specifier = ">=12.0" },
     { name = "websockets", marker = "extra == 'serve'", specifier = ">=12.0" },
 ]
-provides-extras = ["anthropic", "openai", "serve", "otel", "presidio", "litellm", "dspy", "encrypted", "dev", "all"]
+provides-extras = ["anthropic", "openai", "serve", "otel", "presidio", "litellm", "dspy", "encrypted", "nats", "dev", "all"]
 
 [[package]]
 name = "typeguard"

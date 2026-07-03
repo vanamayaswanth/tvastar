@@ -25,7 +25,7 @@ from ..types import (
 )
 from .base import Model
 
-Scripted = Union[str, ToolUseBlock, Message, dict]
+Scripted = Union[str, ToolUseBlock, Message, dict, BaseException]
 
 
 class MockModel(Model):

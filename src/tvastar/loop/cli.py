@@ -261,6 +261,87 @@ def cmd_audit(ref: str) -> int:
     return 0 if report.is_production_ready else 1
 
 
+def cmd_trigger(ref: str) -> int:
+    """Trigger a loop once (blocking) — same as cmd_run but named for clarity.
+
+    Exit 0 on PASS, exit 1 on any failure state.
+    """
+    from ..errors import TvastarError
+
+    try:
+        loop = _load_loop(ref)
+    except TvastarError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    from . import LoopState
+
+    if loop.state == LoopState.SUSPENDED:
+        print(
+            f"Loop '{loop.name}' is SUSPENDED (circuit breaker tripped after "
+            f"{loop.config.circuit_breaker_limit} consecutive failures).\n"
+            "To resume: call loop.reset() or `tvastar loop reset <ref>`.",
+            file=sys.stderr,
+        )
+        return 1
+
+    async def _go() -> int:
+        run = await loop.trigger(context={"source": "cli"})
+        _print_run(run)
+        return 0 if run.ok else 1
+
+    return asyncio.run(_go())
+
+
+def cmd_history(ref: str, limit: int = 10) -> int:
+    """Show recent run history for a loop."""
+    from ..errors import TvastarError
+
+    try:
+        loop = _load_loop(ref)
+    except TvastarError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    runs = loop.history(limit=limit)
+    if not runs:
+        print(f"No runs recorded for {loop.name!r}.")
+        return 0
+
+    import time as _time
+
+    print(f"\nRecent runs for {loop.name!r} (last {limit}):")
+    print(f"{'Run ID':<16} {'State':<12} {'Duration':<10} {'Error'}")
+    print("-" * 60)
+
+    for run in runs:
+        dur = f"{run.duration:.1f}s" if run.duration else "\u2014"
+        err = (run.error or "")[:40]
+        print(f"{run.run_id:<16} {run.state.value:<12} {dur:<10} {err}")
+    return 0
+
+
+def cmd_reset(ref: str) -> int:
+    """Reset a SUSPENDED loop."""
+    from ..errors import TvastarError
+
+    try:
+        loop = _load_loop(ref)
+    except TvastarError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    from . import LoopState
+
+    if loop.state != LoopState.SUSPENDED:
+        print(f"Loop {loop.name!r} is not SUSPENDED (state: {loop.state.value}).", file=sys.stderr)
+        return 1
+
+    loop.reset()
+    print(f"Loop {loop.name!r} reset to IDLE.")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Output formatters
 # ---------------------------------------------------------------------------
@@ -372,4 +453,4 @@ def _print_audit(loop: "Loop", report: "ReadinessLevel") -> None:  # type: ignor
     print(f"{_hr}\n")
 
 
-__all__ = ["cmd_init", "cmd_run", "cmd_status", "cmd_audit"]
+__all__ = ["cmd_init", "cmd_run", "cmd_status", "cmd_audit", "cmd_trigger", "cmd_history", "cmd_reset"]

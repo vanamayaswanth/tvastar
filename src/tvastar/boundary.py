@@ -88,6 +88,22 @@ def scan_for_injection(text: str) -> list[str]:
     return [name for name, pat in _INJECTION_PATTERNS if pat.search(text)]
 
 
+def register_injection_pattern(name: str, pattern: re.Pattern) -> None:
+    """Register or replace a named injection detection pattern.
+
+    After registration, subsequent calls to :func:`scan_for_injection` and
+    :func:`scan_messages_for_injection` will include the new pattern.
+
+    If a pattern with the same *name* already exists it is replaced; otherwise
+    the new pattern is appended to the detection list.
+    """
+    for i, (n, _) in enumerate(_INJECTION_PATTERNS):
+        if n == name:
+            _INJECTION_PATTERNS[i] = (name, pattern)
+            return
+    _INJECTION_PATTERNS.append((name, pattern))
+
+
 def looks_like_injection(text: str) -> bool:
     """True if ``text`` matches any injection signature."""
     return bool(scan_for_injection(text))
@@ -163,6 +179,23 @@ def scan_messages_for_injection(messages: list[Message]) -> InjectionScanResult:
                 _scan_message_text(block.content, i, "tool_result", evidence)
 
     return InjectionScanResult(is_adversarial=len(evidence) > 0, evidence=evidence)
+
+
+def detect_from_messages(messages: list[Message]) -> InjectionScanResult:
+    """Deprecated alias — use :func:`scan_messages_for_injection` instead.
+
+    .. deprecated::
+        Will be removed in the next major version. Use
+        :func:`scan_messages_for_injection` directly.
+    """
+    import warnings
+
+    warnings.warn(
+        "detect_from_messages() is deprecated; use scan_messages_for_injection()",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return scan_messages_for_injection(messages)
 
 
 def _scan_message_text(text: str, msg_index: int, source: str, evidence: list[str]) -> None:

@@ -38,3 +38,7 @@ scripts/
 
 # Hypothesis test database
 .hypothesis/
+
+.tvastar-loops/
+
+graphify-out/

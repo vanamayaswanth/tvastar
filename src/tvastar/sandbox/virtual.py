@@ -52,6 +52,7 @@ class VirtualSandbox(Sandbox):
         self.allow_python = allow_python
         self.credential_filter = credential_filter
         self.audit: list[AuditEntry] = []
+        self._python_lock = asyncio.Lock()  # serialize _run_python sync-back
 
     async def exec(
         self,
@@ -61,15 +62,30 @@ class VirtualSandbox(Sandbox):
         cwd: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> ExecResult:
+        """Execute a command in the virtual sandbox.
+
+        Python/pytest commands are serialized via ``_python_lock`` to prevent
+        concurrent file sync-back from corrupting the in-memory filesystem.
+        """
         try:
             self.policy.check(cmd)
         except SecurityViolation as exc:
             self.audit.append(AuditEntry.blocked(cmd, str(exc)))
             raise
         t0 = time.monotonic()
-        # The chain may spawn a (blocking) subprocess for `python`; run the
-        # whole thing off the event loop so the harness stays responsive.
-        result = await asyncio.to_thread(self._exec_sync, cmd, timeout)
+        # Serialize Python executions to prevent concurrent sync-back
+        # from overwriting files modified by parallel tool calls (Bug #4).
+        # The lock is only needed when the command might invoke _run_python.
+        needs_lock = any(
+            tok in cmd for tok in ("python", "python3", "py ", "pytest")
+        )
+        if needs_lock:
+            async with self._python_lock:
+                result = await asyncio.to_thread(self._exec_sync, cmd, timeout)
+        else:
+            # The chain may spawn a (blocking) subprocess for `python`; run the
+            # whole thing off the event loop so the harness stays responsive.
+            result = await asyncio.to_thread(self._exec_sync, cmd, timeout)
         elapsed = round((time.monotonic() - t0) * 1000, 1)
         self.audit.append(AuditEntry.executed(cmd, exit_code=result.exit_code, duration_ms=elapsed))
         return result

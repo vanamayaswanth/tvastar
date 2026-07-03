@@ -129,6 +129,7 @@ class LoopConfig:
         None  # Callable[[str, list[LoopRun]], str] — takes precedence over meta_model
     )
     budget: "Any | None" = None  # BudgetPolicy — cumulative cost cap across all runs
+    trigger_on: str | None = None  # None=manual/cron, "event:topic_name"=EventBus trigger
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -140,6 +141,16 @@ class LoopConfig:
             raise ValueError("LoopConfig.max_iterations must be >= 1")
         if self.retry_backoff_base < 0:
             raise ValueError("LoopConfig.retry_backoff_base must be >= 0")
+        # Validate trigger_on format
+        if self.trigger_on is not None:
+            if not self.trigger_on.startswith("event:"):
+                raise ValueError(
+                    "LoopConfig.trigger_on must start with 'event:' "
+                    f"(got {self.trigger_on!r})"
+                )
+            topic = self.trigger_on[len("event:"):]
+            if not topic.strip():
+                raise ValueError("LoopConfig.trigger_on topic must not be empty")
         # Validate schedule at construction time, not at 2am
         if self.schedule != "@manual":
             from datetime import datetime, timezone
@@ -165,13 +176,14 @@ class Loop:
     Run an agent on a schedule with automatic verify + handoff.
 
     Werner-hardened:
-    - Every state transition is checkpointed to FileStore.
+    - Every state transition is checkpointed to FileStore (default persistence).
     - Crash recovery: RUNNING runs on startup are detected and marked INTERRUPTED.
     - Handoff is persisted before firing; failure is tracked, not swallowed.
     - Circuit breaker: too many consecutive failures → SUSPENDED.
     - Exponential backoff between retries.
     - Scheduler task watchdog: restarts on unexpected death.
-    - Memory-safe: history stores metadata, not full message history.
+    - Memory-safe: history capped at 200 entries, stores metadata not full messages.
+    - EventBus trigger support via LoopConfig.trigger_on for event-driven loops.
     """
 
     def __init__(
@@ -182,15 +194,16 @@ class Loop:
         tracer: "Tracer | None" = None,
     ) -> None:
         from ..harness import Harness
-        from ..memory.store import InMemoryStore
+        from ..memory.store import FileStore
 
         self._base_spec = spec  # original spec — kept for instruction rebuilds
         self._tracer = tracer
-        self._store = store or InMemoryStore()
+        self._store = store or FileStore(f".tvastar-loops/{config.name}")
         self._harness = Harness(spec, store=self._store, tracer=tracer)
         self._config = config
         self._state = LoopState.IDLE
         self._history: list[LoopRun] = []
+        self._max_history = 200  # cap to prevent unbounded growth
         self._task: asyncio.Task | None = None
         self._listeners: list[Callable[[LoopEvent], None]] = []
         self._iteration = 0
@@ -263,6 +276,27 @@ class Loop:
         """Register a listener called on every state transition."""
         self._listeners.append(fn)
 
+    def subscribe_trigger(self, event_bus: Any) -> None:
+        """Subscribe this loop to be triggered by EventBus events.
+
+        When LoopConfig.trigger_on starts with "event:", subscribes to that
+        topic on the given EventBus. Each event fires a trigger().
+        """
+        if not self._config.trigger_on or not self._config.trigger_on.startswith("event:"):
+            return
+        topic = self._config.trigger_on[len("event:"):]
+
+        def _on_event(event: Any) -> None:
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self.trigger(context={"event": event.payload}))
+            except RuntimeError:
+                pass  # no running loop — skip
+
+        event_bus.subscribe(topic, _on_event, agent=self.name)
+
     async def trigger(self, context: dict | None = None) -> LoopRun:
         """Run one iteration now (regardless of schedule)."""
         async with self._lock:
@@ -304,6 +338,9 @@ class Loop:
                 context=context,
             )
             self._history.append(run)
+            # Enforce cap to prevent unbounded memory growth
+            if len(self._history) > self._max_history:
+                self._history = self._history[-self._max_history:]
             self._checkpoint(run)
             self._emit(run, LoopState.TRIGGERED)
 
@@ -341,7 +378,11 @@ class Loop:
         self._task.add_done_callback(self._on_scheduler_done)
 
     async def stop(self) -> None:
-        """Stop the background scheduler gracefully."""
+        """Stop the background scheduler and cancel all pending tasks gracefully.
+
+        Cancels the scheduler task, any pending retry/handoff background tasks,
+        and any in-flight instruction improvement tasks tracked in _bg_tasks.
+        """
         if self._task:
             self._task.remove_done_callback(self._on_scheduler_done)
             self._task.cancel()
@@ -350,6 +391,11 @@ class Loop:
             except (asyncio.CancelledError, Exception):
                 pass
             self._task = None
+        # Cancel background improvement tasks
+        for t in list(self._bg_tasks):
+            if not t.done():
+                t.cancel()
+        self._bg_tasks.clear()
 
     def reset(self) -> None:
         """Clear SUSPENDED state and reset circuit breaker. Manual intervention."""
@@ -441,8 +487,10 @@ class Loop:
             backoff = self._config.retry_backoff_base * (2 ** (self._iteration - 1))
             run.retry_after = time.time() + backoff
             self._set(run, LoopState.RETRY)
-            # Schedule the retry after backoff
-            asyncio.create_task(self._delayed_retry(run, backoff))
+            # Schedule the retry after backoff — tracked for clean shutdown
+            t = asyncio.create_task(self._delayed_retry(run, backoff))
+            self._bg_tasks.add(t)
+            t.add_done_callback(self._bg_tasks.discard)
         else:
             self._iteration = 0
             self._consecutive_failures += 1
@@ -451,12 +499,19 @@ class Loop:
                 str(self._consecutive_failures),
             )
             self._set(run, LoopState.HANDOFF)
-            asyncio.create_task(self._fire_handoff(run))
+            # Track handoff task for clean shutdown
+            t = asyncio.create_task(self._fire_handoff(run))
+            self._bg_tasks.add(t)
+            t.add_done_callback(self._bg_tasks.discard)
 
     async def _delayed_retry(self, run: LoopRun, delay: float) -> None:
-        """Wait backoff, then fire the next iteration."""
+        """Wait backoff, then fire the next iteration if still in RETRY state."""
         await asyncio.sleep(delay)
         try:
+            # Guard: only trigger if still in RETRY state (prevents double-trigger
+            # when scheduler fires at the same time as delayed retry — Bug #7)
+            if self._state != LoopState.RETRY:
+                return
             await self.trigger(context=run.context)
         except Exception:
             pass

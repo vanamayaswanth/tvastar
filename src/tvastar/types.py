@@ -2,6 +2,10 @@
 
 These are intentionally lightweight dataclasses so the framework has zero
 runtime dependencies in its core. Provider adapters translate to/from these.
+
+Protocol types define the structural contracts for pluggable policies and
+extension points. They use ``@runtime_checkable`` so users can verify their
+implementations satisfy the interface with ``isinstance()`` checks.
 """
 
 from __future__ import annotations
@@ -10,7 +14,139 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Literal, Optional, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Iterable,
+    Literal,
+    Optional,
+    Protocol,
+    Union,
+    runtime_checkable,
+)
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .detect.base import Finding, RunContext
+    from .profiles import AgentProfile
+
+
+# ---------------------------------------------------------------------------
+# Protocol types — structural interfaces for AgentSpec pluggable fields
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class Detector(Protocol):
+    """A failure detector: inspects a completed run context and returns findings.
+
+    Detectors are pure functions over a run transcript. They must never raise —
+    the runner isolates failures and reports them as findings.
+    """
+
+    def __call__(self, ctx: "RunContext") -> "list[Finding]": ...
+
+
+@runtime_checkable
+class ApprovalGate(Protocol):
+    """Human-in-the-loop approval gate.
+
+    Pauses an agent run and waits for a human to approve or reject before
+    proceeding. Implementations may use CLI prompts, webhooks, Slack, etc.
+    """
+
+    async def request(self, message: str, **kwargs: Any) -> bool: ...
+
+
+@runtime_checkable
+class BudgetPolicy(Protocol):
+    """Cost ceiling enforcement policy applied during agent runs.
+
+    The session checks ``max_usd`` and ``on_exceed`` to decide when to stop,
+    calls ``should_warn`` to emit warning findings, and ``attribute`` to
+    route per-step costs to phases.
+    """
+
+    max_usd: float
+    on_exceed: str
+
+    def should_warn(self, cost: Any) -> bool: ...
+
+    def attribute(self, cost: Any) -> None: ...
+
+
+@runtime_checkable
+class ToolPolicy(Protocol):
+    """Dynamic tool-masking policy controlling which tools are visible per step.
+
+    Receives the current mask context and returns the tool names to expose.
+    """
+
+    def __call__(self, ctx: Any) -> Iterable[str]: ...
+
+
+@runtime_checkable
+class GovernancePolicy(Protocol):
+    """Invocation-layer enforcement policy for phase-based tool access control.
+
+    Unlike masking (which hides tools from the model's view), governance runs
+    after the model has requested a tool call — inside tool execution.
+    """
+
+    current_phase: str
+    approval_gate: Optional[ApprovalGate]
+
+    def set_phase(self, name: str) -> None: ...
+
+    def is_allowed(self, tool_name: str) -> bool: ...
+
+    async def enforce(
+        self, tool_name: str, tool_use_id: str = ""
+    ) -> Optional["ToolResultBlock"]: ...
+
+    def copy(self) -> "GovernancePolicy": ...
+
+
+@runtime_checkable
+class AssurancePolicy(Protocol):
+    """Verifiable-execution policy producing signed receipts and enforcing SLAs."""
+
+    log: Any
+    min_score: int
+    on_fail: str
+    key: str
+
+    def enforce_sla(self, receipt: Any) -> None: ...
+
+
+@runtime_checkable
+class AgentPruner(Protocol):
+    """Demotes underperforming AgentProfiles based on observed run quality.
+
+    Auto-updated after ``sess.task()`` completes so slow/failing agents are
+    demoted before the next routing decision.
+    """
+
+    def update(self, profile_name: str, result: Any) -> None: ...
+
+    def active(self, profiles: "Iterable[AgentProfile]") -> "list[AgentProfile]": ...
+
+    def should_prune(self, profile_name: str) -> bool: ...
+
+
+@runtime_checkable
+class ToolRetryPolicy(Protocol):
+    """Automatic retry policy for transient tool failures.
+
+    The tool executor uses ``max_attempts`` to cap retries, ``should_retry``
+    to decide if an exception is transient, and ``sleep_for`` to compute
+    backoff duration.
+    """
+
+    max_attempts: int
+
+    def should_retry(self, exc: Exception) -> bool: ...
+
+    def sleep_for(self, attempt: int) -> float: ...
 
 
 Role = Literal["system", "user", "assistant", "tool"]

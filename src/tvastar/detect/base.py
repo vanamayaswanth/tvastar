@@ -156,7 +156,15 @@ class _KnownToolsRegistry:
         return iter(self._names)
 
     def get(self, name: str):
-        return name if name in self._names else None
+        """Return a stub with empty input_schema (schema_mismatch detector
+        calls .input_schema on the result). Returns None for unknown names."""
+        if name not in self._names:
+            return None
+
+        class _StubTool:
+            input_schema: dict = {}
+
+        return _StubTool()
 
 
 # ---------------------------------------------------------------------------

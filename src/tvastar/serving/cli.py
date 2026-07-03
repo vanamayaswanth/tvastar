@@ -108,10 +108,23 @@ def main(argv: list[str] | None = None) -> int:
     loop_audit = loop_sub.add_parser("audit", help="score loop readiness (L0→L3)")
     loop_audit.add_argument("ref", help="loop reference, e.g. .tvastar/loops/ci.py:loop")
 
+    # tvastar loop trigger <ref>
+    loop_trigger = loop_sub.add_parser("trigger", help="manually trigger a loop")
+    loop_trigger.add_argument("ref", help="loop reference, e.g. .tvastar/loops/ci.py:loop")
+
+    # tvastar loop history <ref>
+    loop_history = loop_sub.add_parser("history", help="show recent run history")
+    loop_history.add_argument("ref", help="loop reference, e.g. .tvastar/loops/ci.py:loop")
+    loop_history.add_argument("--limit", type=int, default=10, help="number of runs to show")
+
+    # tvastar loop reset <ref>
+    loop_reset = loop_sub.add_parser("reset", help="reset a SUSPENDED loop")
+    loop_reset.add_argument("ref", help="loop reference, e.g. .tvastar/loops/ci.py:loop")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "loop":
-        from ..loop.cli import cmd_audit, cmd_init, cmd_run, cmd_status
+        from ..loop.cli import cmd_audit, cmd_init, cmd_run, cmd_status, cmd_trigger, cmd_history, cmd_reset
 
         if args.loop_cmd == "init":
             return cmd_init(args.pattern, args.name, args.out)
@@ -121,6 +134,12 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_status(args.ref)
         if args.loop_cmd == "audit":
             return cmd_audit(args.ref)
+        if args.loop_cmd == "trigger":
+            return cmd_trigger(args.ref)
+        if args.loop_cmd == "history":
+            return cmd_history(args.ref, getattr(args, "limit", 10))
+        if args.loop_cmd == "reset":
+            return cmd_reset(args.ref)
         return 1
 
     if args.cmd == "quality":
