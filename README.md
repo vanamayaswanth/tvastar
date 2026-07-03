@@ -86,6 +86,10 @@ print(result.ok)               # False — Tvastar caught the lie
 - [Benchmarks](#benchmarks--measure-quality-against-the-real-world)
 - [Human-in-the-loop](#human-in-the-loop--require-approval-before-dangerous-actions)
 - [Cost tracking](#cost-tracking--know-what-every-run-costs)
+- [Extension points](#extension-points--hooks-middleware-fallbacks)
+- [Runtime registration APIs](#runtime-registration-apis)
+- [Configurable retry and depth limits](#configurable-retry-and-depth-limits)
+- [DispatchPool](#dispatchpool--isolated-dispatch-state)
 - [What we're building](#what-were-building)
 - [Roadmap](#roadmap)
 - [Testing](#testing)
@@ -305,6 +309,21 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 | Bad agents waste compute | Rolling quality score; drop underperformers automatically | `AgentPruner(threshold=60.0)` |
 | Wiring a TaskGraph by hand every time | Describe the goal; planner generates the parallel structure | `auto_topology(goal, harness=harness)` |
 | Free-form prompt rewriting guesses wrong | Compile better instructions from real failure evidence | `DSPyOptimizer` |
+
+### Extension Points & Resilience
+
+| Problem | How Tvastar handles it | API |
+|---|---|---|
+| Need to observe/modify tool args | Pre-tool hook called before every tool execution | `pre_tool_hook` |
+| Need to observe/modify tool results | Post-tool hook called after every tool execution | `post_tool_hook` |
+| Need per-step logging | Callback invoked after each model call | `step_callback` |
+| Custom termination logic | Predicate checked after each response | `stop_predicate` |
+| Transform messages before model calls | Ordered middleware pipeline | `middleware=[fn1, fn2]` |
+| Primary model goes down | Fallback chain tries alternatives in order | `fallback_models=[backup1, backup2]` |
+| Tool execution order matters | Custom ordering function applied before dispatch | `tool_order_fn` |
+| Too many tools execute at once | Semaphore-based concurrency limit | `tool_concurrency=3` |
+| Need custom router scoring logic | Inject scoring function into AgentRouter | `AgentRouter(scoring_fn=fn)` |
+| Extension point crashes | All hooks/middleware swallow exceptions + warn — never break a run | Error handling philosophy |
 
 ### Context & Memory
 
@@ -1917,7 +1936,163 @@ for phase, cost in budget.cost_breakdown().items():
 budget.reset_phases()  # clear for next run
 ```
 
-Supported models with automatic pricing: Claude (all tiers), GPT-4o, GPT-4o-mini, o1, o3-mini, Llama via Groq, and more. Add custom rates to `COST_TABLE`.
+Supported models with automatic pricing: Claude (all tiers), GPT-4o, GPT-4o-mini, o1, o3-mini, Llama via Groq, and more. Add custom rates with `register_model_cost()`.
+
+### Register custom model pricing at runtime
+
+```python
+from tvastar import register_model_cost
+
+register_model_cost("my-fine-tune", input_per_million=2.0, output_per_million=8.0)
+# Immediately available for all subsequent cost calculations
+```
+
+---
+
+## Extension points — hooks, middleware, fallbacks
+
+Every extension point follows the same safety contract: **exceptions are swallowed with a warning — hooks never break a run.**
+
+### Pre/post tool hooks — observe and modify tool calls
+
+```python
+from tvastar import create_agent
+
+def audit_pre(name, args):
+    """Log every tool call before execution."""
+    print(f"→ {name}({args})")
+    return None  # don't modify; return a dict to replace args
+
+def redact_post(name, args, result):
+    """Redact secrets from tool output before feeding back to model."""
+    return result.replace("sk-ant-", "sk-***")  # return str to modify, None to keep original
+
+agent = create_agent(
+    "audited",
+    model=model,
+    tools=default_toolset(),
+    pre_tool_hook=audit_pre,
+    post_tool_hook=redact_post,
+)
+```
+
+### Middleware — transform messages before each model call
+
+```python
+def inject_context(messages):
+    """Add retrieval context before each model call."""
+    context = fetch_relevant_docs(messages[-1].text)
+    return messages + [Message("user", f"[context: {context}]")]
+
+agent = create_agent("rag", model=model, middleware=[inject_context])
+# Multiple middleware compose in order: m1 → m2 → m3 → model
+```
+
+### Fallback models — resilience against model outages
+
+```python
+from tvastar.model import AnthropicModel, OpenAIModel
+
+agent = create_agent(
+    "resilient",
+    model=AnthropicModel("claude-sonnet-4-6"),            # primary
+    fallback_models=[
+        AnthropicModel("claude-haiku-4-5-20251001"),       # cheaper backup
+        OpenAIModel("gpt-4o"),                            # different provider
+    ],
+)
+# On primary failure (non-overflow): tries each fallback in order.
+# On overflow: bypasses fallbacks — compaction handles it instead.
+# If all fail: raises the primary model's original exception.
+```
+
+### Stop predicate — custom termination logic
+
+```python
+agent = create_agent(
+    "bounded",
+    model=model,
+    stop_predicate=lambda result: "TASK COMPLETE" in result.text,
+)
+# Loop ends with stopped="predicate" when the predicate returns True.
+# On exception: logs warning, continues loop (treated as False).
+```
+
+### Step callback — per-step observability
+
+```python
+def on_step(step_num, response, messages):
+    print(f"Step {step_num}: {len(messages)} messages, {response.usage.output_tokens} tokens")
+
+agent = create_agent("observed", model=model, step_callback=on_step)
+```
+
+### Tool ordering — control execution order within a step
+
+```python
+def priority_order(tool_uses):
+    """Run reads before writes."""
+    reads = [t for t in tool_uses if t.name.startswith("read")]
+    writes = [t for t in tool_uses if not t.name.startswith("read")]
+    return reads + writes
+
+agent = create_agent("ordered", model=model, tool_order_fn=priority_order)
+```
+
+### Tool concurrency — limit parallel tool execution
+
+```python
+# At most 3 tools run concurrently per step (prevents resource exhaustion)
+agent = create_agent("throttled", model=model, tool_concurrency=3)
+```
+
+---
+
+## Runtime registration APIs
+
+Extend the library's detection and pricing without forking:
+
+```python
+import re
+from tvastar import register_model_cost, register_injection_pattern, register_overflow_phrase
+
+# Custom model pricing
+register_model_cost("my-org/fine-tuned-v2", input_per_million=1.5, output_per_million=6.0)
+
+# Custom injection pattern for your domain
+register_injection_pattern("internal_override", re.compile(r"ADMIN_OVERRIDE:\s*true", re.I))
+
+# Custom overflow phrase for a new provider
+register_overflow_phrase("context budget exceeded")
+```
+
+---
+
+## Configurable retry and depth limits
+
+```python
+agent = create_agent(
+    "tuned",
+    model=model,
+    structured_retries=0,    # no retries on structured parse failure (fail fast)
+    max_task_depth=8,        # allow deeper agent chains (default 4)
+)
+```
+
+---
+
+## DispatchPool — isolated dispatch state
+
+For multi-tenant apps or testing, create independent dispatch pools:
+
+```python
+from tvastar.dispatch import DispatchPool
+
+pool = DispatchPool(max_harness_cache=100)
+await pool.dispatch(spec, id="tenant_1", text="Hello")
+await pool.dispatch(spec, id="tenant_2", text="World")
+pool.close()  # release all cached harnesses
+```
 
 ---
 
