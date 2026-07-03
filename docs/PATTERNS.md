@@ -1523,3 +1523,218 @@ The planner call is one extra round-trip. Everything after that (`graph.run()`) 
 | Zero-PII model traffic | `vault.tokenize(prompt, policy)` → model → `vault.rehydrate(output)` |
 | DSPy systematic optimization | `LoopConfig(..., optimizer=DSPyOptimizer("gpt-4o"))` |
 | Generate a TaskGraph | `graph, profiles = await auto_topology(goal, harness=harness)` |
+| **v0.20.0 — Extension Points** | |
+| Pre/post tool hooks | `create_agent(..., pre_tool_hook=fn, post_tool_hook=fn)` |
+| Middleware pipeline | `create_agent(..., middleware=[fn1, fn2])` |
+| Fallback model chain | `create_agent(..., fallback_models=[backup1, backup2])` |
+| Custom stop condition | `create_agent(..., stop_predicate=lambda r: "DONE" in r.text)` |
+| Per-step callback | `create_agent(..., step_callback=fn)` |
+| Tool ordering | `create_agent(..., tool_order_fn=fn)` |
+| Tool concurrency limit | `create_agent(..., tool_concurrency=3)` |
+| Custom router scoring | `AgentRouter(profiles, scoring_fn=my_scorer)` |
+| Dispatch pool isolation | `pool = DispatchPool(); await pool.dispatch(...)` |
+| Register custom pricing | `register_model_cost("my-model", 1.5, 6.0)` |
+| Register injection pattern | `register_injection_pattern("name", re.compile(...))` |
+| Register overflow phrase | `register_overflow_phrase("my_provider_error")` |
+| Configurable retries | `create_agent(..., structured_retries=0)` — fail fast on parse errors |
+| Configurable depth | `create_agent(..., max_task_depth=8)` — deeper agent chains |
+
+---
+
+## 39. Middleware — Transform Messages Before Model Calls
+
+Apply transformations to the message list before each `model.generate()` call.
+Useful for RAG injection, logging, content filtering, or A/B testing.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.model.mock import MockModel
+from tvastar.types import Message
+
+
+def inject_context(messages):
+    """Inject retrieved context before each model call."""
+    last_user = next((m for m in reversed(messages) if m.role == "user"), None)
+    if last_user:
+        context = f"[Relevant docs: {last_user.text[:50]}...]"
+        return messages + [Message("user", context)]
+    return messages
+
+
+def log_middleware(messages):
+    """Log message count before each call."""
+    print(f"[MW] Sending {len(messages)} messages to model")
+    return messages
+
+
+spec = create_agent(
+    "rag-agent",
+    model=MockModel(script=["Based on the context, the answer is 42."]),
+    instructions="Answer using provided context.",
+    middleware=[log_middleware, inject_context],  # applied in order
+)
+
+result = asyncio.run(Harness(spec).run("What is the answer?"))
+print(result.text)
+# Middleware exceptions are swallowed with a warning — never break a run.
+```
+
+---
+
+## 40. Fallback Models — Resilience Against Outages
+
+When the primary model fails with a non-overflow error, try fallback models in order.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.model.mock import MockModel
+
+
+# Primary always fails
+primary = MockModel(script=[RuntimeError("service unavailable")])
+# Backup succeeds
+backup = MockModel(script=["I'm the backup model. Here's your answer."])
+
+spec = create_agent(
+    "resilient",
+    model=primary,
+    instructions="Be helpful.",
+    fallback_models=[backup],
+)
+
+result = asyncio.run(Harness(spec).run("Hello"))
+print(result.text)  # "I'm the backup model. Here's your answer."
+# Overflow exceptions bypass fallbacks (handled by compaction instead).
+# If all fallbacks fail, the primary's original exception is raised.
+```
+
+---
+
+## 41. Pre/Post Tool Hooks — Audit and Transform Tool I/O
+
+Observe or modify tool arguments (pre) and results (post) without changing tool code.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness, default_toolset
+from tvastar.model.mock import MockModel
+from tvastar.types import ToolUseBlock
+
+
+def audit_hook(name, args):
+    """Log every tool invocation."""
+    print(f"[AUDIT] {name}({args})")
+    return None  # return dict to replace args, None to keep original
+
+
+def redact_hook(name, args, result):
+    """Strip sensitive data from tool output."""
+    if "SECRET" in result:
+        return result.replace("SECRET", "***")
+    return None  # None keeps original result
+
+
+spec = create_agent(
+    "audited",
+    model=MockModel(script=[
+        ToolUseBlock(name="read_file", input={"path": "config.txt"}),
+        "Done reading.",
+    ]),
+    instructions="Read the config.",
+    tools=default_toolset(),
+    pre_tool_hook=audit_hook,
+    post_tool_hook=redact_hook,
+)
+
+result = asyncio.run(Harness(spec).run("Read config"))
+# Hooks that raise are caught, warned, and skipped — never break a run.
+```
+
+---
+
+## 42. Stop Predicate — Custom Termination Logic
+
+End the agent loop early based on custom conditions.
+
+```python
+import asyncio
+from tvastar import create_agent, Harness
+from tvastar.model.mock import MockModel
+
+
+spec = create_agent(
+    "bounded",
+    model=MockModel(script=["Still working...", "TASK COMPLETE: all done"]),
+    instructions="Work until done.",
+    stop_predicate=lambda result: "TASK COMPLETE" in result.text,
+)
+
+result = asyncio.run(Harness(spec).run("Do the work"))
+print(result.stopped)  # "predicate"
+print(result.text)     # "TASK COMPLETE: all done"
+# If the predicate raises, it's treated as False (loop continues).
+```
+
+---
+
+## 43. DispatchPool — Isolated Multi-Tenant Dispatch
+
+Run independent dispatch pools for testing or multi-tenant apps.
+
+```python
+import asyncio
+from tvastar import create_agent
+from tvastar.dispatch import DispatchPool
+from tvastar.model.mock import MockModel
+
+
+async def main():
+    spec = create_agent("worker", model=MockModel(script=["done"]), instructions="work")
+
+    # Tenant A has its own pool
+    pool_a = DispatchPool(max_harness_cache=50)
+    did = await pool_a.dispatch(spec, id="tenant_a_user_1", text="Hello")
+
+    # Tenant B is completely isolated
+    pool_b = DispatchPool(max_harness_cache=50)
+    await pool_b.dispatch(spec, id="tenant_b_user_1", text="World")
+
+    # Cleanup
+    pool_a.close()
+    pool_b.close()
+
+asyncio.run(main())
+```
+
+---
+
+## 44. Custom Router Scoring — Domain-Specific Agent Selection
+
+Replace the default word-overlap routing with your own scoring logic.
+
+```python
+from tvastar import AgentRouter
+from tvastar.profiles import AgentProfile
+
+
+profiles = [
+    AgentProfile(name="sql-expert", description="SQL and databases"),
+    AgentProfile(name="api-expert", description="REST APIs and HTTP"),
+    AgentProfile(name="infra-expert", description="Infrastructure and deployment"),
+]
+
+# Custom scorer: keyword matching with boost for exact terms
+def domain_scorer(text: str, profile: AgentProfile) -> float:
+    keywords = {"sql-expert": ["sql", "database", "query", "table"],
+                "api-expert": ["api", "rest", "http", "endpoint"],
+                "infra-expert": ["deploy", "docker", "kubernetes", "ci"]}
+    words = text.lower().split()
+    matches = sum(1 for w in words if w in keywords.get(profile.name, []))
+    return matches / max(len(words), 1)
+
+router = AgentRouter(profiles, scoring_fn=domain_scorer, threshold=0.1)
+print(router.route("Write a SQL query to find duplicates"))  # "sql-expert"
+print(router.route("Deploy to Kubernetes"))                   # "infra-expert"
+```

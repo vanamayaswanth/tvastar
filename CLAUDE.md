@@ -49,15 +49,16 @@ create_agent(...)
 ```
 src/
 └── tvastar/
-    ├── types.py          ← ALL core dataclasses live here (read this first)
+    ├── types.py          ← ALL core dataclasses + Protocol types (read this first)
     ├── agent.py          ← AgentSpec dataclass + create_agent() factory
     ├── harness.py        ← Harness class + HarnessFS
-    ├── session.py        ← Session + RunResult + the agent loop
+    ├── session.py        ← Session + RunResult + the agent loop + extension points
     ├── model/
     │   ├── base.py       ← Model ABC: generate(messages,...) → ModelResponse
     │   ├── anthropic.py  ← AnthropicModel — maps thinking_level → budget_tokens
     │   ├── openai.py     ← OpenAIModel — maps thinking_level → reasoning_effort
-    │   └── mock.py       ← MockModel(script=[]) for tests
+    │   ├── litellm.py    ← LiteLLMModel — 100+ providers via litellm
+    │   └── mock.py       ← MockModel(script=[]) for tests (profile-keyed scripts)
     ├── tools/
     │   ├── base.py       ← Tool, ToolRegistry, ToolContext, ToolRetryPolicy, @tool
     │   ├── builtin.py    ← default_toolset() — bash, read/write/edit/grep/glob
@@ -65,36 +66,46 @@ src/
     ├── skills/
     │   └── loader.py     ← Skill, SkillLibrary — Markdown file parser
     ├── sandbox/
-    │   ├── base.py       ← Sandbox ABC: start/stop/exec/fs
+    │   ├── base.py       ← Sandbox ABC: start/stop/exec/fs + snapshot/restore
     │   ├── virtual.py    ← VirtualSandbox — in-memory, zero deps (default)
     │   └── local.py      ← LocalSandbox — real subprocess with SecurityPolicy
     ├── memory/
     │   └── store.py      ← Store ABC, InMemoryStore, FileStore, Memory (scoped KV)
-    ├── profiles.py       ← AgentProfile, define_agent_profile(), MAX_TASK_DEPTH=4
-    ├── workflow.py       ← @workflow, Workflow, WorkflowContext, WorkflowHarness,
-    │                       WorkflowRun, RunRegistry, RunEvent, RunStatus
-    ├── dispatch.py       ← dispatch(), dispatch_and_wait(), DispatchInput,
-    │                       DispatchEvent, observe_dispatch(), cancel_dispatch()
-    ├── compaction.py     ← CompactionPolicy, should_compact(), compact_messages(),
-    │                       compact_session()
+    ├── profiles.py       ← AgentProfile, define_agent_profile(), MAX_TASK_DEPTH
+    ├── router.py         ← AgentRouter (scoring_fn support), AgentPruner
+    ├── topology.py       ← auto_topology() — goal → TaskGraph + profiles
+    ├── graph.py          ← TaskGraph — DAG-based parallel task execution
+    ├── quality.py        ← score_run(), score_pipeline(), LoopQualityReport
+    ├── cost.py           ← Cost, BudgetPolicy, cost_for_model, register_model_cost
+    ├── boundary.py       ← Injection scan, register_injection_pattern, redact_messages
+    ├── compaction.py     ← CompactionPolicy (cooldown, summary params), compact_session
+    ├── dispatch.py       ← DispatchPool, dispatch(), dispatch_and_wait(), observers
+    ├── workflow.py       ← @workflow, Workflow, WorkflowContext, WorkflowHarness
     ├── durable.py        ← Checkpointer — save/load session checkpoints
     ├── observability.py  ← Tracer, Span, ConsoleExporter, JSONLExporter, OTelExporter
+    ├── reflection.py     ← Self-reflection utilities
+    ├── masking.py        ← GovernancePolicy, ToolPolicy, allow_only, deny, phases
+    ├── approval.py       ← ApprovalGate, ApprovalRequest, require_approval
+    ├── assurance.py      ← AssurancePolicy, ExecutionReceipt, TrustLog, TokenVault
+    ├── errors.py         ← TvastarError, ToolNotFound, BudgetExceeded, etc.
     ├── detect/           ← Silent-failure detectors (Finding, Severity, RunContext)
     ├── mcp/              ← MCPClient, connect_mcp_server() — MCP protocol client
+    ├── loop/             ← Loop, LoopConfig, LoopState, patterns (CISweeper, etc.)
+    ├── fleet/            ← Fleet engineering (lazy-imported): Fleet, FleetRegistry, etc.
+    ├── contrib/ltm/      ← Long-term memory: LTMStore, BM25/semantic retrieval
+    ├── planning/         ← Methodology-based task planning
+    ├── ci/               ← tvastar-ci: CI integration runner
     ├── serving/
     │   ├── http.py       ← FastAPI app: POST /prompt, WS /stream, GET /stream (SSE)
-    │   └── cli.py        ← tvastar chat|serve|run|info|logs
+    │   └── cli.py        ← tvastar chat|serve|run|info|logs|loop|bench|quality
     ├── deploy/           ← ASGI / Lambda / serverless / GitHub Action adapters
     ├── fix/              ← tvastar-fix: auto-repair failing test suites
     ├── outbound/         ← tvastar-outbound: AI outbound email campaign agent
-    │   ├── leads.py      ← Lead dataclass, parse_csv(), parse_leads()
-    │   ├── research.py   ← research_lead() — parallel TaskGraph per lead
-    │   ├── score.py      ← score_lead() — ICP fit scoring (0.0–1.0)
-    │   ├── email.py      ← write_draft() — personalised cold email generation
-    │   ├── send.py       ← StdoutSender + EmailSender base class
-    │   ├── campaign.py   ← run_campaign() — full pipeline orchestrator
-    │   └── cli.py        ← tvastar-outbound CLI entry point
-    └── __init__.py       ← re-exports everything public (see __all__)
+    ├── adapters/         ← Wrappers: OpenAI, LangGraph, AgentCore (Bedrock)
+    ├── eval.py           ← EvalSuite, Case, assert_contains/ok/steps_under/etc.
+    ├── bench/            ← BenchSuite, SWE-bench tasks, silent-failure benchmark
+    ├── ui/               ← Trace viewer (FastAPI + vanilla JS SPA)
+    └── __init__.py       ← re-exports everything public (lazy fleet via __getattr__)
 ```
 
 ---
@@ -152,26 +163,40 @@ class StreamEvent:
 
 ```
 while steps < max_steps:
-    resp = await model.generate(
-        messages,
-        system=system_prompt,
-        tools=tool_specs,
-        max_tokens=..., temperature=...,
-        thinking_level=spec.thinking_level,   # ← new in 0.2.0
-    )
+    effective_messages = _apply_middleware(messages)    # ← v0.20.0 middleware
+    try:
+        resp = await model.generate(effective_messages, ...)
+    except overflow:
+        if _maybe_compact_reactive(exc):               # ← cooldown-enforced
+            retry with compacted messages
+        else: raise
+    except non_overflow:
+        if fallback_models:                            # ← v0.20.0 fallback chain
+            try each fallback in order
+        else: raise
+
     messages.append(resp.message)
+    _enforce_budget(total)                             # ← stop or raise if exceeded
+    _enforce_memory_cap(resp)                          # ← compact or stop
+
+    step_callback(step, resp, messages)                # ← v0.20.0 (swallow errors)
+
+    if stop_predicate(result_in_progress):             # ← v0.20.0 custom termination
+        stopped = "predicate"; break
 
     if resp.stop_reason != TOOL_USE:
-        break                                 # done — return RunResult
+        break                                          # done — return RunResult
 
-    # Execute all requested tools concurrently
-    results = await asyncio.gather(*[tool.invoke(use.input, ctx,
-                                     default_retry=spec.tool_retry)  # ← retry
-                                     for use in resp.tool_uses])
+    ordered_uses = tool_order_fn(resp.tool_uses)       # ← v0.20.0 custom ordering
+    # Execute tools (concurrency-limited by semaphore if tool_concurrency set)
+    for each tool_use:
+        args = pre_tool_hook(name, args) or args       # ← v0.20.0 (swallow errors)
+        result = await tool.invoke(args, ctx)
+        result = post_tool_hook(name, args, result) or result  # ← v0.20.0
+
     messages.append(Message("user", results))
-
-    await _maybe_compact()                    # ← compaction if policy set
-    _checkpoint()                             # ← durable save after each turn
+    await _maybe_compact()                             # ← threshold-based compaction
+    _checkpoint()                                      # ← durable save (errors surfaced)
 
 return RunResult(text, messages, usage, steps, stopped, findings, data)
 ```
@@ -190,19 +215,48 @@ class AgentSpec:
     skills: SkillLibrary = SkillLibrary()
     sandbox_factory: Callable[[], Sandbox] = VirtualSandbox
     max_steps: int = 20
-    max_tokens: int = 4096
+    max_tokens: int = 4096              # token budget per model.generate() call
     temperature: float = 1.0
-    thinking_level: str|None = None      # 'low'|'medium'|'high' — maps to provider
-    detectors: list = []                 # silent-failure detectors
+    thinking_level: str|None = None     # 'low'|'medium'|'high' — maps to provider
+    detectors: list[Detector] = []      # silent-failure detectors (Protocol type)
     compaction: CompactionPolicy|None = None
     tool_retry: ToolRetryPolicy|None = None
     subagents: dict[str, AgentProfile] = {}
+    budget: BudgetPolicy|None = None    # cost ceiling (None = unlimited)
+    approval_gate: ApprovalGate|None = None
+    tool_policy: ToolPolicy|None = None
+    governance: GovernancePolicy|None = None
+    system_prompt_hook: Callable[..., str]|None = None
+    memory_cap_mb: float|None = None    # session memory ceiling in MB
+    assurance: AssurancePolicy|None = None
+    pruner: AgentPruner|None = None
+    scrub_after_run: bool = False       # SHA-256 hash messages after run
+
+    # v0.20.0 — Configurable parameters
+    structured_retries: int = 2         # retries on structured-output parse failure
+    max_task_depth: int = 4             # max task() delegation depth
+    tool_concurrency: int|None = None   # semaphore limit (None = unlimited)
+
+    # v0.20.0 — Extension points (all swallow exceptions + warn)
+    pre_tool_hook: Callable|None = None       # (name, args) → dict|None
+    post_tool_hook: Callable|None = None      # (name, args, result) → str|None
+    step_callback: Callable|None = None       # (step, response, messages) → None
+    stop_predicate: Callable|None = None      # (result) → bool
+    middleware: list[Callable]|None = None     # [fn(messages) → messages, ...]
+    fallback_models: list[Model]|None = None  # tried in order on non-overflow failure
+    tool_order_fn: Callable|None = None       # (tool_uses) → sorted tool_uses
+
     metadata: dict = {}
 ```
 
 `create_agent(name, *, model, instructions, tools, skills, sandbox, max_steps,
               max_tokens, temperature, thinking_level, detect, subagents,
-              compaction, tool_retry, **metadata) → AgentSpec`
+              compaction, tool_retry, budget, approval_gate, tool_policy,
+              governance, system_prompt_hook, memory_cap_mb, assurance, pruner,
+              scrub_after_run, structured_retries, max_task_depth,
+              tool_concurrency, pre_tool_hook, post_tool_hook, step_callback,
+              stop_predicate, middleware, fallback_models, tool_order_fn,
+              **metadata) → AgentSpec`
 
 ---
 
@@ -306,13 +360,14 @@ class AgentProfile:
     thinking_level: str | None = None   # None → inherit parent
     max_steps: int | None = None        # None → inherit parent
     subagents: list[AgentProfile] = []
+    detect: bool | list | None = None   # v0.20.0: None=inherit, False=disable, True/list=configure
     metadata: dict = {}
 ```
 
 Resolution order for `session.task(agent='name')`:
 `task override > profile field > parent spec`
 
-`MAX_TASK_DEPTH = 4` — raises `RuntimeError` if exceeded.
+`MAX_TASK_DEPTH = 4` — overridden by `spec.max_task_depth`. Raises `RuntimeError` if exceeded.
 
 ---
 
