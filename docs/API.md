@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.16.2. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.20.0. Every public symbol, field, and signature.
 
 ---
 
@@ -32,6 +32,19 @@ def create_agent(
     governance: GovernancePolicy | None = None,
     system_prompt_hook: Callable[..., str] | None = None,
     memory_cap_mb: float | None = None,   # session memory ceiling in MB
+    pruner: AgentPruner | None = None,
+    scrub_after_run: bool = False,
+    # v0.20.0 — Maximum Dynamism Audit
+    structured_retries: int = 2,          # retries on structured-output parse failure
+    max_task_depth: int = 4,              # maximum task() delegation depth
+    tool_concurrency: int | None = None,  # semaphore limit for parallel tools (None=unlimited)
+    pre_tool_hook: Callable[[str, dict], dict | None] | None = None,
+    post_tool_hook: Callable[[str, dict, str], str | None] | None = None,
+    step_callback: Callable[[int, Any, list], None] | None = None,
+    stop_predicate: Callable[[Any], bool] | None = None,
+    middleware: list[Callable[[list], list]] | None = None,
+    fallback_models: list[Model] | None = None,
+    tool_order_fn: Callable[[list], list] | None = None,
     **metadata,                           # arbitrary key=value stored on spec
 ) -> AgentSpec
 ```
@@ -50,25 +63,40 @@ class AgentSpec:
     skills: SkillLibrary
     sandbox_factory: Callable[[], Sandbox]
     max_steps: int                         # default 20
-    max_tokens: int                        # default 4096
+    max_tokens: int                        # default 4096 — passed to model.generate() as token budget
     temperature: float                     # default 1.0
     thinking_level: str | None             # 'low'|'medium'|'high'|None
-    detectors: list                        # silent-failure detectors
+    detectors: list[Detector]              # silent-failure detectors (Protocol type)
     compaction: CompactionPolicy | None
-    tool_retry: ToolRetryPolicy | None
+    tool_retry: ToolRetryPolicy | None     # Protocol type
     subagents: dict[str, AgentProfile]
-    budget: BudgetPolicy | None            # cost ceiling (None=unlimited)
-    approval_gate: ApprovalGate | None     # human-in-the-loop gate
-    tool_policy: ToolPolicy | None         # per-turn masking (advisory)
-    governance: GovernancePolicy | None    # invocation-layer enforcement (tamper-proof)
-    system_prompt_hook: Callable[..., str] | None  # augments system prompt before each call
+    budget: BudgetPolicy | None            # Protocol type (None=unlimited)
+    approval_gate: ApprovalGate | None     # Protocol type
+    tool_policy: ToolPolicy | None         # Protocol type (per-turn masking, advisory)
+    governance: GovernancePolicy | None    # Protocol type (invocation-layer, tamper-proof)
+    system_prompt_hook: Callable[..., str] | None
     memory_cap_mb: float | None            # session memory ceiling in MB (None=unlimited)
+    assurance: AssurancePolicy | None      # Protocol type
+    pruner: AgentPruner | None             # Protocol type
+    scrub_after_run: bool                  # default False — SHA-256 hash messages after run
+
+    # v0.20.0 — Configurable parameters (formerly hardcoded)
+    structured_retries: int                # default 2 — retries on structured-output parse failure
+    max_task_depth: int                    # default 4 — max task() delegation depth
+    tool_concurrency: int | None           # None=unlimited; set N for semaphore
+
+    # v0.20.0 — Extension points (hooks, middleware, fallbacks)
+    pre_tool_hook: Callable[[str, dict], dict | None] | None
+    post_tool_hook: Callable[[str, dict, str], str | None] | None
+    step_callback: Callable[[int, Any, list], None] | None
+    stop_predicate: Callable[[Any], bool] | None
+    middleware: list[Callable[[list], list]] | None
+    fallback_models: list[Model] | None
+    tool_order_fn: Callable[[list], list] | None
+
     metadata: dict[str, Any]
 
     def build_system_prompt(self, *, last_user_text: str = "") -> str
-    # Applies system_prompt_hook if set; hook failure warns and falls back gracefully.
-    # Extended hooks that declare last_user_text receive the most-recent user message.
-
     def get_subagent(self, name: str) -> AgentProfile | None
 ```
 
@@ -522,6 +550,7 @@ class AgentProfile:
     thinking_level: str | None = None  # None → inherit parent
     max_steps: int | None = None       # None → inherit parent
     subagents: list[AgentProfile] = []
+    detect: bool | list | None = None  # v0.20.0: None=inherit, False=disable, True/list=configure
     metadata: dict[str, Any] = {}
 
 def define_agent_profile(
@@ -535,6 +564,7 @@ def define_agent_profile(
     thinking_level: str | None = None,
     max_steps: int | None = None,
     subagents: list[AgentProfile] | None = None,
+    detect: bool | list | None = None,
     **metadata,
 ) -> AgentProfile
 ```
@@ -552,12 +582,14 @@ class AgentRouter:
         profiles: Iterable[AgentProfile],
         *,
         threshold: float = 0.3,   # minimum match score to accept a route
+        scoring_fn: Callable[[str, AgentProfile], float] | None = None,  # v0.20.0
         encoder = None,           # optional semantic-router encoder instance
     )
 
     def route(self, text: str) -> str | None
-    # Returns the best-matching profile name, or None if no match exceeds threshold.
-    # Pass to sess.task(router=router) for automatic agent selection.
+    # When scoring_fn is provided, calls it for each profile and picks the highest scorer.
+    # Otherwise uses semantic-router (if installed) or difflib word-overlap.
+    # Returns None if no match exceeds threshold.
 ```
 
 Wiring into `task()`:
@@ -748,6 +780,24 @@ class DispatchEvent:
     at: float
     data: dict[str, Any]
 
+# v0.20.0 — DispatchPool: encapsulated dispatch state
+class DispatchPool:
+    """Isolated dispatch state — multiple pools run independently."""
+    def __init__(self, max_harness_cache: int = 500)
+
+    async def dispatch(self, spec, *, id, session=None, input=None, text=None,
+                       store=None, on_complete=None, on_error=None,
+                       cancel_after=None, tracer=None) -> str
+    async def dispatch_and_wait(self, spec, *, id, session=None, input=None,
+                                text=None, store=None, cancel_after=None,
+                                tracer=None) -> RunResult
+    def cancel(self, dispatch_id: str) -> bool
+    def list_active(self) -> list[str]
+    def observe(self, callback: Callable[[DispatchEvent], Any]) -> None
+    def unobserve(self, callback: Callable[[DispatchEvent], Any]) -> bool
+    def close(self) -> None   # release all cached harnesses and cancel active tasks
+
+# Module-level functions (delegate to default pool for backward compat)
 async def dispatch(
     spec: AgentSpec,
     *,
@@ -2067,3 +2117,139 @@ config = LoopConfig(
 ```
 
 The optimizer callable signature `(instructions: str, runs: list[LoopRun]) -> str` is stable — any callable that matches it works as an optimizer, not just `DSPyOptimizer`.
+
+---
+
+## Registration APIs (v0.20.0)
+
+Runtime-extensible registration for costs, injection patterns, and overflow phrases.
+
+### `register_model_cost()` (`tvastar.cost`)
+
+```python
+def register_model_cost(
+    model_name: str,
+    input_per_million: float,
+    output_per_million: float,
+) -> None
+# Register or update model pricing at runtime.
+# New entries available immediately for all subsequent cost calculations.
+# Re-registering an existing model name updates that entry.
+```
+
+### `register_injection_pattern()` (`tvastar.boundary`)
+
+```python
+def register_injection_pattern(name: str, pattern: re.Pattern) -> None
+# Register or replace a named injection detection pattern.
+# Subsequent scan_for_injection() calls include the new pattern.
+# Same name replaces old pattern.
+```
+
+### `register_overflow_phrase()` (`tvastar.session`)
+
+```python
+def register_overflow_phrase(phrase: str) -> None
+# Add a phrase to the overflow detection set (case-insensitive).
+# Subsequent overflow checks include the new phrase.
+```
+
+---
+
+## Protocol Types (v0.20.0)
+
+All protocols in `tvastar.types` are `@runtime_checkable`. Use `isinstance()` to verify.
+
+```python
+from tvastar.types import (
+    Detector,          # __call__(ctx: RunContext) -> list[Finding]
+    ApprovalGate,      # async request(message, **kwargs) -> bool
+    BudgetPolicy,      # max_usd, on_exceed, should_warn(cost), attribute(cost)
+    ToolPolicy,        # __call__(ctx) -> Iterable[str]
+    GovernancePolicy,  # current_phase, set_phase(), is_allowed(), enforce(), copy()
+    AssurancePolicy,   # log, min_score, on_fail, key, enforce_sla(receipt)
+    AgentPruner,       # update(name, result), active(profiles), should_prune(name)
+    ToolRetryPolicy,   # max_attempts, should_retry(exc), sleep_for(attempt)
+)
+```
+
+---
+
+## CompactionPolicy (v0.20.0 additions)
+
+```python
+@dataclass
+class CompactionPolicy:
+    max_messages: int = 60
+    max_tokens_estimate: int = 80_000
+    keep_last: int = 10
+    min_messages: int = 20
+    summary_instruction: str = "..."
+    summary_model: Any | None = None
+
+    # v0.20.0
+    cooldown: float = 30.0              # seconds between reactive compaction attempts
+    summary_max_tokens: int = 1024      # max_tokens for summary generation model call
+    summary_temperature: float = 0.3    # temperature for summary generation model call
+```
+
+---
+
+## Session (v0.20.0 additions)
+
+```python
+@dataclass
+class Session:
+    # ... existing fields ...
+    last_checkpoint_error: Exception | None = None   # v0.20.0: queryable checkpoint failure
+```
+
+---
+
+## Extension Points Usage (v0.20.0)
+
+### Middleware
+
+```python
+def log_middleware(messages):
+    print(f"Sending {len(messages)} messages")
+    return messages
+
+agent = create_agent("x", model=model, middleware=[log_middleware])
+```
+
+### Fallback Models
+
+```python
+agent = create_agent(
+    "resilient",
+    model=primary_model,
+    fallback_models=[backup_model_1, backup_model_2],
+)
+# On primary failure (non-overflow), tries each fallback in order.
+# Overflow errors bypass fallbacks — handled by compaction instead.
+```
+
+### Stop Predicate
+
+```python
+agent = create_agent(
+    "bounded",
+    model=model,
+    stop_predicate=lambda result: "DONE" in result.text,
+)
+# Loop ends with stopped="predicate" when the predicate returns True.
+```
+
+### Tool Hooks
+
+```python
+def audit_hook(name, args):
+    log.info(f"Calling {name} with {args}")
+    return None  # don't modify
+
+def redact_hook(name, args, result):
+    return result.replace("SECRET", "***")
+
+agent = create_agent("x", model=model, pre_tool_hook=audit_hook, post_tool_hook=redact_hook)
+```
