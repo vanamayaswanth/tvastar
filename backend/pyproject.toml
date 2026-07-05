@@ -1,0 +1,93 @@
+[project]
+name = "ai-presales-engine"
+version = "0.1.0"
+description = "AI-powered real estate pre-sales execution engine"
+requires-python = ">=3.12"
+dependencies = [
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+
+    # Auth
+    "fastapi-users[sqlalchemy]>=13.0.0",
+    "python-jose[cryptography]>=3.3.0",
+
+    # CRUD
+    "fastcrud>=0.15.0",
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.35",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+
+    # Cache (Valkey-compatible)
+    "redis[hiredis]>=5.2.0",
+
+    # Workflow
+    "temporalio>=1.8.0",
+
+    # Event bus
+    "nats-py>=2.9.0",
+
+    # AI / RAG
+    "smolagents>=1.0.0",
+    # ponytail: pgvector for RAG (2000 chunks, 5 QPS). Ceiling: 50K vectors → add HNSW → swap to Qdrant
+    "pgvector>=0.3.6",
+
+    # Telephony
+    "livekit>=0.17.0",
+    "livekit-agents>=0.12.0",
+
+    # HTTP client
+    "httpx>=0.27.0",
+    "tenacity>=9.0.0",
+
+    # Storage
+    "boto3>=1.35.0",
+
+    # Logging & Observability
+    "structlog>=24.4.0",
+    "opentelemetry-sdk>=1.28.0",
+    "opentelemetry-instrumentation-fastapi>=0.49b0",
+    "opentelemetry-exporter-otlp>=1.28.0",
+    "sentry-sdk[fastapi]>=2.18.0",
+
+    # Email
+    "resend>=2.5.0",
+
+    # Utilities
+    "python-multipart>=0.0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "hypothesis>=6.115.0",
+    "testcontainers[postgres,redis,nats]>=4.8.0",
+    "httpx>=0.27.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
