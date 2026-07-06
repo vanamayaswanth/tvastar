@@ -39,6 +39,7 @@ __all__ = [
     "ApprovalRequest",
     "ApprovalDenied",
     "ApprovalTimeout",
+    "ModelVerifier",
     "require_approval",
 ]
 
@@ -193,6 +194,93 @@ class ApprovalGate:
         if not approved:
             raise ApprovalDenied(f"Approval denied: {req.message!r}")
         return True
+
+
+class ModelVerifier:
+    """Model-based pre-execution verifier. Drop-in for ApprovalGate.
+
+    Delegates approval decisions to a reviewer model instead of a human.
+    Same ``request()`` interface as ``ApprovalGate`` — the session calls
+    ``gate.request(...)`` without knowing whether a human or model decides.
+
+    Example::
+
+        from tvastar import create_agent, ModelVerifier
+        from tvastar.model import AnthropicModel
+
+        reviewer = AnthropicModel(model="claude-haiku-3")
+        verifier = ModelVerifier(model=reviewer, timeout=15)
+        agent = create_agent("safe-agent", model=main_model, approval_gate=verifier)
+    """
+
+    _SYSTEM_PROMPT = (
+        "You are a safety reviewer. Respond with exactly APPROVE or DENY "
+        "followed by a reason."
+    )
+
+    def __init__(self, model: Any, *, timeout: float = 30.0) -> None:
+        if not hasattr(model, "generate"):
+            raise TypeError("model must implement the Model interface")
+        self.model = model
+        self.timeout = max(5.0, min(float(timeout), 120.0))
+
+    async def request(
+        self,
+        message: str,
+        *,
+        timeout: float | None = None,
+        metadata: dict | None = None,
+    ) -> bool:
+        """Returns True (approved) or raises ApprovalDenied/ApprovalTimeout."""
+        from .types import Message as Msg
+
+        meta = metadata or {}
+        # Build the user message: tool name + args + last 5 messages
+        user_content = message
+        messages_history = meta.get("messages", [])
+        if messages_history:
+            last_five = messages_history[-5:]
+            history_text = "\n".join(
+                f"[{getattr(m, 'role', 'unknown')}]: {getattr(m, 'text', str(m))}"
+                for m in last_five
+            )
+            user_content = f"{message}\n\nRecent conversation:\n{history_text}"
+
+        msgs = [
+            Msg(role="system", content=self._SYSTEM_PROMPT),
+            Msg(role="user", content=user_content),
+        ]
+
+        effective_timeout = self.timeout
+
+        try:
+            response = await asyncio.wait_for(
+                self.model.generate(msgs, system=self._SYSTEM_PROMPT),
+                timeout=effective_timeout,
+            )
+        except asyncio.TimeoutError:
+            raise ApprovalTimeout(
+                f"reviewer did not respond within {effective_timeout}s"
+            )
+        except Exception as exc:
+            raise ApprovalDenied(f"reviewer unavailable: {exc}") from exc
+
+        # Parse the response
+        text = response.message.text.strip()
+        if not text:
+            raise ApprovalDenied("reviewer denied without stated reason")
+
+        parts = text.split(None, 1)
+        first_word = parts[0].upper() if parts else ""
+
+        if first_word == "APPROVE":
+            return True
+
+        # Denied — extract reasoning
+        reason = parts[1] if len(parts) > 1 else ""
+        if not reason.strip():
+            raise ApprovalDenied("reviewer denied without stated reason")
+        raise ApprovalDenied(reason)
 
 
 # ---------------------------------------------------------------------------
