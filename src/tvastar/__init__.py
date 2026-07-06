@@ -39,6 +39,7 @@ from .approval import (
     ApprovalGate,
     ApprovalRequest,
     ApprovalTimeout,
+    ModelVerifier,
     require_approval,
     set_default_gate,
 )
@@ -54,6 +55,7 @@ from .boundary import (
     wrap_untrusted,
 )
 from .compaction import CompactionPolicy, compact_messages, compact_session, should_compact
+from .compressor import ToolOutputCompressor
 from .cost import COST_TABLE, BudgetExceeded, BudgetPolicy, Cost, cost_for_model, register_model_cost
 from .detect import (
     Finding,
@@ -117,7 +119,7 @@ from .loop.patterns import (
 )
 from .masking import GovernancePolicy, MaskContext, ToolPolicy, allow_only, deny, phases
 from .mcp import MCPClient, connect_mcp_server
-from .memory import FileStore, InMemoryStore, Memory, Store
+from .memory import FileStore, InMemoryStore, Memory, SQLiteStore, Store
 from .model import MockModel, Model, ModelRetryPolicy
 from .observability import (
     ConsoleExporter,
@@ -125,6 +127,7 @@ from .observability import (
     OTelExporter,
     Tracer,
 )
+from .event_exporter import TvastarEventExporter
 from .outbound import (
     CampaignResult,
     EmailDraft,
@@ -166,6 +169,7 @@ from .tools import (
     web_search,
     web_toolset,
 )
+from .tools.latchkey import latchkey_curl
 from .types import (
     Detector,
     ImageBlock,
@@ -231,7 +235,7 @@ def __getattr__(name: str):
         return globals()[name]
     raise AttributeError(f"module 'tvastar' has no attribute {name!r}")
 
-__version__ = "0.20.0"
+__version__ = "0.21.0"
 
 __all__ = [
     "create_agent",
@@ -276,6 +280,7 @@ __all__ = [
     "Store",
     "InMemoryStore",
     "FileStore",
+    "SQLiteStore",
     "Memory",
     "Checkpointer",
     "MCPClient",
@@ -307,6 +312,7 @@ __all__ = [
     "ConsoleExporter",
     "JSONLExporter",
     "OTelExporter",
+    "TvastarEventExporter",
     "Detector",
     "ImageBlock",
     "Message",
@@ -331,6 +337,10 @@ __all__ = [
     "compact_session",
     "compact_messages",
     "should_compact",
+    # tool output compression
+    "ToolOutputCompressor",
+    # latchkey authenticated request tool
+    "latchkey_curl",
     # profiles / subagents
     "AgentProfile",
     "define_agent_profile",
@@ -372,6 +382,7 @@ __all__ = [
     "ApprovalRequest",
     "ApprovalDenied",
     "ApprovalTimeout",
+    "ModelVerifier",
     "require_approval",
     "set_default_gate",
     # benchmarks

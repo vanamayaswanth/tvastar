@@ -6,6 +6,47 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.21.0] — 2025-07-15
+
+### Added — Pi Ecosystem Adaptations
+
+Six targeted adaptations validated by download signal from the Pi.dev package ecosystem. Each extends existing infrastructure with the minimum viable change. Zero new runtime dependencies.
+
+#### Tool Output Compression
+
+- **`ToolOutputCompressor`** — post-tool-hook interceptor that reduces tool result size before it enters message history. SHA-256 dedup for file-read tools; tail-preserving truncation for shell tools.
+- **`compress_tool_output: bool = True`** parameter on `create_agent()` — enables/disables compression. When enabled, wraps user's `post_tool_hook` with fault-tolerant compressor (compressor first, then user hook). Exceptions swallowed; original result used on failure.
+
+#### Model-Based Pre-execution Verification
+
+- **`ModelVerifier`** — drop-in replacement for `ApprovalGate` that delegates approval decisions to a reviewer model. Same `request()` interface. Fail-closed: any error from the reviewer raises `ApprovalDenied`. Timeout configurable (5–120s, default 30s).
+
+#### Per-Task Model Routing in TaskGraph
+
+- **`model=` parameter on `TaskGraph.task()`** — assign different models to different graph nodes. Cheap/fast models for simple tasks, capable models for complex ones. Validated at `_validate()` time (TypeError if no `generate` attribute).
+
+#### SQLite FTS5 Memory Backend
+
+- **`SQLiteStore`** — persistent, searchable `Store` implementation backed by stdlib `sqlite3` with FTS5 full-text search. `get`, `set`, `delete`, `keys` + `search(query, limit=10)`. Thread-safe. Auto-creates DB on init. JSON round-trip for all values.
+
+#### Latchkey Authenticated Request Tool
+
+- **`latchkey_curl`** — `@tool` function that delegates HTTP requests to the external `latchkey` CLI. Secrets never appear in prompts. Opt-in only (not in `default_toolset()`). 30s timeout, graceful error handling for missing binary / non-zero exit.
+
+#### TaskGraph Resume Journal
+
+- **`resume`, `graph_run_id`, `journal` parameters on `TaskGraph.run()`** — persist completed node results to any `Store` for crash recovery. On restart with `resume=True`, previously completed nodes are skipped. Fault-tolerant: Store exceptions logged and journaling disabled for remainder of run.
+
+### Fixed
+
+- **Per-node model spec mutation** — `_run_one()` previously set `sess.spec.model = node.model` which mutated the shared harness spec. Fixed to `dataclasses.replace(sess.spec, model=node.model)` for isolation.
+
+### Changed
+
+- `__version__` bumped to `0.21.0`.
+- `ToolOutputCompressor`, `ModelVerifier`, `SQLiteStore`, `latchkey_curl` exported from top-level `tvastar` package and added to `__all__`.
+- Full suite: **1932 passed**, 2 skipped.
+
 ## [0.20.0] — 2025-07-14
 
 ### Added — Maximum Dynamism Audit

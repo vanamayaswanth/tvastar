@@ -54,6 +54,15 @@ These are the rules the codebase is built on. Please keep to them:
 - **A failure detector:** write a function `(RunContext) -> list[Finding]` and
   add it to `default_detectors()` (or document it as opt-in). Keep it
   high-precision — a noisy detector is worse than none. See `tvastar/detect/`.
+- **A memory store:** subclass the `Store` ABC (`get`, `set`, `delete`, `keys`).
+  See `tvastar/memory/store.py` for the interface, `sqlite_store.py` for a
+  reference implementation with FTS5 search.
+- **An approval gate:** implement `async request(message, *, timeout, metadata)`
+  returning `True` or raising `ApprovalDenied`. See `ModelVerifier` in
+  `tvastar/approval.py` for a model-based example.
+- **A post-tool-hook interceptor:** write a callable matching
+  `(tool_name: str, args: dict, result: str) -> str | None`. See
+  `ToolOutputCompressor` in `tvastar/compressor.py`.
 
 ## Pull requests
 

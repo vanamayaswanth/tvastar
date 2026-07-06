@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .detect import Finding
     from .harness import Harness
+    from .memory.store import Store
     from .session import RunResult
 
 __all__ = ["TaskGraph", "GraphResult"]
@@ -52,6 +53,7 @@ class _TaskNode:
     depends_on: list[str] = field(default_factory=list)
     result: Any = None
     cancel_after: float | None = None
+    model: Any = None
 
 
 @dataclass
@@ -118,6 +120,7 @@ class TaskGraph:
         depends_on: list[str] | None = None,
         result: Any = None,
         cancel_after: float | None = None,
+        model: Any = None,
     ) -> "TaskGraph":
         """
         Register a task node.
@@ -138,6 +141,11 @@ class TaskGraph:
         cancel_after:
             Optional timeout in seconds.  The task is cancelled if it
             exceeds this duration.
+        model:
+            Optional Model override for this specific node.  When set,
+            the node's session uses this model instead of the harness
+            default.  Must implement the Model interface (have a
+            ``generate`` method).
 
         Returns self for fluent chaining.
         """
@@ -149,6 +157,7 @@ class TaskGraph:
             depends_on=depends_on or [],
             result=result,
             cancel_after=cancel_after,
+            model=model,
         )
         return self
 
@@ -157,6 +166,9 @@ class TaskGraph:
         *,
         inject_results: bool = True,
         concurrency: int = 8,
+        resume: bool = False,
+        graph_run_id: str | None = None,
+        journal: "Store | None" = None,
     ) -> GraphResult:
         """
         Execute the task graph and return a :class:`GraphResult`.
@@ -170,6 +182,16 @@ class TaskGraph:
             Maximum number of tasks running model calls simultaneously.
             Defaults to 8 to avoid thundering-herd retry storms when the
             model provider rate-limits.  Pass ``0`` for unlimited.
+        resume:
+            When True, load previously completed results from the journal
+            Store and skip execution of nodes that have stored results.
+        graph_run_id:
+            Caller-supplied identifier for this graph run. Used as a
+            prefix in journal keys (format: ``{graph_run_id}:{node_name}``).
+        journal:
+            A Store instance used for persisting completed node results.
+            Any Store implementation works (FileStore, InMemoryStore,
+            SQLiteStore). Journaling failures never break a run.
         """
         if not self._nodes:
             return GraphResult({})
@@ -183,6 +205,9 @@ class TaskGraph:
         errors: dict[str, BaseException] = {}
         done_events: dict[str, asyncio.Event] = {n: asyncio.Event() for n in self._nodes}
         _sem: asyncio.Semaphore | None = asyncio.Semaphore(concurrency) if concurrency > 0 else None
+
+        # Mutable container so nested coroutines can disable journaling on failure
+        _journal_ref: list["Store | None"] = [journal if graph_run_id else None]
 
         async def _run_one(name: str) -> None:
             node = self._nodes[name]
@@ -198,9 +223,37 @@ class TaskGraph:
                 done_events[name].set()
                 return
 
+            # --- Journal read: skip execution if valid cached result ---
+            if resume and _journal_ref[0] is not None and graph_run_id:
+                import logging
+
+                stored = None
+                try:
+                    stored = _journal_ref[0].get(f"{graph_run_id}:{name}")
+                except Exception:
+                    logging.getLogger("tvastar.graph").warning(
+                        "journal read failed for %s; continuing without journaling", name
+                    )
+                    _journal_ref[0] = None
+
+                if isinstance(stored, str):
+                    # Inject as if node completed
+                    from .session import RunResult as _RunResult
+                    from .types import Usage as _Usage
+
+                    completed[name] = _RunResult(
+                        text=stored, messages=[], usage=_Usage(), steps=0
+                    )
+                    done_events[name].set()
+                    return  # skip execution
+                # else: discard (None or non-string) and re-execute
+
             # Use an anonymous session each run to avoid history contamination
             # if the graph is re-run.
             sess = self._harness.session()
+            if node.model is not None:
+                import dataclasses
+                sess.spec = dataclasses.replace(sess.spec, model=node.model)
             try:
                 # Build prompt — inject dependency results when requested
                 prompt = node.prompt
@@ -236,6 +289,20 @@ class TaskGraph:
                     run_result = await _execute()
 
                 completed[name] = run_result
+
+                # --- Journal write: persist result after success ---
+                if _journal_ref[0] is not None and graph_run_id:
+                    try:
+                        _journal_ref[0].set(f"{graph_run_id}:{name}", run_result.text)
+                    except Exception:
+                        import logging
+
+                        logging.getLogger("tvastar.graph").warning(
+                            "journal write failed for %s; continuing without journaling",
+                            name,
+                        )
+                        _journal_ref[0] = None  # disable for remainder
+
             except BaseException as exc:
                 errors[name] = exc
             finally:
@@ -285,3 +352,8 @@ class TaskGraph:
         for name in self._nodes:
             if colour[name] == WHITE:
                 _dfs(name)
+
+        # Model interface validation
+        for node in self._nodes.values():
+            if node.model is not None and not hasattr(node.model, 'generate'):
+                raise TypeError(f"Task {node.name!r} model must implement the Model interface")

@@ -186,6 +186,7 @@ def create_agent(
     middleware: Optional[list[Callable[["list"], "list"]]] = None,
     fallback_models: Optional[list[Model]] = None,
     tool_order_fn: Optional[Callable[["list"], "list"]] = None,
+    compress_tool_output: bool = True,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -242,6 +243,37 @@ def create_agent(
     subagent_map: dict[str, AgentProfile] = {}
     for p in subagents or []:
         subagent_map[p.name] = p
+
+    # --- Tool output compression wiring ---
+    if compress_tool_output:
+        from .compressor import ToolOutputCompressor
+
+        compressor = ToolOutputCompressor()
+        user_hook = post_tool_hook
+
+        def _compressed_post_tool_hook(
+            tool_name: str, args: dict, result: str
+        ) -> Optional[str]:
+            current_result = result
+            # Run compressor first (fault-tolerant)
+            try:
+                compressed = compressor(tool_name, args, current_result)
+                if compressed is not None:
+                    current_result = compressed
+            except Exception:
+                pass  # fallback to original result
+            # Then run user's hook if provided
+            if user_hook is not None:
+                user_result = user_hook(tool_name, args, current_result)
+                if user_result is not None:
+                    return user_result
+            # Return None if no modification from user hook, but if compressor
+            # changed something we need to return that.
+            if current_result is not result:
+                return current_result
+            return None
+
+        post_tool_hook = _compressed_post_tool_hook
 
     return AgentSpec(
         name=name,
