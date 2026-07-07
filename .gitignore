@@ -28,3 +28,6 @@ Thumbs.db
 # Alembic
 backend/alembic/versions/*.py
 !backend/alembic/versions/.gitkeep
+
+paper/
+
