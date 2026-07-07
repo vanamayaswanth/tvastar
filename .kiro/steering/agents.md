@@ -1,4 +1,6 @@
 ---
+title: Agent Workflow — Lifecycle, Roles & Skills
+description: Narada routing layer. Routes every task to the right agent and skill based on leading words. Enforces the development lifecycle and character-installation methodology.
 inclusion: always
 ---
 

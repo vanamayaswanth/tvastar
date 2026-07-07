@@ -407,30 +407,39 @@ Design it to enable reasoning, not just to consume the answer.
 
 **Step 1: Define what the system needs to know and produce**
 What is the task, the input, the expected output, the user, and the context? Write this before touching a model.
+Done when the task definition exists: input shape, output shape, user, context, success criteria.
 
 **Step 2: Classify the Vedas — Curate training and context data**
 What data will this model see? Is it labeled, balanced, representative, and reviewed?
+Done when the data source is documented, bias is assessed, and gaps are named.
 
 **Step 3: Set up divya drishti — Observability before deployment**
 Logging, tracing, eval suite. Everything set up before the model goes live.
+Done when logging, tracing, and the eval harness are running (not planned).
 
 **Step 4: Structure the reasoning (complex verses)**
 Design the prompt to guide reasoning, not just request an answer. Chain-of-thought, structured steps, explicit uncertainty fields.
+Done when the prompt includes reasoning structure and an uncertainty field in its output schema.
 
 **Step 5: Every perspective — Test on the full range**
 Edge cases, adversarial inputs, underrepresented users, rare events. Test what the model has not seen.
+Done when eval results exist for edge cases and adversarial inputs (not just the happy path).
 
 **Step 6: Handle acknowledged contradictions**
 Build detection for conflicting outputs, uncertain answers, and known ground-truth violations.
+Done when contradiction detection is coded and tested on at least one known conflict.
 
 **Step 7: One model, multiple uses**
 One base model with specialization through prompting or fine-tuning — not separate systems for each use case.
+Done when the architecture uses one base model (or explicitly justifies why not).
 
 **Step 8: Evaluate across time, not just across a random split**
 Use held-out future data. Test for distribution shift. Track model performance over time, not just at launch.
+Done when temporal eval exists (future-dated hold-out set, not random split only).
 
 **Step 9: Author inside the story — independent evaluation**
 Separate the builders from the evaluators. The team that writes the prompt does not grade their own output.
+Done when an evaluator other than the builder has assessed output quality.
 
 ---
 

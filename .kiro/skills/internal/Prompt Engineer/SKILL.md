@@ -379,30 +379,39 @@ The prompt engineer is the bridge.
 
 **Step 1: Understand the intent**
 What is the user actually trying to accomplish? Not what they said — what they need.
+Done when the real intent is stated in one sentence (distinct from the literal request if different).
 
 **Step 2: Understand the receiver**
 What does the model know about this domain? What context does it need that it does not have by default?
+Done when model knowledge gaps are listed and context requirements are documented.
 
 **Step 3: Set up the ashram (system prompt)**
 What is the model's role, persona, and constraints for this task? Set this before the user input arrives.
+Done when the system prompt exists with role, persona, and constraints defined.
 
 **Step 4: Ask the Valmiki question**
 Structure the prompt to guide reasoning, not just request output. Include steps, constraints, and the output format.
+Done when the prompt includes explicit reasoning steps, constraints, and output format.
 
 **Step 5: Provide the Prahlada context**
 Give the model the background it needs to interpret the input correctly.
+Done when all necessary context is included (or confirmed unnecessary).
 
 **Step 6: Deliberate catalyst — test for the specific effect**
 Run the prompt. Is the output what was intended? Not just "is it good" — is it the specific thing that was needed?
+Done when the output matches the stated intent (not just "looks reasonable").
 
 **Step 7: Iterate — never stop traveling**
 What did the output reveal about the prompt? Change one thing. Test again.
+Done when at least one iteration has improved the output from v1.
 
 **Step 8: Return to Narayana**
 After iterations, does the prompt still serve the original intent? Strip back if needed.
+Done when the final prompt is tested against the original intent and confirmed aligned.
 
 **Step 9: Write the Bhakti Sutras**
 Document the working prompt, its version history, its known failure modes, and its intended use case.
+Done when the prompt is versioned in the prompt library with failure modes documented.
 
 ---
 

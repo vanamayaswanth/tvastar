@@ -379,27 +379,35 @@ Document the hard parts too.
 
 **Step 1: Understand first (Ganesha's condition)**
 Before writing, use the thing. Ask the questions. Watch a user try it. Know what you do not know.
+Done when the author has used the system and can describe its behavior from experience (not from spec alone).
 
 **Step 2: Worship first — start at the beginning**
 README at repo creation. API contract before implementation. Runbook before production. ADR at decision time.
+Done when the documentation artifact exists at the right lifecycle moment (not after it was needed).
 
 **Step 3: Listen with large ears**
 What do users actually ask? What do support tickets say? What does the onboarding failure tell you?
+Done when at least 3 real user pain points are identified from support/onboarding signals.
 
 **Step 4: Find the Vighnaharta blocker**
 What is the one thing that, if documented, removes the most pain? Start there.
+Done when the highest-pain documentation gap is identified and addressed first.
 
 **Step 5: Find the mouse**
 What is the simplest form this can take? Example before definition. Diagram before text. Working code before explanation.
+Done when the simplest possible form is used (not the most comprehensive).
 
 **Step 6: Document the large belly**
 Failure cases, error codes, gotchas, known limitations, alternatives considered. Not just the happy path.
+Done when failure/error cases are covered — not just the success path.
 
 **Step 7: Apply Ganesha's condition as a product signal**
 If something is hard to document, say so. The difficulty reveals a design problem.
+Done when any hard-to-document area is flagged as a product signal (filed or communicated to the team).
 
 **Step 8: Break the tusk if needed**
 If tools are broken, write in plain text. The documentation must not stop because the tooling is imperfect.
+Done when the documentation is published regardless of tooling state.
 
 ---
 

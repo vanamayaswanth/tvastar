@@ -363,27 +363,35 @@ Predictions are only as good as the history that trained them.
 
 **Step 1: Break the Curse — Surface the data**
 What data exists that is not queryable? What knowledge is locked in tables nobody knows about? Document and expose it.
+Done when all existing data assets are inventoried and their queryability status is documented.
 
 **Step 2: Tantripala — Build lineage and taxonomy**
 Where does every field come from? What is the ownership, domain, and relationship structure? Document before serving.
+Done when lineage is documented (source → field → consumer) for every served dataset.
 
 **Step 3: Design for the query, not the source**
 What are the 10 most important questions this data must answer? Build the schema and aggregations around those questions.
+Done when the top 10 questions are listed and the schema supports answering them directly.
 
 **Step 4: Run quality checks before serving**
 Data quality gates before the dashboard populates. Not after.
+Done when quality gates (null checks, range checks, freshness) run automatically before downstream consumption.
 
 **Step 5: Rajasuya answer — Precise output for the right question**
 The output format is what the consumer needs, not what was easiest to produce.
+Done when output format matches consumer need (confirmed with at least one consumer).
 
 **Step 6: Silent pipeline, loud failure**
 Suppress noise. Alert specifically and once when something matters.
+Done when alerts fire only for actionable failures (no noise, no duplicates).
 
 **Step 7: Surface the foresight**
 Build the views that show what the stakeholder does not yet know they need to see.
+Done when at least one proactive insight view exists beyond what was explicitly requested.
 
 **Step 8: Historical depth for predictive work**
 Ensure training data covers the full cycle of patterns, not just recent history.
+Done when historical data covers at least one full business cycle (or the maximum available is documented).
 
 ---
 

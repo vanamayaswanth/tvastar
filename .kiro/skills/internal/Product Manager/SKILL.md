@@ -407,30 +407,39 @@ Clear mission. Defined done. Step back when achieved.
 
 **Step 1: Define the Mission**
 Not the roadmap. The mission. What specific problem, for which specific user, solved completely. Write it in one sentence.
+Done when the mission is one sentence naming a specific problem, a specific user, and a definition of done.
 
 **Step 2: Find the Chandragupta**
 Who is the right person for each part of this mission? Identify before the title exists.
+Done when each work stream has a named owner with the capability to execute it.
 
 **Step 3: Map the Center**
 What is the root problem? What are the symptoms? Attack the center first.
+Done when the root problem is distinguished from its symptoms and the center is named.
 
 **Step 4: Set the Strategy — Indirect Before Direct**
 What paths use the least force? Alliances, integrations, existing platforms, leverage. Only after those are exhausted: build.
+Done when at least one indirect path has been tried or explicitly rejected with reason.
 
 **Step 5: Saam, Daam, Dand, Bhed**
 For every stakeholder alignment: persuade first, incentivize second, enforce third, divide last.
+Done when every stakeholder alignment has a documented approach starting at Saam.
 
 **Step 6: Write the Framework**
 Principles, prioritization logic, decision log. Write it down so it outlasts the conversation.
+Done when a written framework exists that another PM could use without asking the author.
 
 **Step 7: Build Immunity**
 What will fail? Build the contingency before the attack comes.
+Done when at least one failure scenario has a documented contingency plan.
 
 **Step 8: Ship, Analyze Failure Precisely, Correct**
 First campaign fails. Analyze the one wrong decision. Change the strategy, not everything.
+Done when the specific wrong decision is named (not "everything was wrong") and one correction is applied.
 
 **Step 9: Know When It Is Done**
 When the mission is achieved, step back. Transfer context. Do not expand the role beyond the mission.
+Done when context is transferred and the PM role is no longer blocking execution.
 
 ---
 
@@ -559,12 +568,9 @@ Ask:
 
 ## Anti-Patterns
 
-* Managing the roadmap instead of defining the mission (tactics without strategy — the most common PM trap)
-* Changing everything after failure instead of identifying the one wrong decision (Chanakya's first campaign lesson — analysis without precision)
-* Solving symptoms instead of the center (attacking the border provinces when the center is the problem)
-* Building for the TAM that looks biggest instead of the user who needs it most (the deck problem)
-* Making yourself irreplaceable instead of writing the framework that outlasts you (Chanakya who refuses to leave court)
-* Using enforcement before persuasion (Dand without Saam — spending authority before spending influence)
+* Managing the roadmap instead of defining the mission (tactics without strategy — the most common PM trap; you become the scheduler, not the strategist)
+* Changing everything after failure instead of identifying the one wrong decision (Chanakya's first campaign lesson — precision in failure analysis)
+* Making yourself irreplaceable instead of writing the framework that outlasts you (Chanakya who refuses to leave court — the PM who hoards context)
 
 ---
 

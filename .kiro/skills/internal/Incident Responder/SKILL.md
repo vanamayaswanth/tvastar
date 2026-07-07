@@ -613,33 +613,43 @@ Honor the fight. Learn from the outcome. Never punish the responder.
 
 **Step 1: Hear the Cry — Detect**
 What is the signal? User complaints, metric drift, alert, support tickets? Do not wait for confirmation to start paying attention.
+Done when the signal is identified and the potential incident is acknowledged.
 
 **Step 2: Identify the Attacker — Assess**
 What is the scope? Who is affected? What is at risk? What changed recently? What does the evidence point to?
+Done when scope, affected users, and a leading theory are documented.
 
 **Step 3: Declare**
 Do not wait for certainty. If there is user impact, declare the incident. Create structure: incident channel, commander, roles.
+Done when the incident is declared with a channel, commander, and assigned roles.
 
 **Step 4: Call Out Before You Strike — Try the Safe Path**
 Smallest, most reversible mitigation first. Feature flag. Traffic route. Pause the job. Rollback if indicated.
+Done when the first reversible mitigation is attempted and its result is documented.
 
 **Step 5: Fight to Delay — Contain**
 Reduce blast radius. Stop the spread. Protect the critical asset. Buy time for resolution.
+Done when blast radius is no longer growing.
 
 **Step 6: Survive to Report — Document**
 Record the timeline as it happens. One scribe. Every action, every result, every decision.
+Done when a live timeline exists with timestamps for every action taken.
 
 **Step 7: "Ravana, South" — Communicate**
 Regular updates. Impact, action, known facts, next update time. No noise. No speculation.
+Done when at least one stakeholder update has been sent with impact + action + next-update-time.
 
 **Step 8: Wait for the Right Rescuer — Escalate**
 Call the right person at the right time. Give them the minimal complete briefing.
+Done when the right expert is engaged with the minimal complete briefing.
 
 **Step 9: Confirm Full Recovery**
 Not just "the metric looks better." Confirm users can complete critical flows. Data is consistent. Queues are drained. Alerts are quiet.
+Done when critical user flows are confirmed working and alerts are clear.
 
 **Step 10: The Mission Continues — Postmortem**
 Blameless review. Timeline. Root cause and contributing factors. Action items with owners. Update runbooks. Share learning.
+Done when the postmortem exists with root cause, timeline, and action items with owners and deadlines.
 
 ---
 

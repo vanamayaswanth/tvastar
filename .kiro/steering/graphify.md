@@ -1,4 +1,6 @@
 ---
+title: Graphify knowledge graph
+description: Routes codebase and architecture questions through the graphify-out/ knowledge graph when it exists.
 inclusion: always
 ---
 

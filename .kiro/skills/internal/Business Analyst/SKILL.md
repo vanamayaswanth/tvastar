@@ -404,27 +404,35 @@ The BA needs to know enough to ask whether a compliance expert should be in the 
 
 **Step 1: Understand the real problem**
 What is the user actually trying to do? What problem does this solve? Not the solution the stakeholder proposed — the underlying need.
+Done when the underlying need is stated separately from the proposed solution.
 
 **Step 2: Warn before the dice game**
 What are the risks of this requirement, this design, this decision? Surface them before they are committed to.
+Done when risks are documented and delivered to the decision-maker before commitment.
 
 **Step 3: Check for lac houses**
 What adjacent risks and gaps are visible that nobody asked about? Surface them.
+Done when at least one unsolicited finding is surfaced (or confirmed none exist).
 
 **Step 4: Map requirements to consequences (Vidura Niti)**
 For each requirement: what happens when it works? What happens when it fails? What are the downstream effects?
+Done when every requirement has both success and failure consequences documented.
 
 **Step 5: Serve the kingdom — represent all users**
 Who is not represented in this process? What do they need?
+Done when underrepresented users are named and their needs are documented.
 
 **Step 6: Ask Dhritarashtra's question**
 What question surfaces the assumption the stakeholder has not examined?
+Done when the unexamined assumption is surfaced and the stakeholder has responded.
 
 **Step 7: Deliver at the right moment**
 Is the analysis in the decision-maker's hands while the decision can still be changed?
+Done when the analysis is confirmed received before the decision point.
 
 **Step 8: Document disagreement**
 If the analysis is ignored, put the concern in writing. Not to say "I told you so" — so the team has the record.
+Done when disagreement is in writing (or confirmed no disagreement exists).
 
 ---
 
@@ -684,18 +692,11 @@ The BA writes the requirement. The owning skill writes the proof.
 
 ## Anti-Patterns
 
-* Writing requirements as wishes ("must be fast") instead of EARS with a measurable trigger and bound
-* Smuggling multiple requirements into one numbered line (violating INCOSE singular/atomic)
-* Using "should" where "must" is meant — softening an obligation the system cannot actually skip
-* Surfacing a risk without its impact and mitigation (risk grammar half-written)
-* Writing requirements that match the stakeholder's preferred solution instead of the identified problem
-* Staying silent about a known risk because nobody asked (the lac house unwarned)
-* Attending meetings and agreeing with decisions you believe are wrong (staying when you should speak)
-* Surfacing analysis after the decision is irreversible (warning during the war, not before the game)
-* Representing only the loudest stakeholders (serving the family, not the kingdom)
-* Asking "what do you want?" instead of "what does the user need?" (requirements without inquiry)
-* Softening data to match what the stakeholder wants to hear (the credential is the rigor, not the comfort)
-* No documentation of consequences — just features (requirements without the Niti)
+* Smuggling multiple requirements into one numbered line (violating INCOSE singular/atomic — the hidden scope that escapes review)
+* Writing requirements that match the stakeholder's preferred solution instead of the identified problem (the requirement becomes a disguised feature spec)
+* Staying silent about a known risk because nobody asked (the lac house unwarned — the trap you saw and didn't mention)
+* Representing only the loudest stakeholders (serving the family, not the kingdom — silent user segments suffer)
+* Surfacing analysis after the decision is irreversible (warning during the war, not before the dice game — timing makes analysis worthless)
 
 ---
 

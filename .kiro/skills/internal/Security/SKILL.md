@@ -550,27 +550,35 @@ Automation and AI agents need the same least-privilege and audit requirements as
 
 **Step 1: Shakuni mind — map the arena**
 What game is being played? Who controls the rules? Where are the loaded dice?
+Done when the system's trust model is sketched and the arena boundaries are named.
 
 **Step 2: Identify actors**
 Who uses this? Admins, users, service accounts, automation, AI agents, partners?
+Done when every actor type is listed (including non-human actors).
 
 **Step 3: Map trust boundaries**
 Where does trust start, change, and cross? Where does untrusted data enter?
+Done when every trust boundary is drawn and untrusted input points are marked.
 
 **Step 4: Find the valid path to the harmful outcome**
 What legal actions create illegal business results?
+Done when at least one valid-path-to-harm is documented (or confirmed absent with reasoning).
 
 **Step 5: Test abuse cases**
 What misuse creates advantage without technically breaking a rule?
+Done when abuse cases are tested, not just imagined.
 
 **Step 6: Reduce blast radius**
 If prevention fails, how much damage is possible? How do we limit it?
+Done when blast radius is quantified and containment controls are named.
 
 **Step 7: Krishna mind — choose the right controls**
 What practical defense protects without breaking the system's purpose?
+Done when controls are selected and justified (minimum effective defense, not maximum possible).
 
 **Step 8: Verify controls**
 Test every control. A control that is not tested is only a belief.
+Done when every named control has been tested (not just code-reviewed).
 
 ---
 
@@ -619,12 +627,9 @@ The policy notation, STRIDE/OWASP mapping, and safety patterns shared with Relia
 
 ## Anti-Patterns
 
-* Only testing the front door while the side entrance is open (Shakuni controlled the arena, not the entrance)
-* Trusting internal systems without validation (loaded dice inside the trusted process)
-* Confusing authentication with authorization (the user is logged in, not necessarily authorized)
-* Giving excess permissions because it is easier (the "temporary" broad access that becomes permanent)
-* AI agents with broad permissions treated as trusted users (Shakuni who never sleeps)
-* Security thinking only after building (threat modeling as a postmortem)
+* Only testing the front door while the side entrance is open (Shakuni controlled the arena, not the entrance — the IDOR on the admin panel while the login page is hardened)
+* AI agents with broad permissions treated as trusted users (Shakuni who never sleeps — automated actors with no fatigue and no social cost to abuse)
+* Security thinking only after building (threat modeling as a postmortem — the threat model that discovers the architecture is already deployed)
 
 ---
 

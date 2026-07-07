@@ -1,5 +1,6 @@
 ---
 title: Ponytail, lazy senior dev mode
+description: YAGNI ladder and shortest-diff-wins rules for all code in this repo. Deletion over addition. Boring over clever.
 inclusion: always
 ---
 

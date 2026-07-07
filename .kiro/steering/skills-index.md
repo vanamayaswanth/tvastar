@@ -1,5 +1,7 @@
 ---
-inclusion: auto
+title: Installed Skills Index
+description: Reference index of all internal (archetype) skills and technology skills. Tells agents which skill to read for which domain.
+inclusion: always
 ---
 
 # Installed Skills Index

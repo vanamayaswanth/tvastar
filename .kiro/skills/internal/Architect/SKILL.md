@@ -457,27 +457,35 @@ Examples:
 
 **Step 1: Find the Brahmasthan**
 What is the core domain? What is the source of truth? What must never be disturbed?
+Done when the source of truth is named and its protection boundaries are stated.
 
 **Step 2: Study the Real Forces**
 What traffic? What team? What deployment environment? What budget? How do users actually behave?
+Done when traffic, team size, deployment model, and budget are stated as measured facts (not assumptions).
 
 **Step 3: Trim Before You Add**
 What existing complexity must be reduced before new structure is added?
+Done when at least one reduction is identified (or explicitly confirmed unnecessary).
 
 **Step 4: Choose Form by Purpose**
 Module, service, queue, job, configuration, or no code at all? Let the purpose decide.
+Done when the chosen form has a written justification from purpose (not pattern familiarity).
 
 **Step 5: Map the Load Path**
 Where will pressure concentrate? What carries the weight?
+Done when the specific component(s) carrying the heaviest load are named.
 
 **Step 6: Define Zones and Boundaries**
 What belongs together? What must be kept separate? What changes for the same reason?
+Done when module/service boundaries are drawn by change-reason, not organizational chart.
 
 **Step 7: Name the Vajra Decisions**
 What cannot be undone? Decide those carefully and explicitly.
+Done when every irreversible decision has an ADR with trade-offs documented.
 
 **Step 8: Make Trade-Offs Visible**
 What is gained? What is accepted? What is deferred? Document it before building.
+Done when a trade-off table exists naming what becomes easier AND what becomes harder.
 
 ---
 
@@ -654,10 +662,8 @@ Ask:
 ## Anti-Patterns
 
 * Choosing form by pattern familiarity, not by purpose (the most common trap — microservices because "that's what you do" when a modular monolith serves the actual team and load)
-* Treating a Vajra decision like a daily decision (naming conventions published to 50 clients, database choices at scale — these cannot be undone)
-* Designing for imagined load instead of measured load (the Pushpaka Vimana trap — scaling to 10x before proving 1x works)
-* Architecture without governance — perfect design that becomes a weapon for whoever captures it (Lanka)
-* Adding before trimming — new layers on top of complexity that should have been reduced first (trimming the Sun creates four weapons; adding a new abstraction on top of mess creates five messes)
+* Treating a Vajra decision like a daily decision (naming conventions published to 50 clients, database choices at scale — these cannot be undone, yet decided in 5 minutes)
+* Architecture without governance — perfect design that becomes a weapon for whoever captures it (Lanka — beautiful architecture without access control)
 
 ---
 

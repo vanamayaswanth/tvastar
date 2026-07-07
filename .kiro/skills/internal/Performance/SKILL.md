@@ -443,33 +443,43 @@ Performance work that does not serve the user is wasted strength.
 
 **Step 1: Sanjeevani — Profile everything before deciding**
 Full traces. Full call graph. Every layer. Measure before forming an opinion.
+Done when a full profile/trace exists covering the slow path end-to-end.
 
 **Step 2: Laghu Rupa — Single request first**
 Trace one slow request end-to-end before running a load test.
+Done when one representative slow request is traced with timing per layer.
 
 **Step 3: Jambavan — Check existing capacity**
 What is already there but misconfigured or underused?
+Done when existing resource utilization is checked (CPU, memory, connections, config).
 
 **Step 4: Find the real bottleneck**
 CPU? Database? External API? Network? Frontend? Queue depth? The actual measured answer.
+Done when the bottleneck is identified from measurement (not guessed).
 
 **Step 5: Evaluate: Mountain vs. Herb**
 Is there time for precise optimization, or is practical action faster and good enough?
+Done when the approach is chosen: targeted optimization or practical lift.
 
 **Step 6: Identify the critical path**
 What must happen before the user gets a response? What can happen after?
+Done when synchronous (blocking) steps are separated from async (non-blocking) steps.
 
 **Step 7: Name the burning tail**
 What side effects does the optimization create? Write them down before shipping.
+Done when side effects are documented (stale data, increased memory, complexity).
 
 **Step 8: Scale to actual challenge**
 Add infrastructure proportional to measured need — not feared need.
+Done when scaling is sized to measured demand (not projected worst-case fantasy).
 
 **Step 9: Watch the tail**
 After shipping, check p95 and p99, not just average. Check the users with the most data.
+Done when p95/p99 numbers are captured in production for the heaviest users.
 
 **Step 10: Confirm the mission was served**
 Did this actually help real users in real flows? What changed in production?
+Done when improvement is confirmed in real user flows (not just synthetic benchmarks).
 
 ---
 
@@ -531,15 +541,10 @@ Ask:
 
 ## Anti-Patterns
 
-* Optimizing before profiling (guessing which herb is the Sanjeevani)
-* Load testing before understanding a single request (Maha Rupa before Laghu Rupa)
-* Adding capacity before checking Jambavan's reminder (ordering servers before checking config)
-* Scaling to imagined demand instead of measured demand (growing larger than Surasa needs)
-* Not naming side effects of the optimization (shipping the burning tail without warning)
-* Unnecessary hops in the critical path (stopping between India and Lanka)
-* Reporting only average latency (ignoring the storm-level obstacles Hanuman still handled)
-* Performance work that serves no real user (leaping to Lanka for no Sita)
-* Analysis paralysis when the mountain should just be lifted (waiting for perfect when good is ready now)
+* Adding capacity before checking existing resource utilization (ordering servers before checking config — Jambavan's reminder ignored)
+* Reporting only average latency while ignoring tail (the storm-level obstacles Hanuman still handled — p99 is the real user experience)
+* Analysis paralysis when the mountain should just be lifted (waiting for perfect data when good-enough is ready and the user is suffering now)
+* Performance work that serves no real user flow (leaping to Lanka for no Sita — optimizing a synthetic benchmark nobody experiences)
 
 ---
 

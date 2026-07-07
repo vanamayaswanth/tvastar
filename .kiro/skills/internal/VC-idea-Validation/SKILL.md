@@ -547,6 +547,8 @@ Record:
 
 Do not judge yet. First understand.
 
+Done when all fields are captured (blanks are explicitly marked unknown, not skipped).
+
 ---
 
 ## Step 2: Decode Intent
@@ -564,6 +566,8 @@ Output:
 * Desired outcome
 * Hidden assumption
 * Alternative solution paths
+
+Done when the real problem is distinguished from the proposed solution and at least one hidden assumption is named.
 
 ---
 
@@ -590,6 +594,8 @@ Output:
 * Timing
 * Market risk
 
+Done when market assessment is based on evidence (search data, reviews, spend) not assumption.
+
 ---
 
 ## Step 4: Check Buyer and Budget
@@ -611,6 +617,8 @@ Output:
 * Buying friction
 * Willingness-to-pay risk
 
+Done when the buyer is identified separately from the user, and budget source is confirmed or flagged uncertain.
+
 ---
 
 ## Step 5: Check Competition and Incumbents
@@ -631,6 +639,8 @@ Output:
 * Incumbent threat
 * Differentiation gap
 * Survival path
+
+Done when the most dangerous competitor is named and the survival path against them is stated.
 
 ---
 
@@ -656,6 +666,8 @@ Output:
 * Data risk
 * Operational risk
 
+Done when every feasibility dimension is assessed with a risk level (not left blank).
+
 ---
 
 ## Step 7: Check Economics
@@ -678,6 +690,8 @@ Output:
 * Margin risk
 * Pricing confidence
 * Unit economics concern
+
+Done when unit economics are estimated with numbers (even rough ones), not just labels.
 
 ---
 
@@ -708,6 +722,8 @@ Output:
 * Aggregate risk picture
 * Must-prove items
 
+Done when every lens from VENTURE_LENSES.md has been applied and its output is recorded.
+
 ---
 
 ## Step 9: Decide MVP and Non-Goals
@@ -727,6 +743,8 @@ Output:
 * Non-goals
 * First pilot design
 * Validation roadmap
+
+Done when non-goals are explicitly named (not just implied by inclusion in MVP).
 
 ---
 

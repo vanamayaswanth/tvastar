@@ -329,22 +329,22 @@ The lens library (Rules 6-21) loads when doing the analysis, not always.
 
 ## Recommended Actions (priority order)
 
-### High Priority
+### High Priority — ✅ COMPLETED
 
-1. **QA skill: collapse from 27 to ~15 rules** — merge technically-identical groups while preserving all archetype act references within each merged rule. The merged rules should carry Shakuni's quality of action: patient, precise, continuous — not repetitive restating.
-2. **VC-idea-Validation: progressive disclosure** — move the lens library (Rules 6-21) to a disclosed `VENTURE_LENSES.md` file; cut all "Where to ask" no-op lists. The lenses are dense reference that only fires during venture analysis, not every invocation.
-3. **Security: merge overlapping rules** (5+11, consider 3+14, 9+10) — bring from 17 to ~13-14 rules. Each merged rule should carry both Shakuni's offensive eye and Krishna's defensive wisdom as distinct clauses, not separate rules restating one technique.
+1. **QA skill: collapsed from 27 to 17 rules** — technically-identical groups merged while preserving all archetype act references.
+2. **VC-idea-Validation: progressive disclosure** — lens library moved to `VENTURE_LENSES.md`; "Where to ask" no-op lists cut.
+3. **Security: merged overlapping rules** — from 17 to 14 rules. `SECURITY_GRAMMAR.md` disclosed.
 
-### Medium Priority
+### Medium Priority — ✅ COMPLETED
 
-4. **All skills: sharpen Output Contract as completion criterion** — per `writing-great-skills.md`, the completion criterion must be *checkable* and *demanding*. Add "done when" conditions. Example: "Done when every requirement carries an ID, is in an EARS shape, traces to at least one test, and no orphan tests exist." This is what drives **legwork** — the agent doing thorough work rather than declaring done early.
-5. **All skills: prune Anti-Patterns to non-obvious traps only** — per `GLOSSARY.md`, these should name failure modes the agent couldn't predict from the rules alone. Pure rule-negations are **no-ops** — same meaning in negative form, costing tokens to say nothing new.
-6. **Developer: consider merging technically-identical rule pairs** (3+9, 2+10) — from 11 to 9 rules, preserving both archetype acts in each merged rule. Krishna's acts are distinct; the engineering instruction within them should be too.
+4. **All skills: Output Contracts sharpened** — all 16 skills have checkable "Done when:" completion criteria.
+5. **All skills: Anti-Patterns pruned to non-obvious traps only** — rule-negation no-ops removed (Performance 9→4, BA 12→5, PM 6→3, Security 6→3, Architect 5→3).
+6. **Developer: merged technically-identical rule pairs** — from 11 to 9 rules (Peace Mission + Sudarshana Chakra merged; Vishwaroopa + Karma merged).
 
-### Low Priority
+### Low Priority — ✅ COMPLETED
 
-7. **All skills: tighten Workflow sections** — per the information hierarchy (`GLOSSARY.md`), these are currently reference masquerading as steps. Either make them genuine steps with **completion criteria** per step (what artifact must exist, what properties it must have), or reduce to a concise sequence (just the order and gating conditions). Currently they restate rule content — that's **duplication** per `writing-great-skills.md`.
-8. **Security: disclose Grammar to separate file** — per **progressive disclosure** principle, STRIDE/OWASP mapping + Policy Grammar is ~150 lines of dense reference needed only when writing the Output Contract. Move to `SECURITY_GRAMMAR.md` (disclosed reference), keeping a **context pointer** in the main skill that fires when the agent is producing the output artifact.
+7. **All skills: Workflow sections have per-step "Done when" gating** — every workflow step now has a checkable completion criterion (Security, PM, Architect, AI Engineer, Prompt Engineer, Documentation Engineer, Data Engineer, Incident Responder, Performance, BA, VC-Validation all updated).
+8. **Security: Grammar disclosed to separate file** — `SECURITY_GRAMMAR.md` exists.
 
 ### Guiding Principle for All Rewrites
 
@@ -370,6 +370,14 @@ Per `writing-great-skills.md`: every line must pass the **no-op test** (does it 
 
 ## Summary
 
-12 of 16 skills are already tight and well-crafted. The issues concentrate in 3 skills (QA, Security, VC-Validation) that need technical-concept deduplication and/or progressive disclosure, plus a library-wide opportunity to sharpen Output Contracts as completion criteria.
+All 8 audit recommendations are now complete. The library is tight across all 16 skills:
 
-The character-installation design is sound and should not be altered. The archetype acts function exactly as leading words should — anchoring behavior in stable pretraining knowledge that the model can reason from predictably.
+- Character installation preambles: untouched (intentional reinforcement)
+- Rules: deduplicated within each skill (QA 27→17, Security 17→14, Developer 11→9)
+- Output Contracts: all 16 have checkable "Done when:" criteria
+- Workflows: all have per-step gating with completion criteria
+- Anti-patterns: pruned to non-obvious traps only (no rule-negation no-ops)
+- Progressive disclosure: VC lenses and Security grammar in separate files
+- Independence property: preserved throughout
+
+The library is production-ready. No open audit items remain.
