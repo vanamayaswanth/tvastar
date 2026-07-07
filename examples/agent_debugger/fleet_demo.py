@@ -229,7 +229,9 @@ async def main() -> None:
     fleet.budget.record_cost("writer", "ml-team", 3.20)
     fleet.budget.record_cost("reviewer", "qa-team", 1.50)
 
-    print(f"  Fleet total spent: ${fleet.budget.fleet_spent():.2f} / ${fleet.config.budget.max_fleet_usd:.2f}")
+    print(
+        f"  Fleet total spent: ${fleet.budget.fleet_spent():.2f} / ${fleet.config.budget.max_fleet_usd:.2f}"
+    )
     print(f"  By agent: {fleet.budget.cost_by_agent()}")
     print(f"  By team:  {fleet.budget.cost_by_owner()}")
     print(f"  researcher within allocation: {fleet.budget.check_budget('researcher')}")
@@ -270,7 +272,9 @@ async def main() -> None:
     )
 
     print(f"  Started canary for 'researcher': {canary.stable_version} → {canary.canary_version}")
-    print(f"  Traffic split: {int((1 - canary.traffic_pct) * 100)}% stable / {int(canary.traffic_pct * 100)}% canary")
+    print(
+        f"  Traffic split: {int((1 - canary.traffic_pct) * 100)}% stable / {int(canary.traffic_pct * 100)}% canary"
+    )
 
     # Simulate quality observations
     deploy_mgr.record_canary_quality("researcher", is_canary=False, score=85.0)
@@ -296,7 +300,9 @@ async def main() -> None:
 
     # Verify paused agent is excluded from routing
     result = await fleet.submit("Write a report about AI safety")
-    print(f"  Task 'Write a report about AI safety' → routed to: {result['agent_name']} (writer excluded)")
+    print(
+        f"  Task 'Write a report about AI safety' → routed to: {result['agent_name']} (writer excluded)"
+    )
 
     fleet.registry.resume("writer")
     print(f"  writer resumed: state={fleet.registry.get('writer').state.value}")

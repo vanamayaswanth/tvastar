@@ -71,8 +71,12 @@ async def generate_finding(category: str, severity: str, description: str) -> st
 
 governance = GovernancePolicy(
     phases={
-        "audit": {"query_patient_records", "check_access_log",
-                  "check_consent_status", "generate_finding"},
+        "audit": {
+            "query_patient_records",
+            "check_access_log",
+            "check_consent_status",
+            "generate_finding",
+        },
     },
     current_phase="audit",
 )
@@ -102,19 +106,21 @@ assurance = AssurancePolicy(
 
 agent = create_agent(
     "hipaa-compliance-auditor",
-    model=MockModel([
-        "I'll audit patient P-4821's records for HIPAA compliance. "
-        "Let me check the access logs, consent status, and look for anomalies.\n\n"
-        "**Findings:**\n"
-        "1. [WARNING] Unusual access at 03:22 by admin_bot — outside business hours, "
-        "needs investigation\n"
-        "2. [OK] All clinical access by authorized personnel (Dr. Adams, Nurse Chen)\n"
-        "3. [OK] Consent is active for treatment use\n"
-        "4. [OK] No data exports to research (consent declined, no exports found)\n\n"
-        "**Recommendation:** Investigate the admin_bot EXPORT at 03:22. "
-        "This could be a legitimate backup job or unauthorized data exfiltration. "
-        "Suggest reviewing the bot's access policy and comparing against scheduled jobs."
-    ]),
+    model=MockModel(
+        [
+            "I'll audit patient P-4821's records for HIPAA compliance. "
+            "Let me check the access logs, consent status, and look for anomalies.\n\n"
+            "**Findings:**\n"
+            "1. [WARNING] Unusual access at 03:22 by admin_bot — outside business hours, "
+            "needs investigation\n"
+            "2. [OK] All clinical access by authorized personnel (Dr. Adams, Nurse Chen)\n"
+            "3. [OK] Consent is active for treatment use\n"
+            "4. [OK] No data exports to research (consent declined, no exports found)\n\n"
+            "**Recommendation:** Investigate the admin_bot EXPORT at 03:22. "
+            "This could be a legitimate backup job or unauthorized data exfiltration. "
+            "Suggest reviewing the bot's access policy and comparing against scheduled jobs."
+        ]
+    ),
     instructions="""You are a HIPAA compliance auditor. Your job:
 1. Review patient record access for unauthorized use
 2. Verify consent status matches actual data usage
@@ -128,8 +134,7 @@ Rules:
 - Be specific in findings — include who, when, and what action.
 - Never include raw PII in your final report (the sanitizer handles this).
 """,
-    tools=[query_patient_records, check_access_log,
-           check_consent_status, generate_finding],
+    tools=[query_patient_records, check_access_log, check_consent_status, generate_finding],
     governance=governance,
     assurance=assurance,
     max_steps=10,

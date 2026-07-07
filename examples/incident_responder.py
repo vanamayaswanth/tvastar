@@ -87,8 +87,13 @@ governance = GovernancePolicy(
         # Phase 1: read-only investigation
         "triage": {"check_service_health", "query_logs"},
         # Phase 2: can take action
-        "mitigate": {"check_service_health", "query_logs", "restart_service",
-                     "scale_service", "update_status_page"},
+        "mitigate": {
+            "check_service_health",
+            "query_logs",
+            "restart_service",
+            "scale_service",
+            "update_status_page",
+        },
         # Phase 3: can escalate to humans
         "escalate": {"notify_oncall", "update_status_page"},
     },
@@ -132,17 +137,19 @@ mitigation_specialist = define_agent_profile(
 
 agent = create_agent(
     "incident-responder",
-    model=MockModel([
-        # Simulated conversation for demo
-        "Let me check the service health and investigate the logs.",
-        "Based on the logs, the service is experiencing an OOM (Out of Memory) error. "
-        "The container exceeded its 512Mi memory limit. I recommend:\n"
-        "1. Restart the service to recover immediately\n"
-        "2. Scale to 3 replicas to distribute memory pressure\n"
-        "3. Update the status page\n\n"
-        "The root cause is a memory leak — the Java heap filled up (98% old gen). "
-        "This needs a code fix long-term, but restart + scale handles the immediate incident."
-    ]),
+    model=MockModel(
+        [
+            # Simulated conversation for demo
+            "Let me check the service health and investigate the logs.",
+            "Based on the logs, the service is experiencing an OOM (Out of Memory) error. "
+            "The container exceeded its 512Mi memory limit. I recommend:\n"
+            "1. Restart the service to recover immediately\n"
+            "2. Scale to 3 replicas to distribute memory pressure\n"
+            "3. Update the status page\n\n"
+            "The root cause is a memory leak — the Java heap filled up (98% old gen). "
+            "This needs a code fix long-term, but restart + scale handles the immediate incident.",
+        ]
+    ),
     instructions="""You are an incident response agent. When an alert fires:
 
 1. TRIAGE: Check service health and query logs. Identify the root cause.
@@ -156,8 +163,14 @@ Rules:
 - Always update the status page — even if the fix works.
 - Be honest: if the mitigation is temporary, say so.
 """,
-    tools=[check_service_health, query_logs, restart_service,
-           scale_service, notify_oncall, update_status_page],
+    tools=[
+        check_service_health,
+        query_logs,
+        restart_service,
+        scale_service,
+        notify_oncall,
+        update_status_page,
+    ],
     governance=governance,
     approval_gate=approval_gate,
     subagents=[log_analyst, mitigation_specialist],

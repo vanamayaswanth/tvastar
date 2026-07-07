@@ -107,17 +107,19 @@ assurance = AssurancePolicy(
 
 agent = create_agent(
     "security-remediation",
-    model=MockModel([
-        "Let me scan for vulnerabilities first.",
-        "Found 2 CVEs. I'll upgrade both packages and run tests to verify.",
-        "Both packages upgraded successfully. Tests pass (42 passed, 0 failed). "
-        "Creating a PR with the security fix.\n\n"
-        "Summary:\n"
-        "- Fixed CVE-2023-32681 in requests (upgraded to 2.31.0)\n"
-        "- Fixed CVE-2023-49083 in cryptography (upgraded to 41.0.6)\n"
-        "- All 42 tests pass after the upgrade\n"
-        "- PR #142 created for review"
-    ]),
+    model=MockModel(
+        [
+            "Let me scan for vulnerabilities first.",
+            "Found 2 CVEs. I'll upgrade both packages and run tests to verify.",
+            "Both packages upgraded successfully. Tests pass (42 passed, 0 failed). "
+            "Creating a PR with the security fix.\n\n"
+            "Summary:\n"
+            "- Fixed CVE-2023-32681 in requests (upgraded to 2.31.0)\n"
+            "- Fixed CVE-2023-49083 in cryptography (upgraded to 41.0.6)\n"
+            "- All 42 tests pass after the upgrade\n"
+            "- PR #142 created for review",
+        ]
+    ),
     instructions="""You are a security remediation agent. Your job:
 1. SCAN: Run vulnerability scan to find CVEs
 2. REMEDIATE: For each CVE, upgrade the package to the fixed version

@@ -36,6 +36,7 @@ from tvastar.observability import ConsoleExporter, Tracer
 
 class PipelineStage(BaseModel):
     """A single stage in a CI/CD pipeline."""
+
     name: str
     image: str
     commands: list[str]
@@ -45,6 +46,7 @@ class PipelineStage(BaseModel):
 
 class Pipeline(BaseModel):
     """A complete CI/CD pipeline definition."""
+
     name: str
     trigger: str
     stages: list[PipelineStage]
@@ -53,6 +55,7 @@ class Pipeline(BaseModel):
 
 class ProjectAnalysis(BaseModel):
     """Analysis of a project's tech stack and requirements."""
+
     language: str
     framework: str
     test_command: str
@@ -70,16 +73,18 @@ class ProjectAnalysis(BaseModel):
 @tool
 async def analyze_project(path: str = ".") -> str:
     """Analyze a project's technology stack and structure."""
-    return json.dumps({
-        "language": "python",
-        "framework": "fastapi",
-        "test_command": "pytest tests/ -q",
-        "build_command": "docker build -t app .",
-        "deploy_target": "kubernetes",
-        "has_docker": True,
-        "has_kubernetes": True,
-        "dependencies": ["fastapi", "uvicorn", "pydantic", "sqlalchemy"],
-    })
+    return json.dumps(
+        {
+            "language": "python",
+            "framework": "fastapi",
+            "test_command": "pytest tests/ -q",
+            "build_command": "docker build -t app .",
+            "deploy_target": "kubernetes",
+            "has_docker": True,
+            "has_kubernetes": True,
+            "dependencies": ["fastapi", "uvicorn", "pydantic", "sqlalchemy"],
+        }
+    )
 
 
 @tool
@@ -94,7 +99,7 @@ async def validate_pipeline_yaml(yaml_content: str) -> str:
 @tool
 async def generate_dockerfile(base_image: str, commands: list) -> str:
     """Generate a Dockerfile for the project."""
-    return f"FROM {base_image}\nWORKDIR /app\nCOPY . .\nRUN pip install -e .\nCMD [\"uvicorn\", \"app:main\"]"
+    return f'FROM {base_image}\nWORKDIR /app\nCOPY . .\nRUN pip install -e .\nCMD ["uvicorn", "app:main"]'
 
 
 @tool
@@ -130,32 +135,59 @@ governance = GovernancePolicy(
 
 agent = create_agent(
     "pipeline-generator",
-    model=MockModel([
-        # Task 1: Analyze
-        json.dumps({
-            "language": "python",
-            "framework": "fastapi",
-            "test_command": "pytest tests/ -q",
-            "build_command": "docker build -t app .",
-            "deploy_target": "kubernetes",
-            "has_docker": True,
-            "has_kubernetes": True,
-        }),
-        # Task 2: Generate pipeline
-        json.dumps({
-            "name": "ci-cd-pipeline",
-            "trigger": "push to main",
-            "stages": [
-                {"name": "lint", "image": "python:3.11", "commands": ["ruff check ."], "depends_on": []},
-                {"name": "test", "image": "python:3.11", "commands": ["pytest tests/ -q"], "depends_on": ["lint"]},
-                {"name": "build", "image": "docker:24", "commands": ["docker build -t app ."], "depends_on": ["test"]},
-                {"name": "deploy", "image": "bitnami/kubectl", "commands": ["kubectl apply -f k8s/"], "depends_on": ["build"], "environment": {"KUBECONFIG": "/secrets/kubeconfig"}},
-            ],
-            "notifications": ["slack:#deploys"],
-        }),
-        # Task 3: Validate
-        "Pipeline validated successfully. All stages have valid images and commands.",
-    ]),
+    model=MockModel(
+        [
+            # Task 1: Analyze
+            json.dumps(
+                {
+                    "language": "python",
+                    "framework": "fastapi",
+                    "test_command": "pytest tests/ -q",
+                    "build_command": "docker build -t app .",
+                    "deploy_target": "kubernetes",
+                    "has_docker": True,
+                    "has_kubernetes": True,
+                }
+            ),
+            # Task 2: Generate pipeline
+            json.dumps(
+                {
+                    "name": "ci-cd-pipeline",
+                    "trigger": "push to main",
+                    "stages": [
+                        {
+                            "name": "lint",
+                            "image": "python:3.11",
+                            "commands": ["ruff check ."],
+                            "depends_on": [],
+                        },
+                        {
+                            "name": "test",
+                            "image": "python:3.11",
+                            "commands": ["pytest tests/ -q"],
+                            "depends_on": ["lint"],
+                        },
+                        {
+                            "name": "build",
+                            "image": "docker:24",
+                            "commands": ["docker build -t app ."],
+                            "depends_on": ["test"],
+                        },
+                        {
+                            "name": "deploy",
+                            "image": "bitnami/kubectl",
+                            "commands": ["kubectl apply -f k8s/"],
+                            "depends_on": ["build"],
+                            "environment": {"KUBECONFIG": "/secrets/kubeconfig"},
+                        },
+                    ],
+                    "notifications": ["slack:#deploys"],
+                }
+            ),
+            # Task 3: Validate
+            "Pipeline validated successfully. All stages have valid images and commands.",
+        ]
+    ),
     instructions="""You are a CI/CD pipeline generator. Given a project description:
 1. ANALYZE the project structure and tech stack
 2. GENERATE a complete pipeline with: lint, test, build, deploy stages
@@ -168,8 +200,13 @@ Rules:
 - Set up proper stage dependencies (test depends on lint, build depends on test).
 - Include environment variables for secrets (never hardcode them).
 """,
-    tools=[analyze_project, validate_pipeline_yaml, generate_dockerfile,
-           write_file, commit_and_push],
+    tools=[
+        analyze_project,
+        validate_pipeline_yaml,
+        generate_dockerfile,
+        write_file,
+        commit_and_push,
+    ],
     governance=governance,
     max_steps=15,
 )
@@ -189,9 +226,20 @@ async def main():
 
     # Use TaskGraph for parallel + sequential execution
     graph = TaskGraph(harness)
-    graph.task("analyze", "Analyze the project at '.' and determine the tech stack", result=ProjectAnalysis)
-    graph.task("generate", "Generate a complete CI/CD pipeline for this Python FastAPI project with Docker and Kubernetes deployment", depends_on=["analyze"], result=Pipeline)
-    graph.task("validate", "Validate the generated pipeline is correct and complete", depends_on=["generate"])
+    graph.task(
+        "analyze", "Analyze the project at '.' and determine the tech stack", result=ProjectAnalysis
+    )
+    graph.task(
+        "generate",
+        "Generate a complete CI/CD pipeline for this Python FastAPI project with Docker and Kubernetes deployment",
+        depends_on=["analyze"],
+        result=Pipeline,
+    )
+    graph.task(
+        "validate",
+        "Validate the generated pipeline is correct and complete",
+        depends_on=["generate"],
+    )
 
     print("\n🔄 Executing pipeline generation DAG...\n")
     results = await graph.run()
