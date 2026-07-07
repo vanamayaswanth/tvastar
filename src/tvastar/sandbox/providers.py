@@ -169,6 +169,107 @@ class RemoteSandbox(Sandbox):
         return ExecResult(rc, _truncate(out, limit), _truncate(err, limit))
 
 
+class CubeSandboxAdapter(Sandbox):
+    """Drop-in Sandbox implementation backed by self-hosted CubeSandbox.
+
+    Uses stdlib urllib.request — zero additional dependencies.
+    Reads endpoint from CUBESANDBOX_URL environment variable.
+    """
+
+    _TIMEOUT = 5.0  # connection timeout in seconds
+
+    def __init__(
+        self,
+        *,
+        policy: Optional[SecurityPolicy] = None,
+        fs: Optional[FileSystem] = None,
+    ):
+        import os
+
+        url = os.environ.get("CUBESANDBOX_URL")
+        if not url:
+            raise SandboxError("CUBESANDBOX_URL environment variable is not set")
+        self._url = url.rstrip("/")
+        self.policy = policy or SecurityPolicy()
+        self.fs = fs or VirtualFileSystem()
+        self._session_id: Optional[str] = None
+
+    async def start(self) -> None:
+        """Create a CubeSandbox session."""
+        try:
+            resp = self._http_post("/sessions", {})
+            self._session_id = resp.get("id")
+        except SandboxError:
+            raise
+        except Exception as exc:
+            if "timed out" in str(exc).lower() or "timeout" in str(exc).lower():
+                raise SandboxError("connection timeout") from exc
+            raise SandboxError(f"CubeSandbox start failed: {exc}") from exc
+
+    async def stop(self) -> None:
+        """Terminate the CubeSandbox session. Silent if unreachable."""
+        if self._session_id:
+            try:
+                self._http_post(f"/sessions/{self._session_id}/stop", {})
+            except Exception:
+                pass  # SHALL NOT raise if endpoint unreachable
+            self._session_id = None
+
+    async def exec(
+        self,
+        cmd: str,
+        *,
+        env: Optional[dict[str, str]] = None,
+        cwd: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> ExecResult:
+        """Execute command via CubeSandbox HTTP API."""
+        self.policy.check(cmd)
+        if not self._session_id:
+            await self.start()
+        try:
+            resp = self._http_post(
+                f"/sessions/{self._session_id}/exec",
+                {
+                    "cmd": cmd,
+                    "env": env,
+                    "cwd": cwd,
+                    "timeout": timeout or self.policy.timeout_seconds,
+                },
+            )
+            limit = self.policy.max_output_bytes
+            return ExecResult(
+                resp.get("exit_code", 1),
+                _truncate(resp.get("stdout", ""), limit),
+                _truncate(resp.get("stderr", ""), limit),
+            )
+        except SandboxError:
+            raise
+        except Exception as exc:
+            if "timed out" in str(exc).lower() or "timeout" in str(exc).lower():
+                raise SandboxError("connection timeout") from exc
+            raise SandboxError(f"CubeSandbox exec failed: {exc}") from exc
+
+    def _http_post(self, path: str, body: dict) -> dict:
+        """Synchronous HTTP POST using stdlib urllib.request."""
+        import json
+        from urllib.error import URLError
+        from urllib.request import Request, urlopen
+
+        url = self._url + path
+        data = json.dumps(body).encode("utf-8")
+        req = Request(url, data=data, headers={"Content-Type": "application/json"})
+        try:
+            with urlopen(req, timeout=self._TIMEOUT) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except URLError as exc:
+            if "timed out" in str(exc).lower() or "timeout" in str(exc).lower():
+                raise SandboxError("connection timeout") from exc
+            raise SandboxError(f"CubeSandbox HTTP error: {exc}") from exc
+        except TimeoutError as exc:
+            raise SandboxError("connection timeout") from exc
+
+
 async def _run(args: list[str], timeout: Optional[float] = None) -> tuple[int, str, str]:
     proc = await asyncio.create_subprocess_exec(
         *args,

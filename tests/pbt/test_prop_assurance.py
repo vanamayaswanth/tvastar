@@ -24,7 +24,6 @@ from hypothesis import given, settings, assume
 
 from tvastar.assurance.log import TrustLog
 from tvastar.assurance.receipt import ExecutionReceipt
-from tvastar.detect.base import Finding, Severity
 from tvastar.quality import LoopQualityReport
 from tvastar.types import Message, TextBlock, Usage
 

@@ -4,7 +4,7 @@ This validates that Hypothesis strategies generate valid instances and
 that the settings profile is correctly loaded.
 """
 
-from hypothesis import given, settings
+from hypothesis import given
 
 from tests.pbt.strategies import (
     st_agent_specs,

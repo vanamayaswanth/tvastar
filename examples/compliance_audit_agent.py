@@ -14,12 +14,10 @@ Usage:
 """
 
 import asyncio
-import time
 
 from tvastar import Harness, create_agent, tool
 from tvastar.assurance import (
     AssurancePolicy,
-    ExecutionReceipt,
     SanitizationPolicy,
     TrustLog,
 )
@@ -153,7 +151,7 @@ async def main():
 
     # Verify the receipt
     if result.receipt:
-        print(f"\n🔏 Execution Receipt:")
+        print("\n🔏 Execution Receipt:")
         print(f"   Run ID: {result.receipt.run_id}")
         print(f"   Agent: {result.receipt.agent}")
         print(f"   Signed: {'✅ HMAC-SHA256' if result.receipt.signature else '❌ unsigned'}")
@@ -161,20 +159,20 @@ async def main():
         print(f"   Content Hash: {result.receipt.content_hash[:30]}...")
 
         # Check PII was redacted in the receipt
-        print(f"\n🛡️  PII Sanitization:")
+        print("\n🛡️  PII Sanitization:")
         print(f"   Prompt in receipt: {result.receipt.prompt[:80]}...")
         has_pii = "123-45-6789" in result.receipt.prompt
         print(f"   Raw SSN in receipt: {'❌ LEAKED!' if has_pii else '✅ Redacted'}")
 
     # Verify the trust log chain
-    print(f"\n🔗 Trust Log:")
+    print("\n🔗 Trust Log:")
     print(f"   Entries: {len(trust_log)}")
     print(f"   Chain valid: {trust_log.verify_chain()}")
 
     # Generate audit report
     if result.receipt:
         report = result.receipt.to_audit_report()
-        print(f"\n📋 Audit Report (first 500 chars):")
+        print("\n📋 Audit Report (first 500 chars):")
         print(f"   {report[:500]}")
 
     print(f"\n💬 Agent Response:\n{result.text}")

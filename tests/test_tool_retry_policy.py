@@ -17,7 +17,6 @@ from tvastar import Harness, create_agent
 from tvastar.errors import ToolError, ToolNotFound
 from tvastar.model import MockModel
 from tvastar.tools import ToolRetryPolicy, tool
-from tvastar.tools.base import Tool, ToolRegistry
 from tvastar.types import ToolResultBlock, ToolUseBlock
 
 

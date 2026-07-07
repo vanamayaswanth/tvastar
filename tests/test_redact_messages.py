@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tvastar.boundary import RedactionResult, redact_messages
+from tvastar.boundary import redact_messages
 from tvastar.types import Message, TextBlock
 
 

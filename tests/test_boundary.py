@@ -11,7 +11,6 @@ Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
 
 from __future__ import annotations
 
-import copy
 
 from tvastar.boundary import scan_for_injection, wrap_untrusted
 

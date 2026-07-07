@@ -2,7 +2,6 @@
 
 import asyncio
 
-import pytest
 
 from tvastar import Harness, create_agent
 from tvastar.model import MockModel

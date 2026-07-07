@@ -2929,6 +2929,15 @@ wheels = [
 ]
 
 [[package]]
+name = "slack-sdk"
+version = "3.43.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/75/a4964eb771a0c74d79ee7a3bee6fb5d9718909dd1b675e80d62a6a0ad90a/slack_sdk-3.43.0.tar.gz", hash = "sha256:0553152e46c4259eb69f7464cdadc35ba4802ca10f9f5a849c92cf03d6c2ba07", size = 252769, upload-time = "2026-06-30T18:04:41.59Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e4/55/42141b8338d46323d5b3c6095201b044c670c20f898643b322ea9b1543a1/slack_sdk-3.43.0-py2.py3-none-any.whl", hash = "sha256:4b6557c65577fc172f685af218b811f9f3b4909e24cddd839ada09565f10c585", size = 315866, upload-time = "2026-06-30T18:04:39.636Z" },
+]
+
+[[package]]
 name = "smart-open"
 version = "7.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3349,19 +3358,21 @@ wheels = [
 
 [[package]]
 name = "tvastar"
-version = "0.20.0"
+version = "0.22.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
 all = [
     { name = "anthropic" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "litellm" },
     { name = "openai" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
     { name = "presidio-analyzer" },
     { name = "presidio-anonymizer" },
+    { name = "slack-sdk" },
     { name = "spacy" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
@@ -3371,6 +3382,7 @@ anthropic = [
 ]
 dev = [
     { name = "cryptography" },
+    { name = "httpx" },
     { name = "hypothesis" },
     { name = "pydantic" },
     { name = "pytest" },
@@ -3382,6 +3394,12 @@ dspy = [
 ]
 encrypted = [
     { name = "cryptography" },
+]
+github = [
+    { name = "httpx" },
+]
+http = [
+    { name = "httpx" },
 ]
 litellm = [
     { name = "litellm" },
@@ -3396,6 +3414,9 @@ otel = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
 ]
+pagerduty = [
+    { name = "httpx" },
+]
 presidio = [
     { name = "presidio-analyzer" },
     { name = "presidio-anonymizer" },
@@ -3405,6 +3426,9 @@ serve = [
     { name = "fastapi" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
+]
+slack = [
+    { name = "slack-sdk" },
 ]
 
 [package.metadata]
@@ -3416,6 +3440,11 @@ requires-dist = [
     { name = "dspy", marker = "extra == 'dspy'", specifier = ">=2.5.0" },
     { name = "fastapi", marker = "extra == 'all'", specifier = ">=0.110.0" },
     { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.110.0" },
+    { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'github'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'http'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'pagerduty'", specifier = ">=0.27" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100.0" },
     { name = "litellm", marker = "extra == 'all'", specifier = ">=1.40.0" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.40.0" },
@@ -3434,6 +3463,8 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
+    { name = "slack-sdk", marker = "extra == 'all'", specifier = ">=3.0" },
+    { name = "slack-sdk", marker = "extra == 'slack'", specifier = ">=3.0" },
     { name = "spacy", marker = "extra == 'all'", specifier = ">=3.0" },
     { name = "spacy", marker = "extra == 'presidio'", specifier = ">=3.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'all'", specifier = ">=0.27.0" },
@@ -3441,7 +3472,7 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'all'", specifier = ">=12.0" },
     { name = "websockets", marker = "extra == 'serve'", specifier = ">=12.0" },
 ]
-provides-extras = ["anthropic", "openai", "serve", "otel", "presidio", "litellm", "dspy", "encrypted", "nats", "dev", "all"]
+provides-extras = ["anthropic", "openai", "serve", "otel", "presidio", "litellm", "dspy", "encrypted", "nats", "github", "slack", "http", "pagerduty", "dev", "all"]
 
 [[package]]
 name = "typeguard"

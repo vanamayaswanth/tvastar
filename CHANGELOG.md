@@ -6,6 +6,72 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.22.0] — 2025-07-15
+
+### Added — GitHub Adaptation Map (12 Adaptations)
+
+Twelve adaptations for Tvastar organized by priority tier, validated from GitHub open-source trends. Each extends existing modules following ponytail minimalism — zero runtime dependencies, thread-safe stores, async-safe loops, fault isolation.
+
+#### Phase 1 — Critical
+
+**Five-Stage Progressive Context Compaction**
+- **`CompactionStage(IntEnum)`** — five progressive stages: BUDGET_REDUCTION (60%), SNIP (70%), MICROCOMPACT (80%), CONTEXT_COLLAPSE (90%), AUTO_COMPACT (95%).
+- **`ProgressiveCompactionPolicy`** — configurable thresholds, token budgets, segment sizes, and summary model selection.
+- **`CompactionEngine`** — full stage execution pipeline with `current_usage_ratio()`, `pending_stages()`, and `execute()` orchestrator. Stages execute in ascending order; failed stages are isolated (snapshot → restore → continue). Post-execution re-runs AUTO_COMPACT if still >95%. Second+ compaction updates summary in-place (no recursive nesting). Tool output deduplication retains most recent unique per tool name.
+- Stage strategies: `_budget_reduction` (truncate old tool results), `_snip` (remove conversational noise), `_microcompact` (summarize segments ≤10 messages to ≤150 tokens), `_context_collapse` (structured handoff: goal/decisions/state), `_auto_compact` (emergency: goal + tool state + last 3).
+
+**No-Overlap Loop Supervisor**
+- **`LoopSupervisor`** in `src/tvastar/loop/supervisor.py` — one asyncio.Lock per loop, held only for state-check window. `should_trigger()` returns `(bool, active_run_id | None)`. Non-concurrent mode: skip if RUNNING/VERIFYING. Concurrent mode: up to 4 parallel runs. `on_skip()` emits LoopEvent with skip metadata and logs WARNING.
+- **`allow_concurrent: bool = False`** and **`adaptive_scheduling: bool = False`** on `LoopConfig` — both immutable after construction (sealed via `__setattr__` override).
+
+**EU AI Act Compliance Verifier**
+- **`ComplianceVerifier`** in `src/tvastar/compliance.py` — programmatic checker for Articles 9, 12, 13, 14. Returns `ComplianceReport` with status, article checks, remediation strings, and `to_json()` for machine-readable output. TypeError on invalid input.
+- **`ArticleCheck`** and **`ComplianceReport`** dataclasses.
+
+**Chaos-Engineering Eval Injection**
+- **`ChaosProfile`** dataclass — configures which tool to fail, at what step, and failure type (timeout/error/partial/corrupt). Validates `fail_tool_at_step >= 1`.
+- **`ChaosInjector`** class — step counting, `should_inject()`, `inject()` methods. Partial truncates to 20%, corrupt replaces ceil(10%) positions. Records `chaos_detectors_fired` in CaseResult metadata. Skips gracefully when step exceeds total or tool not found.
+- **`chaos: ChaosProfile | None = None`** field added to existing `Case` dataclass.
+
+#### Phase 2 — High
+
+**Subagent Permission Isolation**
+- **`PermissionEntry`**, **`PermissionRegistry`**, **`PermissionResolver`** in `src/tvastar/permissions.py`. Child SecurityPolicy built from registry ONLY — parent's runtime policy is NEVER inherited. Unknown profile → deny-all + security warning. TrustLog record appended BEFORE child session begins.
+
+**Post-Compaction Fleet Checkpoint**
+- **`FleetCheckpointManager`** in `src/tvastar/fleet/checkpoint.py`. Snapshots fleet registry state at compaction time. Key format: `fleet_checkpoint:{loop_name}:{epoch}`. Retains 3 most recent, prunes older. Injects context as system message on resume (≤4096 chars). Failure-tolerant: logs warning, never raises.
+
+**Contradiction Resolution in Memory**
+- **`ContradictionDetector`** in `src/tvastar/memory/contradiction.py`. Detects conflicts via JSON comparison (`sort_keys=True`), resolves with last-writer-wins. Logs contradictions to dedicated namespace-scoped log (max 1000). Updates metadata (contradiction_count, last_contradiction_at) if store supports protocol. Exact key matching only.
+
+#### Phase 3 — Medium
+
+**Adaptive Scheduling**
+- **`resolve_next_run()`**, **`_is_valid_hint()`**, **`_clamp()`** in `src/tvastar/loop/schedule.py`. Agent-emitted `next_run_in` hints dynamically adjust loop firing. Clamped to [60, 86400] seconds. Invalid hints ignored with WARNING. One-shot override: reverts to cron unless new hint provided.
+
+**ROCS Metric (Return on Cognitive Spend)**
+- **`ROCSTracker`** and **`ROCSScore`** in `src/tvastar/rocs.py`. Computes `value_delivered / tokens_consumed` per run. Accepts per-loop `ROCSPolicy` callable (clamped to [0.0, 1.0]). `aggregate(n)` returns arithmetic mean of last N scores. Zero tokens → 0.0 (no division error). Policy exception → 0.0.
+
+**CubeSandbox Backend**
+- **`CubeSandboxAdapter`** in `src/tvastar/sandbox/providers.py`. Drop-in Sandbox ABC implementation backed by self-hosted CubeSandbox. Uses stdlib `urllib.request` only. Reads `CUBESANDBOX_URL` from env. SecurityPolicy enforced before network calls. 5-second timeout. `stop()` silent if unreachable.
+
+#### Phase 4 — Low
+
+**Loop Ready Score Extension**
+- **`to_badge()`**, **`to_json()`**, **`to_shields_endpoint()`** methods on existing `ReadinessLevel` in `src/tvastar/loop/audit.py`. Level-color mapping (0→red, 1→orange, 2→yellow, 3→green). Badge includes passes_count, gaps_count, warnings_count. Shields.io endpoint conforms to badge schema. ValueError if level outside 0-3.
+
+**Memory Interchange Format**
+- **`MemoryFact`**, **`ImportResult`**, **`validate_fact()`**, **`export_memories()`**, **`import_memories()`** in `src/tvastar/memory/interchange.py`. Standardized JSON schema for memory export/import/transfer. Each fact processed independently. Invokes ContradictionDetector for existing keys. Rejects entire import if format_version unsupported. Round-trip property guaranteed.
+
+### Changed
+
+- `__version__` bumped to `0.22.0`.
+- Full suite: **2264 passed**, 0 failures.
+- `LoopConfig` gains `allow_concurrent` and `adaptive_scheduling` sealed fields.
+- `Case` gains `chaos: ChaosProfile | None` field.
+- `ReadinessLevel` gains `to_badge()`, `to_json()`, `to_shields_endpoint()` methods.
+- `schedule.py` gains `resolve_next_run()`, `_is_valid_hint()`, `_clamp()` exports.
+
 ## [0.21.0] — 2025-07-15
 
 ### Added — Pi Ecosystem Adaptations

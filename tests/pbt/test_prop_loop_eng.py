@@ -25,7 +25,6 @@ import asyncio
 import json
 import time
 import uuid
-from unittest.mock import AsyncMock, patch
 
 import hypothesis.strategies as st
 from hypothesis import given, settings
@@ -247,8 +246,6 @@ async def test_exponential_backoff_calculation(backoff_base: float, iteration: i
     loop._delayed_retry = mock_delayed_retry
 
     # Create a dummy LoopRun for _handle_fail
-    import time
-    import uuid
 
     run = LoopRun(
         run_id=f"run_{uuid.uuid4().hex[:8]}",
@@ -307,10 +304,7 @@ async def test_circuit_breaker_activation(circuit_breaker_limit: int):
 
     **Validates: Requirements 7.4**
     """
-    import time
-    import uuid
 
-    from tvastar.loop.handoff import LogHandoff
 
     # Create a minimal agent (never actually called)
     model = MockModel(["unused"])
@@ -374,8 +368,6 @@ async def test_circuit_breaker_not_activated_below_limit(
 
     **Validates: Requirements 7.4**
     """
-    import time
-    import uuid
 
     # Ensure failures_below_limit is actually below the limit
     actual_failures = min(failures_below_limit, circuit_breaker_limit - 1)

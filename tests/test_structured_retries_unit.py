@@ -1,6 +1,5 @@
 """Unit tests verifying structured_retries spec field controls retry behavior."""
 
-import pytest
 from pydantic import BaseModel
 
 from tvastar import Harness, create_agent, default_toolset

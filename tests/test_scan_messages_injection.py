@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tvastar.boundary import InjectionScanResult, scan_messages_for_injection
+from tvastar.boundary import scan_messages_for_injection
 from tvastar.types import Message, TextBlock, ToolResultBlock, ToolUseBlock
 
 

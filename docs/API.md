@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.20.0. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.22.0. Every public symbol, field, and signature.
 
 ---
 

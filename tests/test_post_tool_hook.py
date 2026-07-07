@@ -5,7 +5,6 @@ Validates: Requirements 13.2, 13.3, 13.4, 13.5
 
 import warnings
 
-import pytest
 
 from tvastar import Harness, create_agent, default_toolset
 from tvastar.model import MockModel
@@ -136,7 +135,7 @@ async def test_post_tool_hook_called_for_each_tool_in_step():
         calls.append(name)
         return None
 
-    from tvastar.types import Message, TextBlock
+    from tvastar.types import Message
 
     # Multi-tool step: pass a Message with multiple ToolUseBlocks
     multi_tool_msg = Message("assistant", [

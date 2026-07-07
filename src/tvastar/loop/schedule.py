@@ -1,4 +1,4 @@
-"""Minimal cron-expression evaluator — zero dependencies.
+"""Minimal cron-expression evaluator + adaptive scheduling — zero dependencies.
 
 Supports:
   @yearly @annually @monthly @weekly @daily @midnight @hourly
@@ -11,7 +11,14 @@ All times are UTC. Warn if system clock appears non-UTC.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+MIN_ADAPTIVE_SECONDS = 60
+MAX_ADAPTIVE_SECONDS = 86400
 
 _ALIASES: dict[str, str] = {
     "@yearly": "0 0 1 1 *",
@@ -153,4 +160,45 @@ def next_run_time(expr: str, after: datetime) -> datetime:
     raise ValueError(f"No scheduled run found within 1 year for expression: {expr!r}")
 
 
-__all__ = ["next_run_time"]
+def resolve_next_run(
+    agent_response: dict | None,
+    cron_expr: str,
+    after: datetime,
+    *,
+    adaptive_enabled: bool = False,
+) -> datetime:
+    """Determine next run time, considering adaptive hints.
+
+    If adaptive_enabled and response contains valid next_run_in,
+    returns after + clamped(next_run_in). Otherwise uses cron.
+    One-shot: the override applies only once per hint — subsequent
+    calls without a new hint revert to cron.
+    """
+    if adaptive_enabled and agent_response:
+        hint = agent_response.get("next_run_in")
+        if _is_valid_hint(hint):
+            clamped = _clamp(int(hint))
+            if clamped != int(hint):
+                logger.warning(
+                    "Adaptive schedule clamped: requested=%s, applied=%s",
+                    hint, clamped,
+                )
+            return after + timedelta(seconds=clamped)
+        elif hint is not None:
+            logger.warning("Invalid adaptive hint ignored: %r", hint)
+    return next_run_time(cron_expr, after)
+
+
+def _is_valid_hint(value: Any) -> bool:
+    """True iff value is a positive integer (not bool)."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        return False
+    return value > 0
+
+
+def _clamp(seconds: int) -> int:
+    """Clamp to [MIN_ADAPTIVE_SECONDS, MAX_ADAPTIVE_SECONDS]."""
+    return max(MIN_ADAPTIVE_SECONDS, min(MAX_ADAPTIVE_SECONDS, seconds))
+
+
+__all__ = ["next_run_time", "resolve_next_run", "MIN_ADAPTIVE_SECONDS", "MAX_ADAPTIVE_SECONDS"]

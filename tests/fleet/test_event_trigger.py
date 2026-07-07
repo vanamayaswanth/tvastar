@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -55,7 +55,6 @@ class TestSubscribeTrigger:
 
     def test_subscribe_does_nothing_with_invalid_prefix(self):
         """subscribe_trigger is a no-op when trigger_on doesn't start with 'event:'."""
-        from tvastar.loop import LoopConfig
 
         # This would fail validation, so we directly set it on a mock config
         mock_config = MagicMock()

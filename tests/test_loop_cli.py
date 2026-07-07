@@ -1,10 +1,8 @@
 """Tests for tvastar loop CLI commands."""
 from __future__ import annotations
 
-import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from tvastar.loop.cli import cmd_history, cmd_reset, cmd_trigger
 

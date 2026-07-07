@@ -130,7 +130,18 @@ class LoopConfig:
     )
     budget: "Any | None" = None  # BudgetPolicy — cumulative cost cap across all runs
     trigger_on: str | None = None  # None=manual/cron, "event:topic_name"=EventBus trigger
+    then: str | None = None  # chain target: trigger this loop on PASS
+    allow_concurrent: bool = False  # ponytail: immutable after __post_init__
+    adaptive_scheduling: bool = False  # Phase 3 — immutable after __post_init__
     metadata: dict = field(default_factory=dict)
+
+    # ponytail: fields sealed after construction to prevent runtime mutation
+    _SEALED_FIELDS: tuple = field(
+        default=("allow_concurrent", "adaptive_scheduling"),
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.strip():
@@ -161,6 +172,16 @@ class LoopConfig:
                 next_run_time(self.schedule, datetime.now(tz=timezone.utc))
             except ValueError as exc:
                 raise ValueError(f"LoopConfig.schedule invalid: {exc}") from exc
+        # Seal immutable fields — mark construction complete
+        object.__setattr__(self, "_sealed", True)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        # ponytail: prevent mutation of sealed fields after construction
+        if getattr(self, "_sealed", False) and name in self._SEALED_FIELDS:
+            raise AttributeError(
+                f"LoopConfig.{name} is immutable after construction"
+            )
+        object.__setattr__(self, name, value)
 
 
 # ---------------------------------------------------------------------------

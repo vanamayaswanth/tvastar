@@ -12,11 +12,14 @@ Levels:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from . import Loop
+
+_LEVEL_COLORS: dict[int, str] = {0: "red", 1: "orange", 2: "yellow", 3: "green"}
 
 
 @dataclass
@@ -31,6 +34,51 @@ class ReadinessLevel:
     @property
     def is_production_ready(self) -> bool:
         return self.level >= 3
+
+    def to_badge(self) -> dict:
+        """Return badge metadata dict for the readiness level.
+
+        Raises:
+            ValueError: if level is outside 0-3.
+        """
+        if self.level not in _LEVEL_COLORS:
+            raise ValueError(f"Level {self.level} outside valid range 0-3")
+        return {
+            "label": self.name,
+            "level": self.level,
+            "color": _LEVEL_COLORS[self.level],
+            "description": self.description[:128],
+            "passes_count": len(self.passes),
+            "gaps_count": len(self.gaps),
+            "warnings_count": len(self.warnings),
+        }
+
+    def to_json(self) -> str:
+        """Return valid JSON string with all ReadinessLevel fields."""
+        return json.dumps({
+            "level": self.level,
+            "name": self.name,
+            "description": self.description,
+            "passes": self.passes,
+            "gaps": self.gaps,
+            "warnings": self.warnings,
+            "is_production_ready": self.is_production_ready,
+        })
+
+    def to_shields_endpoint(self) -> dict:
+        """Return shields.io endpoint badge schema dict.
+
+        Raises:
+            ValueError: if level is outside 0-3.
+        """
+        if self.level not in _LEVEL_COLORS:
+            raise ValueError(f"Level {self.level} outside valid range 0-3")
+        return {
+            "schemaVersion": 1,
+            "label": "loop readiness",
+            "message": self.name,
+            "color": _LEVEL_COLORS[self.level],
+        }
 
 
 def audit_loop(loop: "Loop") -> ReadinessLevel:  # type: ignore[name-defined]

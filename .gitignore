@@ -8,6 +8,8 @@ dist/
 # Tvastar runtime artifacts
 .tvastar-workspace/
 .tvastar-state/
+.tvastar-ci/
+.tvastar-loops/
 *-trace.jsonl
 tvastar-trace.jsonl
 
@@ -39,6 +41,12 @@ scripts/
 # Hypothesis test database
 .hypothesis/
 
-.tvastar-loops/
-
+# Knowledge graph output (generated)
 graphify-out/
+
+# Helpers docs (generated/scratch)
+helpers_docs/
+
+# Previous/backup files
+AGENTS._prevmd
+CLAUDE_prev.md

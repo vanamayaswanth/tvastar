@@ -13,11 +13,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import pytest
 from pydantic import BaseModel
 
 from tvastar import Harness, create_agent, default_toolset
-from tvastar.detect import Finding, Severity
+from tvastar.detect import Severity
 from tvastar.model import MockModel
 from tvastar.session import (
     _STRUCTURED_RETRIES,

@@ -17,8 +17,6 @@ from tvastar.model.mock import MockModel
 from tvastar.types import (
     ModelResponse,
     StreamEvent,
-    StopReason,
-    TextBlock,
     ToolUseBlock,
     Usage,
 )

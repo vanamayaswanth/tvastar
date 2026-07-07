@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
-from tvastar.fleet import Fleet, FleetConfig, FleetBudgetConfig
+from tvastar.fleet import Fleet, FleetConfig
 from tvastar.fleet.registry import AgentState
 
 
@@ -143,7 +143,7 @@ class TestFleetShutdown:
 
         # State file should exist in default location
         from pathlib import Path
-        assert Path(f".tvastar-fleet/shutdown-test.json").exists()
+        assert Path(".tvastar-fleet/shutdown-test.json").exists()
 
         # Cleanup
         import shutil

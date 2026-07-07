@@ -10,14 +10,15 @@
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ LAYER 7: INTERFACE          ██████░░░░░░  (50%) — API ✓, CLI ✓, Canvas ✗    │
-│ LAYER 6: FLEET              ████████████  (95%) — Built this session         │
-│ LAYER 5: LOOP               ██████████░░  (85%) — Missing event triggers     │
-│ LAYER 4: HARNESS            ████████████  (95%) — Mature, well-tested        │
+│ LAYER 6: FLEET              ████████████  (98%) — Checkpoint + Permission    │
+│ LAYER 5: LOOP               ████████████  (95%) — Supervisor + Adaptive      │
+│ LAYER 4: HARNESS            ████████████  (98%) — Compaction + Chaos Eval    │
 │ LAYER 3: TOOLS              ████████░░░░  (70%) — Missing MCP server, CUA    │
-│ LAYER 2: MEMORY             ██████░░░░░░  (55%) — Missing vector/RAG/decay   │
+│ LAYER 2: MEMORY             ████████░░░░  (75%) — Contradiction + Interchange│
 │ LAYER 1: MODEL              ████████░░░░  (75%) — Missing planning/reflect   │
-│ RAIL A: SECURITY            ████████░░░░  (75%) — Missing output guardrails  │
-│ RAIL B: OBSERVABILITY       ████████░░░░  (70%) — Missing live alerting      │
+│ RAIL A: SECURITY            ██████████░░  (85%) — Permission isolation added │
+│ RAIL B: OBSERVABILITY       ██████████░░  (80%) — ROCS + ReadinessPublisher  │
+│ RAIL C: COMPLIANCE          ████████████  (95%) — EU AI Act verifier added   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,6 +86,23 @@ These are real bugs found by tracing execution paths. They will hit production u
 | WorkflowRun event cap (1000/run) | ✅ Done |
 | Loop.stop() cancels bg improvement tasks | ✅ Done |
 | `unobserve_dispatch()` cleanup API | ✅ Done |
+
+## ✅ Completed (v0.22.0 — GitHub Adaptation Map)
+
+| Item | Status |
+|------|--------|
+| Five-Stage Progressive Context Compaction | ✅ Done |
+| No-Overlap Loop Supervisor (asyncio.Lock, concurrent mode) | ✅ Done |
+| EU AI Act Compliance Verifier (Articles 9, 12, 13, 14) | ✅ Done |
+| Chaos-Engineering Eval Injection (4 failure types) | ✅ Done |
+| Subagent Permission Isolation (deny-all unknown, TrustLog) | ✅ Done |
+| Post-Compaction Fleet Checkpoint (3-retention, inject on resume) | ✅ Done |
+| Contradiction Resolution in Memory (last-writer-wins, log cap 1000) | ✅ Done |
+| Adaptive Scheduling (agent-driven hints, clamp [60, 86400]) | ✅ Done |
+| ROCS Metric (value_delivered / tokens_consumed) | ✅ Done |
+| CubeSandbox Backend (stdlib urllib, SecurityPolicy enforcement) | ✅ Done |
+| Loop Ready Score Extension (badge, JSON, shields.io) | ✅ Done |
+| Memory Interchange Format (export, import, round-trip) | ✅ Done |
 
 ---
 
@@ -271,13 +289,13 @@ Week 6+:
 | Metric | Current | Target |
 |--------|---------|--------|
 | Critical bugs | 5 | 0 |
-| Stack coverage | 75% | 90% |
-| Test count | 1642 | 2000+ (with PBT) |
-| Fleet test coverage | 116 unit | 116 + 33 PBT properties |
+| Stack coverage | 85% | 95% |
+| Test count | 2264 | 2500+ (with PBT) |
+| Fleet test coverage | 155 unit | 155 + 33 PBT properties |
 | Routing latency (50 agents) | ~100ms (SequenceMatcher) | <5ms (TF-IDF) |
 | Max memory at 24hr runtime | Capped (deque) | <200MB |
 | Dispatch safety | Race-able | Lock-protected |
-| Missing stack slices | 14 | <5 |
+| Missing stack slices | 8 | <5 |
 
 ---
 
@@ -294,4 +312,4 @@ After Week 6+: Revenue-generating (tvastar-ci, Canvas)
 
 ---
 
-*Last updated: 2026-07-04 (v0.20.0 + fleet-engineering + LTM + backends)*
+*Last updated: 2025-07-15 (v0.22.0 + GitHub Adaptation Map — 12 adaptations across 4 phases)*

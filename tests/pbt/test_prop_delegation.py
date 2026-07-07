@@ -280,7 +280,6 @@ async def test_child_spec_precedence_resolution(scenario):
     sess = h.session()
 
     # Call _build_child_spec directly to inspect the resolved spec
-    from tvastar.profiles import AgentProfile
 
     child_spec = sess._build_child_spec(
         profile=profile,

@@ -15,8 +15,6 @@ Usage:
 
 import asyncio
 import json
-from dataclasses import dataclass
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -199,13 +197,13 @@ async def main():
     results = await graph.run()
 
     # Show structured output
-    print(f"\n📊 Results:")
+    print("\n📊 Results:")
     print(f"   Tasks completed: {len(results)}")
     print(f"   All OK: {results.ok}")
 
     if results["analyze"].data:
         analysis = results["analyze"].data
-        print(f"\n🔍 Project Analysis:")
+        print("\n🔍 Project Analysis:")
         print(f"   Language: {analysis.language}")
         print(f"   Framework: {analysis.framework}")
         print(f"   Deploy target: {analysis.deploy_target}")
@@ -214,14 +212,14 @@ async def main():
         pipeline = results["generate"].data
         print(f"\n📋 Generated Pipeline: '{pipeline.name}'")
         print(f"   Trigger: {pipeline.trigger}")
-        print(f"   Stages:")
+        print("   Stages:")
         for stage in pipeline.stages:
             deps = f" (after: {', '.join(stage.depends_on)})" if stage.depends_on else ""
             print(f"     → {stage.name}: {stage.image}{deps}")
             for cmd in stage.commands:
                 print(f"       $ {cmd}")
 
-    print(f"\n✅ Pipeline generation complete!")
+    print("\n✅ Pipeline generation complete!")
 
 
 if __name__ == "__main__":

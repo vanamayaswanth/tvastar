@@ -329,10 +329,12 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 
 | Problem | How Tvastar handles it | API |
 |---|---|---|
-| Context grows past model limit | Automatic summarisation when message count threshold is hit | `CompactionPolicy` |
+| Context grows past model limit | Five-stage progressive compaction at 60%→95% thresholds | `ProgressiveCompactionPolicy` + `CompactionEngine` |
 | Session messages balloon past 50 MB | Hard cap with auto-compaction before the next call | `memory_cap_mb` |
 | Agent needs facts across sessions | BM25 retrieval (semantic optional) injected into system prompt | `tvastar.contrib.ltm.LTMStore` |
 | Agent forgets context mid-task | Named sessions persist history; resume any session by ID | `harness.session(name)` / `harness.resume(id)` |
+| Conflicting facts accumulate silently | Contradiction detection + last-writer-wins resolution with audit log | `ContradictionDetector` |
+| Memories locked in one backend | Standardized export/import format with round-trip guarantee | `export_memories()` / `import_memories()` |
 
 ### Quality & Observability
 
@@ -359,6 +361,11 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 | Audit log tampered silently | `on_breach` callback fires immediately per corrupted entry | `TrustLog(on_breach=alert_fn)` |
 | 7-year SOX / 6-year HIPAA retention | Archive old entries; legal hold freezes the log entirely | `RetentionPolicy` |
 | Quality SLA drops in production | Raise `SLABreached` or escalate when score falls below threshold | `AssurancePolicy(min_score=80, on_fail="raise")` |
+| Need to verify EU AI Act compliance | Programmatic checker for Articles 9, 12, 13, 14 with remediation | `ComplianceVerifier().verify(loop)` |
+| Child agents inherit too many permissions | Fresh minimal SecurityPolicy from registry, never from parent | `PermissionResolver` |
+| Fleet state lost after compaction | Automatic checkpoint + inject on resume (≤4096 chars) | `FleetCheckpointManager` |
+| Need to test loop resilience | Inject tool failures (timeout/error/partial/corrupt) during evals | `ChaosProfile` + `ChaosInjector` |
+| Self-hosted sandbox needed | CubeSandbox adapter — one env var change from E2B | `CubeSandboxAdapter` |
 
 ### Production & Scale
 
@@ -368,7 +375,10 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 | Run 100 prompts at once | Concurrent fan-out, optional concurrency cap | `harness.fan_out(prompts, concurrency=8)` |
 | Webhook / chatbot message handling | Fire-and-forget dispatch; reply in `on_complete` callback | `dispatch()` |
 | Long-running pipeline survives restarts | Durable workflow with run history | `@workflow` + `WorkflowRun` |
-| Agent loop must never miss a failure | L0→L3 readiness audit before deploy | `audit_loop(loop)` |
+| Agent loop must never miss a failure | L0→L3 readiness audit with publishable badges | `audit_loop(loop)` + `ReadinessLevel.to_badge()` |
+| Schedule overlaps cause double-execution | Overlap detection skips trigger for active loops | `LoopSupervisor` + `allow_concurrent` |
+| Loop needs to self-adjust its schedule | Agent-emitted `next_run_in` hints adjust firing dynamically | `resolve_next_run()` + `adaptive_scheduling` |
+| No cost-effectiveness metric across loops | ROCS score (value / tokens) per run with aggregation | `ROCSTracker` |
 | Human must approve before irreversible action | Pause and wait — CLI, webhook, or event backend | `require_approval()` + `ApprovalGate` |
 | API or model spend spiralling | Hard budget ceiling per run | `BudgetPolicy(max_usd=0.50)` |
 | External tools (databases, SaaS, APIs) | Plug in any MCP server — fully transparent to the model | `connect_mcp_server()` |
@@ -2269,6 +2279,8 @@ Products ship first. Framework features get added only when a product needs them
 | **Core primitives upgrade** | `enforce()`, durable checkpoints, profile-keyed MockModel, `score_pipeline`, `detect_from_messages`, `redact_messages`, `scan_messages_for_injection`, composable tracer helpers | ✅ v0.19.0 |
 | **Agent Debugger example** | Meta-agent that diagnoses, fixes, and verifies failing trajectories — exercises every framework feature | ✅ v0.19.0 |
 | **Maximum Dynamism Audit** | 34 requirements: configurable params, registration APIs, extension points (hooks/middleware/fallbacks), stream parity, Protocol types, bug fixes, DispatchPool, lazy imports | ✅ v0.20.0 |
+| **Pi Ecosystem Adaptations** | Tool output compression, model-based verification, per-task model routing, SQLite FTS5 memory, latchkey auth tool, TaskGraph resume journal | ✅ v0.21.0 |
+| **GitHub Adaptation Map** | 12 adaptations: 5-stage compaction, loop supervisor, EU AI Act compliance, chaos eval, permission isolation, fleet checkpoint, contradiction resolution, adaptive scheduling, ROCS metric, CubeSandbox, readiness badges, memory interchange | ✅ v0.22.0 |
 | **tvastar-comply** | Token-vault PII rehydration, CCPA / GLBA coverage, enterprise dashboard | 🔒 v0.16.0 |
 | **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |
 | **tvastar-devops** | Auto-heal production incidents | 📋 v1.1.0 |

@@ -24,7 +24,6 @@ from tvastar import (
     define_agent_profile,
 )
 from tvastar.model import MockModel
-from tvastar.profiles import AgentProfile
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

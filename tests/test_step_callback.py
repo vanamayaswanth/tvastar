@@ -2,7 +2,6 @@
 
 import warnings
 
-import pytest
 
 from tvastar import Harness, create_agent, default_toolset
 from tvastar.model import MockModel

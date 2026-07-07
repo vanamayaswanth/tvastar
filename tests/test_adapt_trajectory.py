@@ -1,12 +1,10 @@
 """Tests for the adapt_trajectory function in the silent failure benchmark."""
 
-import json
 
-import pytest
 
 from tvastar.bench.silent_failure import adapt_trajectory, RawTrajectory
 from tvastar.detect.base import RunContext
-from tvastar.types import Message, TextBlock, ToolResultBlock, ToolUseBlock
+from tvastar.types import TextBlock, ToolResultBlock, ToolUseBlock
 
 
 def _make_raw(messages, **kwargs):

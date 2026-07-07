@@ -1,7 +1,7 @@
 """Smoke tests for FleetBudget implementation (tasks 7.1, 7.2, 7.3)."""
 
-from tvastar.fleet import FleetBudgetConfig, BudgetAllocation
-from tvastar.fleet.budget import FleetBudget, BudgetWarningEvent, BudgetThrottleEvent
+from tvastar.fleet import FleetBudgetConfig
+from tvastar.fleet.budget import FleetBudget
 from tvastar.cost import Cost
 
 

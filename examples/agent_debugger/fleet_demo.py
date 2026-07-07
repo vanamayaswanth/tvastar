@@ -27,7 +27,6 @@ from __future__ import annotations
 import asyncio
 
 from tvastar.agent import create_agent
-from tvastar.cost import BudgetPolicy
 from tvastar.fleet import (
     Fleet,
     FleetBudgetConfig,
@@ -157,15 +156,15 @@ async def main() -> None:
     print("── Fleet Gateway: Semantic Routing ──")
 
     result = await fleet.submit("Find papers on transformer architectures")
-    print(f"  Task: 'Find papers on transformer architectures'")
+    print("  Task: 'Find papers on transformer architectures'")
     print(f"  → Routed to: {result['agent_name']} (score: {result['routing_score']:.3f})")
 
     result = await fleet.submit("Write a summary report of the findings")
-    print(f"  Task: 'Write a summary report of the findings'")
+    print("  Task: 'Write a summary report of the findings'")
     print(f"  → Routed to: {result['agent_name']} (score: {result['routing_score']:.3f})")
 
     result = await fleet.submit("Review the code for security issues")
-    print(f"  Task: 'Review the code for security issues'")
+    print("  Task: 'Review the code for security issues'")
     print(f"  → Routed to: {result['agent_name']} (score: {result['routing_score']:.3f})")
     print()
 
@@ -191,7 +190,7 @@ async def main() -> None:
     topics = fleet.state.get("research_topics")
     print(f"  researcher wrote: research_status = {status!r}")
     print(f"  researcher wrote: research_topics = {topics}")
-    print(f"  (writer can read both → shared knowledge)")
+    print("  (writer can read both → shared knowledge)")
     print(f"  Total keys in state: {len(fleet.state.keys())}")
     print()
 
@@ -207,7 +206,7 @@ async def main() -> None:
     )
     fleet.bus.subscribe(
         "research.complete",
-        lambda e: events_received.append(f"writer notified: will start report"),
+        lambda e: events_received.append("writer notified: will start report"),
     )
 
     fleet.bus.publish(
@@ -216,7 +215,7 @@ async def main() -> None:
         source_agent="researcher",
     )
 
-    print(f"  Published: 'research.complete' event")
+    print("  Published: 'research.complete' event")
     for ev in events_received:
         print(f"    → {ev}")
     print()
@@ -278,7 +277,7 @@ async def main() -> None:
     deploy_mgr.record_canary_quality("researcher", is_canary=True, score=91.0)
 
     should_promote = deploy_mgr.should_promote_canary("researcher")
-    print(f"  Canary avg quality: 91.0 vs stable avg: 85.0")
+    print("  Canary avg quality: 91.0 vs stable avg: 85.0")
     print(f"  Should promote: {should_promote}")
 
     if should_promote:

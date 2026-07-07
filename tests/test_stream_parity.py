@@ -6,9 +6,7 @@ compaction, and memory_cap policies as Session.prompt().
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 import pytest
 
@@ -18,12 +16,7 @@ from tvastar.harness import Harness
 from tvastar.model.mock import MockModel
 from tvastar.session import Session
 from tvastar.types import (
-    Message,
     ModelResponse,
-    StopReason,
-    StreamEvent,
-    TextBlock,
-    ToolSpec,
     ToolUseBlock,
     Usage,
 )
@@ -194,7 +187,6 @@ async def test_stream_produces_findings_from_detectors():
 
     # The stream completed — verify that _detect() produces findings
     # by directly verifying the detector works on current session state.
-    from tvastar.detect import RunContext, run_detectors
     from tvastar.session import RunResult
     from tvastar.cost import Cost
 

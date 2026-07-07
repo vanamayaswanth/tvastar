@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
-from pathlib import Path
+import sys
 from unittest.mock import MagicMock, patch
 
 from tvastar.ci import CIConfig, CIRunResult, CIRunner
-from tvastar.ci.github import GitHubClient, GitHubEvent, parse_github_webhook
+from tvastar.ci.github import GitHubClient, parse_github_webhook
 from tvastar.ci.reporter import format_ci_report, notify_result
+
+# Use sys.executable for cross-platform pytest invocation
+_PYTEST_CMD = f"{sys.executable} -m pytest -q"
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +83,7 @@ async def test_runner_run_green_with_mock(tmp_path):
     # Create a simple passing test project
     (tmp_path / "test_ok.py").write_text("def test_pass():\n    assert True\n", encoding="utf-8")
 
-    config = CIConfig(repo_path=str(tmp_path), test_command="pytest -q")
+    config = CIConfig(repo_path=str(tmp_path), test_command=_PYTEST_CMD)
 
     from tvastar.model.mock import MockModel
 
@@ -99,7 +101,7 @@ async def test_runner_run_unfixed_with_mock(tmp_path):
         "def test_fail():\n    assert False\n", encoding="utf-8"
     )
 
-    config = CIConfig(repo_path=str(tmp_path), test_command="pytest -q", timeout=30.0)
+    config = CIConfig(repo_path=str(tmp_path), test_command=_PYTEST_CMD, timeout=30.0)
 
     from tvastar.model.mock import MockModel
 

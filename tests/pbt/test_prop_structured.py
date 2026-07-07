@@ -10,7 +10,6 @@ Property 34: Structured output schema injection
 
 from __future__ import annotations
 
-import json
 
 import hypothesis.strategies as st
 from hypothesis import given, settings

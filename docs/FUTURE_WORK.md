@@ -337,4 +337,4 @@ Phase 5 (Q2 2027):  tvastar-portal (developer portal)
 
 ---
 
-*Last updated: 2026-07-04 (v0.20.0)*
+*Last updated: 2025-07-15 (v0.22.0)*

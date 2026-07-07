@@ -11,14 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections import defaultdict
-from typing import Any
 
 import hypothesis.strategies as st
 from hypothesis import given, settings, assume
 
 from tvastar import Harness, TaskGraph, create_agent
-from tvastar.model.mock import MockModel
 from tvastar.types import Message, ModelResponse, StopReason, TextBlock, Usage
 
 

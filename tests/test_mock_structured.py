@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from tvastar.model.mock import MockModel
 from tvastar.types import Message, StopReason, TextBlock

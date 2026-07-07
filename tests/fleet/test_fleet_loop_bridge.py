@@ -2,7 +2,7 @@
 import pytest
 from tvastar.agent import create_agent
 from tvastar.fleet import Fleet, FleetConfig
-from tvastar.loop import Loop, LoopConfig, LoopState
+from tvastar.loop import Loop, LoopConfig
 from tvastar.model.mock import MockModel
 
 

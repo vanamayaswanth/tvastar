@@ -308,7 +308,6 @@ def cmd_history(ref: str, limit: int = 10) -> int:
         print(f"No runs recorded for {loop.name!r}.")
         return 0
 
-    import time as _time
 
     print(f"\nRecent runs for {loop.name!r} (last {limit}):")
     print(f"{'Run ID':<16} {'State':<12} {'Duration':<10} {'Error'}")

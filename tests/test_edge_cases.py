@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -19,7 +18,6 @@ from tvastar import Harness, create_agent
 from tvastar.compaction import CompactionPolicy, should_compact
 from tvastar.masking import GovernancePolicy
 from tvastar.model import MockModel
-from tvastar.session import RunResult
 from tvastar.types import (
     Message,
     ModelResponse,
@@ -248,7 +246,7 @@ class TestEdge005BudgetReflectsModelTokensOnly:
     budget reflects only model token usage (not tool execution cost)."""
 
     async def test_budget_checked_after_model_generate(self):
-        from tvastar.cost import BudgetExceeded, BudgetPolicy
+        from tvastar.cost import BudgetPolicy
 
         # Use a model that returns expensive tokens with a known model name
         # so the COST_TABLE lookup returns non-zero cost
@@ -290,7 +288,7 @@ class TestEdge005BudgetReflectsModelTokensOnly:
     async def test_budget_only_uses_model_tokens_not_tool_cost(self):
         """Budget enforcement uses model token usage only — tool execution
         time/cost doesn't factor into the budget check."""
-        from tvastar.cost import BudgetPolicy, Cost
+        from tvastar.cost import Cost
 
         # Verify that Cost.usd only reflects token usage
         cost = Cost(input_tokens=1000, output_tokens=500, model="claude-sonnet-4-6")
@@ -421,7 +419,6 @@ class TestEdge008TrustLogFileDeleted:
             )
             # Compute real content hash
             import hashlib
-            import json
 
             from tvastar.assurance.receipt import _canonical_payload
 
@@ -487,7 +484,6 @@ class TestEdge009ResumeFromDifferentSpec:
     async def test_resume_different_spec_session(self):
         """A session saved by one spec can be loaded by a harness with
         a different spec — the messages are restored regardless."""
-        from tvastar.durable import Checkpointer
         from tvastar.memory.store import InMemoryStore
 
         store = InMemoryStore()

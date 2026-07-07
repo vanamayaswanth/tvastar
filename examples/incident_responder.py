@@ -17,7 +17,6 @@ Usage:
 import asyncio
 
 from tvastar import (
-    AgentRouter,
     Harness,
     create_agent,
     define_agent_profile,
@@ -26,8 +25,7 @@ from tvastar import (
 from tvastar.approval import ApprovalGate
 from tvastar.compaction import CompactionPolicy
 from tvastar.cost import BudgetPolicy
-from tvastar.loop import Loop, LoopConfig
-from tvastar.loop.handoff import LogHandoff
+from tvastar.loop import LoopConfig
 from tvastar.masking import GovernancePolicy
 from tvastar.model import MockModel  # swap for AnthropicModel in production
 

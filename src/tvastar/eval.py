@@ -19,13 +19,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 __all__ = [
     "Case",
     "CaseResult",
+    "ChaosProfile",
+    "ChaosInjector",
     "EvalReport",
     "EvalSuite",
     # built-in checks
@@ -50,6 +53,23 @@ __all__ = [
 #   str         → failed with that message
 Check = Callable[[Any], "bool | str"]
 
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ChaosProfile:
+    """Configuration for deliberate tool failure injection during eval runs."""
+
+    fail_tool_at_step: int  # minimum 1
+    tool_name: str
+    failure_type: Literal["timeout", "error", "partial", "corrupt"]
+
+    def __post_init__(self) -> None:
+        if self.fail_tool_at_step < 1:
+            raise ValueError("fail_tool_at_step must be >= 1")
+        if self.failure_type not in ("timeout", "error", "partial", "corrupt"):
+            raise ValueError(f"Invalid failure_type: {self.failure_type!r}")
+
 
 @dataclass
 class Case:
@@ -61,6 +81,7 @@ class Case:
     agent: str | None = None  # named AgentProfile to use
     cancel_after: float | None = None  # timeout in seconds
     metadata: dict = field(default_factory=dict)
+    chaos: ChaosProfile | None = None
 
 
 @dataclass
@@ -397,3 +418,97 @@ def assert_custom(fn: Callable[[Any], bool], message: str = "Custom check failed
 
     check.__name__ = f"assert_custom({fn.__name__})"
     return check
+
+
+# ---------------------------------------------------------------------------
+# Chaos-Engineering Eval Injection
+# ---------------------------------------------------------------------------
+
+
+class ChaosInjector:
+    """Intercepts tool calls during eval runs to simulate failures.
+
+    Integrates with the eval framework by wrapping tool execution.
+    Records which detectors fired in response to the injected failure.
+    """
+
+    def __init__(self, profile: ChaosProfile, cancel_after: float | None = None) -> None:
+        self._profile = profile
+        self._cancel_after = cancel_after or 30.0
+        self._step_counter = 0
+        self._injected = False
+        self._metadata: dict[str, Any] = {"chaos_detectors_fired": []}
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return self._metadata
+
+    def should_inject(self, tool_name: str) -> bool:
+        """Check if this tool call should be intercepted.
+
+        Increments step counter on every call. Returns True only when
+        step matches and tool_name matches the profile, and injection
+        hasn't already occurred.
+        """
+        self._step_counter += 1
+        return (
+            not self._injected
+            and self._step_counter == self._profile.fail_tool_at_step
+            and tool_name == self._profile.tool_name
+        )
+
+    def mark_skipped(self, reason: str) -> None:
+        """Record that injection was skipped (step > total or no matching tool)."""
+        self._metadata["chaos_injection_skipped"] = True
+        logger.warning("Chaos injection skipped: %s", reason)
+
+    def record_detectors_fired(self, detectors: list[str]) -> None:
+        """Record detector names that fired in response to injection."""
+        self._metadata["chaos_detectors_fired"] = detectors
+
+    async def inject(self, original_output: str) -> str | Exception:
+        """Apply the configured failure type to the tool output.
+
+        Returns modified output string for partial/corrupt,
+        or raises an exception for timeout/error.
+        """
+        self._injected = True
+        ft = self._profile.failure_type
+
+        if ft == "timeout":
+            # ponytail: raise immediately rather than sleeping cancel_after
+            # the caller is expected to handle TimeoutError
+            raise TimeoutError(
+                f"Chaos injection: tool '{self._profile.tool_name}' timed out "
+                f"after {self._cancel_after}s"
+            )
+        elif ft == "error":
+            # Return a sentinel string; caller interprets non-zero exit
+            return "__CHAOS_ERROR__:exit_code=1:generic error"
+        elif ft == "partial":
+            return self._partial_truncate(original_output)
+        elif ft == "corrupt":
+            return self._corrupt(original_output)
+        else:
+            # Should never reach here due to ChaosProfile validation
+            return original_output  # pragma: no cover
+
+    def _partial_truncate(self, output: str) -> str:
+        """Truncate to 20% of length, minimum 1 character."""
+        length = max(1, int(len(output) * 0.2))
+        return output[:length]
+
+    def _corrupt(self, output: str) -> str:
+        """Replace ceil(10%) of positions with random printable ASCII."""
+        import math
+        import random
+        import string
+
+        if not output:
+            return output
+        n = max(1, math.ceil(len(output) * 0.1))
+        positions = random.sample(range(len(output)), min(n, len(output)))
+        chars = list(output)
+        for pos in positions:
+            chars[pos] = random.choice(string.printable.strip())
+        return "".join(chars)

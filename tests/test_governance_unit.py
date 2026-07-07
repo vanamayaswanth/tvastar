@@ -11,10 +11,9 @@ Requirements: 5.1, 5.3, 5.4
 
 from unittest.mock import AsyncMock
 
-import pytest
 
 from tvastar import Harness, create_agent
-from tvastar.approval import ApprovalDenied, ApprovalGate, ApprovalTimeout
+from tvastar.approval import ApprovalGate, ApprovalTimeout
 from tvastar.masking import GovernancePolicy, MaskContext, apply_policy
 from tvastar.model import MockModel
 from tvastar.tools.base import tool as tool_decorator

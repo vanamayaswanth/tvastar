@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from tvastar.fleet.alerting import LogAlertHandler, SlackAlertHandler, WebhookAlertHandler
 

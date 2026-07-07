@@ -10,8 +10,6 @@ Tests verify:
 Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.7
 """
 
-import time
-from unittest.mock import patch
 
 import pytest
 

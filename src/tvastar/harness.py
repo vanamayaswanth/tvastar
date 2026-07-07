@@ -20,7 +20,7 @@ from typing import Any, Optional
 
 from .agent import AgentSpec
 from .durable import Checkpointer
-from .memory.store import FileStore, InMemoryStore, Store
+from .memory.store import InMemoryStore, Store
 from .observability import NULL_TRACER, Tracer
 from .session import RunResult, Session
 

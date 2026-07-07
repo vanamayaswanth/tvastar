@@ -97,9 +97,15 @@ class TestFleetWiring:
         assert fleet.budget is None
 
     def test_backend_import_error_for_redis(self):
+        import sys
+        import unittest.mock
+
         config = FleetConfig(name="test", state_backend="redis")
-        with pytest.raises(ImportError, match="tvastar\\[redis\\]"):
-            Fleet(config)
+        with unittest.mock.patch.dict(sys.modules, {"redis": None}):
+            # Force reimport of the backend module so it re-checks for redis
+            sys.modules.pop("tvastar.fleet.backends.redis_state", None)
+            with pytest.raises(ImportError, match="tvastar\\[redis\\]"):
+                Fleet(config)
 
     def test_backend_import_error_for_kafka(self):
         config = FleetConfig(name="test", event_backend="kafka")

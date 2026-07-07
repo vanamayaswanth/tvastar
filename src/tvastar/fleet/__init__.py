@@ -528,7 +528,7 @@ class Fleet:
         from pathlib import Path
 
         if path is None:
-            dir_path = Path(f".tvastar-fleet")
+            dir_path = Path(".tvastar-fleet")
             dir_path.mkdir(parents=True, exist_ok=True)
             path = str(dir_path / f"{self._config.name}.json")
 
@@ -586,7 +586,7 @@ class Fleet:
         from pathlib import Path
 
         if path is None:
-            path = str(Path(f".tvastar-fleet") / f"{self._config.name}.json")
+            path = str(Path(".tvastar-fleet") / f"{self._config.name}.json")
 
         file_path = Path(path)
         if not file_path.exists():

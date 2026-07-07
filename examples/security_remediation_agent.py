@@ -19,14 +19,12 @@ import asyncio
 from tvastar import (
     Harness,
     create_agent,
-    default_toolset,
     tool,
 )
 from tvastar.assurance import AssurancePolicy, TrustLog
 from tvastar.compaction import CompactionPolicy
 from tvastar.cost import BudgetPolicy
-from tvastar.loop import Loop, LoopConfig
-from tvastar.loop.handoff import LogHandoff
+from tvastar.loop import LoopConfig
 from tvastar.masking import GovernancePolicy
 from tvastar.model import MockModel  # swap for AnthropicModel in production
 

@@ -18,14 +18,25 @@ Requires ``tvastar[serve]``.  Sessions live for the lifetime of the harness
 
 import json
 from dataclasses import asdict
-from typing import Any, AsyncIterator, Optional
+from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
 
 from ..agent import AgentSpec
 from ..harness import Harness
 from ..memory.store import FileStore, Store
 
+if TYPE_CHECKING:
+    from ..loop.metrics import MetricsCollector
+    from ..loop.registry import LoopRegistry
 
-def create_app(spec: "AgentSpec", *, store: Optional["Store"] = None) -> Any:
+
+def create_app(
+    spec: "AgentSpec",
+    *,
+    store: Optional["Store"] = None,
+    registry: Optional["LoopRegistry"] = None,
+    metrics_collector: Optional["MetricsCollector"] = None,
+    webhook_secrets: Optional[dict] = None,
+) -> Any:
     try:
         from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
         from fastapi.responses import StreamingResponse
@@ -133,6 +144,19 @@ def create_app(spec: "AgentSpec", *, store: Optional["Store"] = None) -> Any:
             },
         )
 
+    # Wire loop infrastructure endpoints if registry is provided
+    if registry is not None:
+        from .health import create_health_router
+        from .loop_webhooks import create_loop_webhook_router
+
+        app.include_router(create_health_router(registry))
+        app.include_router(create_loop_webhook_router(registry, secrets=webhook_secrets))
+
+        if metrics_collector is not None:
+            from .metrics import create_metrics_router
+
+            app.include_router(create_metrics_router(metrics_collector))
+
     return app
 
 
@@ -142,7 +166,20 @@ def serve(
     host: str = "127.0.0.1",
     port: int = 8000,
     store: Optional[Store] = None,
+    registry: Optional["LoopRegistry"] = None,
+    metrics_collector: Optional["MetricsCollector"] = None,
+    webhook_secrets: Optional[dict] = None,
 ) -> None:
     import uvicorn
 
-    uvicorn.run(create_app(spec, store=store), host=host, port=port)
+    uvicorn.run(
+        create_app(
+            spec,
+            store=store,
+            registry=registry,
+            metrics_collector=metrics_collector,
+            webhook_secrets=webhook_secrets,
+        ),
+        host=host,
+        port=port,
+    )
