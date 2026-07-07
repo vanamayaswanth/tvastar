@@ -1,3 +1,8 @@
+Follow `.kiro/steering/agents.md` for all routing, skills, and lifecycle rules.
+Follow `.kiro/steering/ponytail.md` for all code.
+Follow `.kiro/steering/skills-index.md` for installed skills reference.
+Follow `.kiro/steering/graphify.md` for codebase knowledge graph queries.
+
 # Tvastar — AI Codebase Map
 
 **Central equation:** `Agent = AgentSpec + Harness`
