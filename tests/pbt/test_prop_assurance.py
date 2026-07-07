@@ -86,13 +86,15 @@ st_signing_key = st.text(
 st_agent_name = st.from_regex(r"[a-z][a-z0-9_-]{0,19}", fullmatch=True)
 
 # Model names
-st_model_name = st.sampled_from([
-    "claude-sonnet-4-6",
-    "gpt-4o",
-    "mock-model",
-    "llama-3-70b",
-    "gemini-pro",
-])
+st_model_name = st.sampled_from(
+    [
+        "claude-sonnet-4-6",
+        "gpt-4o",
+        "mock-model",
+        "llama-3-70b",
+        "gemini-pro",
+    ]
+)
 
 # Prompt text
 st_prompt = st.text(

@@ -1,12 +1,10 @@
 """Unit tests for LoopSupervisor — overlap detection and skip handling."""
 
 import asyncio
-from dataclasses import dataclass, field
-from unittest.mock import MagicMock
+from dataclasses import dataclass
 
-import pytest
 
-from tvastar.loop import LoopEvent, LoopState
+from tvastar.loop import LoopState
 from tvastar.loop.supervisor import LoopSupervisor
 
 

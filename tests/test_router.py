@@ -108,6 +108,7 @@ class TestAgentRouterCustomScoring:
 
     def test_custom_scoring_fn_picks_highest_scorer(self):
         profiles = _profiles()
+
         # Always return highest score for "devops"
         def scorer(text, profile):
             return 1.0 if profile.name == "devops" else 0.0
@@ -117,6 +118,7 @@ class TestAgentRouterCustomScoring:
 
     def test_custom_scoring_fn_respects_threshold(self):
         profiles = _profiles()
+
         # All scores below threshold
         def scorer(text, profile):
             return 0.1
@@ -153,6 +155,7 @@ class TestAgentRouterCustomScoring:
 
     def test_custom_scoring_fn_picks_among_multiple(self):
         profiles = _profiles()
+
         # Score based on length of profile name
         def scorer(text, profile):
             return len(profile.name) / 10.0

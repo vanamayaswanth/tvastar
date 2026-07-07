@@ -95,9 +95,7 @@ async def test_post_message_success():
         )
 
     assert "1234567890.123456" in result
-    mock_client.chat_postMessage.assert_called_once_with(
-        channel="#general", text="hello"
-    )
+    mock_client.chat_postMessage.assert_called_once_with(channel="#general", text="hello")
 
 
 @pytest.mark.asyncio
@@ -164,9 +162,7 @@ async def test_read_messages_default_limit():
         )
 
     assert "hi" in result
-    mock_client.conversations_history.assert_called_once_with(
-        channel="C01234", limit=20
-    )
+    mock_client.conversations_history.assert_called_once_with(channel="C01234", limit=20)
 
 
 @pytest.mark.asyncio
@@ -182,9 +178,7 @@ async def test_read_messages_limit_clamped_to_max():
             ctx=ToolContext(memory={"slack_token": "xoxb-test"}),
         )
 
-    mock_client.conversations_history.assert_called_once_with(
-        channel="C01234", limit=200
-    )
+    mock_client.conversations_history.assert_called_once_with(channel="C01234", limit=200)
 
 
 @pytest.mark.asyncio
@@ -200,9 +194,7 @@ async def test_read_messages_limit_clamped_to_min():
             ctx=ToolContext(memory={"slack_token": "xoxb-test"}),
         )
 
-    mock_client.conversations_history.assert_called_once_with(
-        channel="C01234", limit=1
-    )
+    mock_client.conversations_history.assert_called_once_with(channel="C01234", limit=1)
 
 
 @pytest.mark.asyncio

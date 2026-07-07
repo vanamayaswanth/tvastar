@@ -76,9 +76,7 @@ class VirtualSandbox(Sandbox):
         # Serialize Python executions to prevent concurrent sync-back
         # from overwriting files modified by parallel tool calls (Bug #4).
         # The lock is only needed when the command might invoke _run_python.
-        needs_lock = any(
-            tok in cmd for tok in ("python", "python3", "py ", "pytest")
-        )
+        needs_lock = any(tok in cmd for tok in ("python", "python3", "py ", "pytest"))
         if needs_lock:
             async with self._python_lock:
                 result = await asyncio.to_thread(self._exec_sync, cmd, timeout)

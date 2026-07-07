@@ -94,7 +94,9 @@ class TestTriggerSuccess:
         registry = _make_registry({"my-loop": loop})
         client = _app(registry)
 
-        r = client.post("/webhooks/my-loop", content=b"", headers={"content-type": "application/json"})
+        r = client.post(
+            "/webhooks/my-loop", content=b"", headers={"content-type": "application/json"}
+        )
         # Empty body should parse to empty dict
         assert r.status_code == 202
         loop.trigger.assert_called_once_with(context={"webhook": {}})

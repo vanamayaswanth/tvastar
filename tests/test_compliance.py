@@ -26,9 +26,7 @@ class FakeDetector:
         return []
 
 
-def _make_loop(
-    assurance=None, detectors=None, approval_gate=None, handoff=None
-):
+def _make_loop(assurance=None, detectors=None, approval_gate=None, handoff=None):
     spec = AgentSpec(
         name="test-agent",
         model=FakeModel(),

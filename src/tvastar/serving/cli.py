@@ -124,7 +124,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "loop":
-        from ..loop.cli import cmd_audit, cmd_init, cmd_run, cmd_status, cmd_trigger, cmd_history, cmd_reset
+        from ..loop.cli import (
+            cmd_audit,
+            cmd_init,
+            cmd_run,
+            cmd_status,
+            cmd_trigger,
+            cmd_history,
+            cmd_reset,
+        )
 
         if args.loop_cmd == "init":
             return cmd_init(args.pattern, args.name, args.out)

@@ -4,8 +4,16 @@ import pytest
 from unittest.mock import MagicMock
 
 from tvastar.fleet import (
-    Fleet, FleetConfig, FleetBudgetConfig, AlertConfig,
-    FleetRegistry, FleetGateway, SharedStateStore, EventBus, FleetBudget, FleetObserver,
+    Fleet,
+    FleetConfig,
+    FleetBudgetConfig,
+    AlertConfig,
+    FleetRegistry,
+    FleetGateway,
+    SharedStateStore,
+    EventBus,
+    FleetBudget,
+    FleetObserver,
 )
 
 

@@ -117,7 +117,9 @@ async def test_escalate_propagates_smtp_error(handoff):
     with patch("smtplib.SMTP") as mock_smtp:
         instance = MagicMock()
         mock_smtp.return_value = instance
-        instance.sendmail.side_effect = smtplib.SMTPRecipientsRefused({"ops@example.com": (550, b"rejected")})
+        instance.sendmail.side_effect = smtplib.SMTPRecipientsRefused(
+            {"ops@example.com": (550, b"rejected")}
+        )
 
         with pytest.raises(smtplib.SMTPRecipientsRefused):
             await handoff.escalate(run, [])

@@ -109,11 +109,13 @@ async def test_multiple_tools_emit_multiple_spans():
 
     agent = create_agent(
         "obs-test",
-        model=MockModel([
-            ToolUseBlock(name="greet", input={"name": "A"}),
-            ToolUseBlock(name="add", input={"a": 1, "b": 2}),
-            "final answer",
-        ]),
+        model=MockModel(
+            [
+                ToolUseBlock(name="greet", input={"name": "A"}),
+                ToolUseBlock(name="add", input={"a": 1, "b": 2}),
+                "final answer",
+            ]
+        ),
         tools=[greet, add],
     )
     await Harness(agent, tracer=Tracer([cap])).run("do stuff")
@@ -365,7 +367,7 @@ def test_tracer_span_context_manager_sets_timing():
     cap = CaptureExporter()
     tracer = Tracer([cap])
 
-    with tracer.span("test.op", key="value") as sp:
+    with tracer.span("test.op", key="value"):
         pass
 
     assert len(cap.spans) == 1
@@ -396,8 +398,8 @@ def test_tracer_span_nesting_sets_parent_id():
     cap = CaptureExporter()
     tracer = Tracer([cap])
 
-    with tracer.span("parent") as parent:
-        with tracer.span("child") as child:
+    with tracer.span("parent"):
+        with tracer.span("child"):
             pass
 
     parent_span = next(s for s in cap.spans if s.name == "parent")

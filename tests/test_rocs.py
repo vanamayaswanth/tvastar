@@ -1,7 +1,7 @@
 """Tests for tvastar.rocs — ROCSTracker."""
 
 from tvastar.memory.store import InMemoryStore
-from tvastar.rocs import ROCSScore, ROCSTracker
+from tvastar.rocs import ROCSTracker
 
 
 def test_record_basic():

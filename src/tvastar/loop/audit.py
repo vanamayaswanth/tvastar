@@ -55,15 +55,17 @@ class ReadinessLevel:
 
     def to_json(self) -> str:
         """Return valid JSON string with all ReadinessLevel fields."""
-        return json.dumps({
-            "level": self.level,
-            "name": self.name,
-            "description": self.description,
-            "passes": self.passes,
-            "gaps": self.gaps,
-            "warnings": self.warnings,
-            "is_production_ready": self.is_production_ready,
-        })
+        return json.dumps(
+            {
+                "level": self.level,
+                "name": self.name,
+                "description": self.description,
+                "passes": self.passes,
+                "gaps": self.gaps,
+                "warnings": self.warnings,
+                "is_production_ready": self.is_production_ready,
+            }
+        )
 
     def to_shields_endpoint(self) -> dict:
         """Return shields.io endpoint badge schema dict.

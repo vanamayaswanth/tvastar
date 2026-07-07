@@ -188,6 +188,7 @@ class FleetGateway:
 
         # Audit trail — capped to prevent unbounded memory growth
         from collections import deque
+
         self._audit_trail: deque[AuditEntry] = deque(maxlen=10_000)
 
         # Last dispatch run (set by _dispatch_task when Loop.trigger() succeeds)
@@ -304,9 +305,7 @@ class FleetGateway:
                     agent_name=agent,
                     details={"reason": "agent_not_found"},
                 )
-                raise RoutingError(
-                    f"Explicit agent {agent!r} is not registered in the fleet"
-                )
+                raise RoutingError(f"Explicit agent {agent!r} is not registered in the fleet")
             if entry.state != AgentState.ACTIVE:
                 self._record_audit(
                     event_type="route_failed",
@@ -387,17 +386,13 @@ class FleetGateway:
                 task_description=task,
                 details={"reason": "no_active_agents"},
             )
-            raise RoutingError(
-                "No suitable agent found: no active agents in the fleet"
-            )
+            raise RoutingError("No suitable agent found: no active agents in the fleet")
 
         # Score each active agent using difflib word-overlap (same as AgentRouter)
         scored = self._score_agents(task, active_agents)
 
         # Filter by threshold
-        candidates = [
-            (name, score) for name, score in scored if score >= self._routing_threshold
-        ]
+        candidates = [(name, score) for name, score in scored if score >= self._routing_threshold]
 
         if not candidates:
             best_name, best_score = scored[0] if scored else (None, 0.0)
@@ -487,9 +482,7 @@ class FleetGateway:
     # Scoring (same algorithm as tvastar.router.AgentRouter)
     # ------------------------------------------------------------------
 
-    def _score_agents(
-        self, task: str, agents: list[Any]
-    ) -> list[tuple[str, float]]:
+    def _score_agents(self, task: str, agents: list[Any]) -> list[tuple[str, float]]:
         """Score agents against a task description using difflib word-overlap.
 
         Returns a list of (agent_name, score) tuples sorted by score descending.

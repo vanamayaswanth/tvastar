@@ -52,10 +52,7 @@ async def test_tool_execution_message_growth(n: int):
     **Validates: Requirements 1.2**
     """
     # Build a scripted sequence: N ToolUseBlocks followed by a text response
-    script: list = [
-        ToolUseBlock(name="dummy_tool", input={"value": f"step_{i}"})
-        for i in range(n)
-    ]
+    script: list = [ToolUseBlock(name="dummy_tool", input={"value": f"step_{i}"}) for i in range(n)]
     script.append("Final response after tool calls.")
 
     agent = create_agent(
@@ -75,22 +72,19 @@ async def test_tool_execution_message_growth(n: int):
     # Verify message count: 2*N + 2
     expected_count = 2 * n + 2
     assert len(sess.messages) == expected_count, (
-        f"Expected {expected_count} messages for N={n} tool steps, "
-        f"got {len(sess.messages)}"
+        f"Expected {expected_count} messages for N={n} tool steps, got {len(sess.messages)}"
     )
 
     # Verify alternating role pattern: user, assistant, user, assistant, ...
     expected_roles = ["user"]  # initial user prompt
     for _ in range(n):
         expected_roles.append("assistant")  # assistant with tool_use
-        expected_roles.append("user")       # user with tool_result
-    expected_roles.append("assistant")      # final assistant text
+        expected_roles.append("user")  # user with tool_result
+    expected_roles.append("assistant")  # final assistant text
 
     actual_roles = [m.role for m in sess.messages]
     assert actual_roles == expected_roles, (
-        f"Role pattern mismatch for N={n}.\n"
-        f"Expected: {expected_roles}\n"
-        f"Actual:   {actual_roles}"
+        f"Role pattern mismatch for N={n}.\nExpected: {expected_roles}\nActual:   {actual_roles}"
     )
 
     # Verify the run completed normally

@@ -74,8 +74,11 @@ class MetricsCollector:
         """Produce Prometheus text exposition format output."""
         # Collect all known loop names across all counters and histograms
         loops = sorted(
-            set(self._runs) | set(self._passes) | set(self._fails)
-            | set(self._handoffs) | set(self._histogram_count)
+            set(self._runs)
+            | set(self._passes)
+            | set(self._fails)
+            | set(self._handoffs)
+            | set(self._histogram_count)
         )
         if not loops:
             return ""

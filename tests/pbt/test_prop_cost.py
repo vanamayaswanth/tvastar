@@ -136,9 +136,7 @@ def test_budget_raise_on_exceed(max_usd: float, model: str):
     cost = _make_cost_exceeding(max_usd, model)
 
     # Precondition: cost must actually exceed
-    assert cost.usd >= max_usd, (
-        f"Test setup error: cost.usd={cost.usd:.6f} < max_usd={max_usd:.6f}"
-    )
+    assert cost.usd >= max_usd, f"Test setup error: cost.usd={cost.usd:.6f} < max_usd={max_usd:.6f}"
 
     with pytest.raises(BudgetExceeded) as exc_info:
         policy.check(cost)
@@ -177,9 +175,7 @@ def test_budget_stop_no_exception(max_usd: float, model: str):
 
 @settings(max_examples=100, deadline=None)
 @given(max_usd=st_max_usd, model=st_model_names, on_exceed=st_on_exceed)
-def test_budget_below_limit_no_exception(
-    max_usd: float, model: str, on_exceed: str
-):
+def test_budget_below_limit_no_exception(max_usd: float, model: str, on_exceed: str):
     """For any BudgetPolicy with any on_exceed mode, when cost.usd < max_usd,
     check() SHALL NOT raise.
 
@@ -189,9 +185,7 @@ def test_budget_below_limit_no_exception(
     cost = _make_cost_below(max_usd, model)
 
     # Precondition: cost must be below limit
-    assert cost.usd < max_usd, (
-        f"Test setup error: cost.usd={cost.usd:.6f} >= max_usd={max_usd:.6f}"
-    )
+    assert cost.usd < max_usd, f"Test setup error: cost.usd={cost.usd:.6f} >= max_usd={max_usd:.6f}"
 
     # Should never raise for costs below limit
     policy.check(cost)  # no exception expected

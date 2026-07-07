@@ -10,7 +10,6 @@ Tests verify:
 Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.7
 """
 
-
 import pytest
 
 from tvastar import Harness, create_agent, default_toolset
@@ -133,7 +132,7 @@ async def test_keep_last_content_unchanged_after_compaction():
     ]
     sess.messages = list(messages)
     # keep_last=2 means last 2 messages preserved
-    expected_tail = messages[-2:]
+    messages[-2:]
 
     await compact_session(sess, force=True)
 
@@ -162,7 +161,9 @@ async def test_earlier_messages_replaced_with_compact_notice():
     await compact_session(sess, force=True)
 
     # First message should be the compact notice
-    assert "compacted" in sess.messages[0].text.lower() or "compact" in sess.messages[0].text.lower()
+    assert (
+        "compacted" in sess.messages[0].text.lower() or "compact" in sess.messages[0].text.lower()
+    )
     assert sess.messages[0].role == "user"
     # Second message should be the summary from the model
     assert sess.messages[1].text == "This is the summary."

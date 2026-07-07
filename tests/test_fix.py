@@ -12,13 +12,13 @@ import pytest
 
 from tvastar.fix import fix_tests
 from tvastar.model import MockModel
+from tvastar.types import ToolUseBlock
 
 # Use sys.executable to ensure pytest is invocable on all platforms
 _PYTEST_CMD = f"{sys.executable} -m pytest -q"
 
 # Skip all tests if pytest can't be invoked via subprocess
 _can_run_pytest = shutil.which("pytest") is not None or sys.executable is not None
-from tvastar.types import ToolUseBlock
 
 BUGGY = "def add(a, b):\n    return a - b\n"
 FIXED = "def add(a, b):\n    return a + b\n"

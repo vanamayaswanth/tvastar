@@ -1,4 +1,5 @@
 """Planning data types — requirements, design, tasks."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,6 +9,7 @@ from typing import Any
 @dataclass
 class Requirement:
     """A single requirement in EARS format."""
+
     id: str
     title: str
     user_story: str  # "As a X, I want Y, so that Z"
@@ -18,6 +20,7 @@ class Requirement:
 @dataclass
 class DesignComponent:
     """A component in the technical design."""
+
     name: str
     description: str
     interfaces: list[str] = field(default_factory=list)
@@ -27,6 +30,7 @@ class DesignComponent:
 @dataclass
 class DesignDoc:
     """Technical design output."""
+
     overview: str
     components: list[DesignComponent]
     data_models: list[str] = field(default_factory=list)
@@ -36,6 +40,7 @@ class DesignDoc:
 @dataclass
 class Task:
     """A single implementation task."""
+
     id: str
     title: str
     description: str
@@ -47,6 +52,7 @@ class Task:
 @dataclass
 class Plan:
     """Complete plan output from full spec-driven planning."""
+
     goal: str
     requirements: list[Requirement]
     design: DesignDoc
@@ -83,6 +89,7 @@ class Plan:
 @dataclass
 class Decomposition:
     """Simple decomposition output — just an ordered task list."""
+
     goal: str
     steps: list[str]  # ordered plain-text steps
     context: dict[str, Any] = field(default_factory=dict)

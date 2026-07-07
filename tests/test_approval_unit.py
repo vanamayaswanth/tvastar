@@ -241,7 +241,9 @@ class TestTimeoutRaisesApprovalTimeout:
             await asyncio.sleep(10)  # will exceed timeout
             return "y"
 
-        with patch.object(asyncio.get_running_loop(), "run_in_executor", side_effect=lambda *a: _blocked()):
+        with patch.object(
+            asyncio.get_running_loop(), "run_in_executor", side_effect=lambda *a: _blocked()
+        ):
             with pytest.raises(ApprovalTimeout):
                 await gate._cli_request(ApprovalRequest(message="Deploy?", timeout=0.05))
 
@@ -280,7 +282,6 @@ class TestApprovalRecordedInReceipt:
 
     async def test_approval_recorded_in_session_receipt(self):
         """When ApprovalGate approves in agent loop, approval is recorded in session."""
-        approval_records = []
 
         def on_request(req):
             req.approve(approver="admin@ops.io")
@@ -369,9 +370,7 @@ class TestMultipleBackends:
             nonlocal gate_result
             # Patch the loop.run_in_executor to return "y"
             with patch("builtins.input", return_value="y"):
-                gate_result = await gate._cli_request(
-                    ApprovalRequest(message="Deploy?", timeout=5)
-                )
+                gate_result = await gate._cli_request(ApprovalRequest(message="Deploy?", timeout=5))
 
         await run_cli()
         assert gate_result is True

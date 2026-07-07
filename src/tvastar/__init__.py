@@ -56,7 +56,14 @@ from .boundary import (
 )
 from .compaction import CompactionPolicy, compact_messages, compact_session, should_compact
 from .compressor import ToolOutputCompressor
-from .cost import COST_TABLE, BudgetExceeded, BudgetPolicy, Cost, cost_for_model, register_model_cost
+from .cost import (
+    COST_TABLE,
+    BudgetExceeded,
+    BudgetPolicy,
+    Cost,
+    cost_for_model,
+    register_model_cost,
+)
 from .detect import (
     Finding,
     RunContext,
@@ -234,6 +241,7 @@ def __getattr__(name: str):
             globals()[sym] = getattr(fleet_mod, sym)
         return globals()[name]
     raise AttributeError(f"module 'tvastar' has no attribute {name!r}")
+
 
 __version__ = "0.22.0"
 

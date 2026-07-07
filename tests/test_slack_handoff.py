@@ -134,7 +134,7 @@ class TestSlackHandoffEscalate:
             # Find the error line
             for line in msg.split("\n"):
                 if line.startswith("Error:"):
-                    error_content = line[len("Error: "):]
+                    error_content = line[len("Error: ") :]
                     assert len(error_content) <= 500
                     break
 

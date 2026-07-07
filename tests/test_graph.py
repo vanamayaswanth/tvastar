@@ -416,8 +416,24 @@ def test_graph_result_ok_true_when_all_succeed():
     from tvastar.types import Usage
 
     results = {
-        "x": RunResult(text="ok", messages=[], usage=Usage(), steps=1, stopped="end_turn", findings=[], data=None),
-        "y": RunResult(text="ok", messages=[], usage=Usage(), steps=1, stopped="end_turn", findings=[], data=None),
+        "x": RunResult(
+            text="ok",
+            messages=[],
+            usage=Usage(),
+            steps=1,
+            stopped="end_turn",
+            findings=[],
+            data=None,
+        ),
+        "y": RunResult(
+            text="ok",
+            messages=[],
+            usage=Usage(),
+            steps=1,
+            stopped="end_turn",
+            findings=[],
+            data=None,
+        ),
     }
     gr = GraphResult(results)
     assert gr.ok is True
@@ -440,7 +456,9 @@ def test_graph_result_ok_false_when_findings_present():
             data=None,
         ),
     }
-    gr = GraphResult(results, findings={"x": [Finding("test_detector", Severity.WARNING, "something wrong", {})]})
+    gr = GraphResult(
+        results, findings={"x": [Finding("test_detector", Severity.WARNING, "something wrong", {})]}
+    )
     assert gr.ok is False
 
 
@@ -450,8 +468,24 @@ def test_graph_result_iteration():
     from tvastar.types import Usage
 
     results = {
-        "first": RunResult(text="a", messages=[], usage=Usage(), steps=1, stopped="end_turn", findings=[], data=None),
-        "second": RunResult(text="b", messages=[], usage=Usage(), steps=1, stopped="end_turn", findings=[], data=None),
+        "first": RunResult(
+            text="a",
+            messages=[],
+            usage=Usage(),
+            steps=1,
+            stopped="end_turn",
+            findings=[],
+            data=None,
+        ),
+        "second": RunResult(
+            text="b",
+            messages=[],
+            usage=Usage(),
+            steps=1,
+            stopped="end_turn",
+            findings=[],
+            data=None,
+        ),
     }
     gr = GraphResult(results)
     assert set(gr) == {"first", "second"}
@@ -466,8 +500,24 @@ def test_graph_result_all_findings_aggregates():
     f1 = Finding("det_a", Severity.ERROR, "err", {})
     f2 = Finding("det_b", Severity.WARNING, "warn", {})
     results = {
-        "x": RunResult(text="x", messages=[], usage=Usage(), steps=1, stopped="end_turn", findings=[f1], data=None),
-        "y": RunResult(text="y", messages=[], usage=Usage(), steps=1, stopped="end_turn", findings=[f2], data=None),
+        "x": RunResult(
+            text="x",
+            messages=[],
+            usage=Usage(),
+            steps=1,
+            stopped="end_turn",
+            findings=[f1],
+            data=None,
+        ),
+        "y": RunResult(
+            text="y",
+            messages=[],
+            usage=Usage(),
+            steps=1,
+            stopped="end_turn",
+            findings=[f2],
+            data=None,
+        ),
     }
     gr = GraphResult(results, findings={"x": [f1], "y": [f2]})
     assert len(gr.all_findings) == 2

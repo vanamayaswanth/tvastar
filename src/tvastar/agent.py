@@ -251,9 +251,7 @@ def create_agent(
         compressor = ToolOutputCompressor()
         user_hook = post_tool_hook
 
-        def _compressed_post_tool_hook(
-            tool_name: str, args: dict, result: str
-        ) -> Optional[str]:
+        def _compressed_post_tool_hook(tool_name: str, args: dict, result: str) -> Optional[str]:
             current_result = result
             # Run compressor first (fault-tolerant)
             try:

@@ -17,7 +17,6 @@ from tvastar.compaction import (
     CompactionEngine,
     CompactionStage,
     ProgressiveCompactionPolicy,
-    STAGE_THRESHOLDS,
 )
 from tvastar.types import Message, TextBlock, ToolResultBlock, ToolUseBlock
 
@@ -123,7 +122,7 @@ async def test_execute_marks_stages_as_executed():
     )
     engine = CompactionEngine(policy)
     msgs = [_msg("user", "hello")]
-    result = await engine.execute(msgs, model=None)
+    await engine.execute(msgs, model=None)
     # Both stages should be marked executed
     assert CompactionStage.BUDGET_REDUCTION in policy.stages_executed
     assert CompactionStage.SNIP in policy.stages_executed
@@ -214,10 +213,7 @@ def test_deduplicate_retains_most_recent_tool_output():
     result = engine._deduplicate_tool_outputs(msgs)
     # The first tool result (call_1) should be removed, call_2 kept
     tool_results = [
-        block
-        for msg in result
-        for block in msg.blocks
-        if isinstance(block, ToolResultBlock)
+        block for msg in result for block in msg.blocks if isinstance(block, ToolResultBlock)
     ]
     assert len(tool_results) == 1
     assert tool_results[0].content == "second content"
@@ -235,9 +231,6 @@ def test_deduplicate_different_tools_preserved():
     ]
     result = engine._deduplicate_tool_outputs(msgs)
     tool_results = [
-        block
-        for msg in result
-        for block in msg.blocks
-        if isinstance(block, ToolResultBlock)
+        block for msg in result for block in msg.blocks if isinstance(block, ToolResultBlock)
     ]
     assert len(tool_results) == 2

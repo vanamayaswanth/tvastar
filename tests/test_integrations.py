@@ -1,4 +1,5 @@
 """Smoke tests for the three feature-synthesis integrations."""
+
 from __future__ import annotations
 
 import importlib.util

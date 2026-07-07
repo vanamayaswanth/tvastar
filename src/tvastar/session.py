@@ -352,6 +352,7 @@ class Session:
         if reflect and _run_result.text:
             try:
                 from .reflection import reflect as _reflect
+
                 _reflection = await _reflect(
                     _run_result.text,
                     model=self.spec.model,
@@ -428,7 +429,9 @@ class Session:
             agent = router.route(prompt)
 
         # ── depth guard ─────────────────────────────────────────────────────
-        _depth_limit = self.spec.max_task_depth if hasattr(self.spec, "max_task_depth") else MAX_TASK_DEPTH
+        _depth_limit = (
+            self.spec.max_task_depth if hasattr(self.spec, "max_task_depth") else MAX_TASK_DEPTH
+        )
         if self._task_depth >= _depth_limit:
             raise RuntimeError(
                 f"Task depth limit ({_depth_limit}) reached. "
@@ -843,11 +846,7 @@ class Session:
         gov = getattr(self.spec, "governance", None)
 
         # Concurrency limiting: use a semaphore when tool_concurrency is set
-        sem = (
-            asyncio.Semaphore(self.spec.tool_concurrency)
-            if self.spec.tool_concurrency
-            else None
-        )
+        sem = asyncio.Semaphore(self.spec.tool_concurrency) if self.spec.tool_concurrency else None
 
         async def run_one(use: ToolUseBlock) -> ToolResultBlock:
             # Governance: invocation-layer enforcement (runs after masking/discovery).
@@ -890,6 +889,7 @@ class Session:
                         args = modified
                 except Exception:
                     import warnings
+
                     warnings.warn("pre_tool_hook raised; using original args")
 
             with self.tracer.span("tool.invoke", tool=use.name) as sp:
@@ -910,6 +910,7 @@ class Session:
                                 )
                         except Exception:
                             import warnings
+
                             warnings.warn("post_tool_hook raised; using original result")
 
                     return result

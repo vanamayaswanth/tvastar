@@ -28,18 +28,20 @@ class ComplianceReport:
 
     def to_json(self) -> str:
         """Machine-readable JSON with article mappings, status, timestamp."""
-        return json.dumps({
-            "status": self.status,
-            "timestamp": self.timestamp,
-            "articles": {
-                a.article: {
-                    "feature": a.feature,
-                    "passed": a.passed,
-                    "remediation": a.remediation,
-                }
-                for a in self.articles
-            },
-        })
+        return json.dumps(
+            {
+                "status": self.status,
+                "timestamp": self.timestamp,
+                "articles": {
+                    a.article: {
+                        "feature": a.feature,
+                        "passed": a.passed,
+                        "remediation": a.remediation,
+                    }
+                    for a in self.articles
+                },
+            }
+        )
 
 
 class ComplianceVerifier:
@@ -82,7 +84,9 @@ class ComplianceVerifier:
             article="Article 12",
             feature="TrustLog",
             passed=has_trust_log,
-            remediation="" if has_trust_log else (
+            remediation=""
+            if has_trust_log
+            else (
                 "Set AgentSpec.assurance to an AssurancePolicy with a TrustLog instance "
                 "in the 'log' field to satisfy Article 12 record-keeping requirements."
             ),
@@ -98,7 +102,9 @@ class ComplianceVerifier:
             article="Article 14",
             feature="HumanOversight",
             passed=passed,
-            remediation="" if passed else (
+            remediation=""
+            if passed
+            else (
                 "Set AgentSpec.approval_gate to an ApprovalGate instance or "
                 "set LoopConfig.handoff to a HandoffPolicy to satisfy Article 14 "
                 "human oversight requirements."
@@ -115,7 +121,9 @@ class ComplianceVerifier:
             article="Article 13",
             feature="SigningKey",
             passed=passed,
-            remediation="" if passed else (
+            remediation=""
+            if passed
+            else (
                 "Set AssurancePolicy.key to a non-empty HMAC-SHA256 or PQC/ML-DSA-65 "
                 "signing key (or set TVASTAR_RECEIPT_KEY env var) to satisfy Article 13 "
                 "transparency requirements."
@@ -131,7 +139,9 @@ class ComplianceVerifier:
             article="Article 9",
             feature="Detectors",
             passed=passed,
-            remediation="" if passed else (
+            remediation=""
+            if passed
+            else (
                 "Add at least one silent-failure detector to AgentSpec.detectors "
                 "to satisfy Article 9 risk management requirements."
             ),

@@ -40,7 +40,9 @@ class GitHubIssueHandoff(HandoffPolicy):
             f"**Run ID:** {run.run_id}",
             f"**Iteration:** {run.iteration}",
             f"**Error:** {run.error}",
-            f"**Duration:** {run.duration}s" if run.duration is not None else "**Duration:** unknown",
+            f"**Duration:** {run.duration}s"
+            if run.duration is not None
+            else "**Duration:** unknown",
             "",
             "## Last 3 Runs",
             "",

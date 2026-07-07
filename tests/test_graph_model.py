@@ -84,7 +84,9 @@ class TestProperty7PerNodeModelRouting:
     async def test_each_node_uses_its_assigned_model(self, node_count: int):
         """Each node's session calls generate() on its assigned model, not the harness default."""
         # Create distinct tracking models for each node
-        models = [TrackingModel(label=f"model_{i}", response=f"result_{i}") for i in range(node_count)]
+        models = [
+            TrackingModel(label=f"model_{i}", response=f"result_{i}") for i in range(node_count)
+        ]
 
         # Create a harness with a default model (should NOT be called)
         default_model = TrackingModel(label="default", response="default_result")

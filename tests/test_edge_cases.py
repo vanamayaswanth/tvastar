@@ -139,9 +139,7 @@ class TestEdge002ToolReturnsEmptyString:
         assert r.text == "Tool returned nothing, that's fine."
         assert r.stopped == "end_turn"
         # Verify the tool result block has empty content and is not an error
-        tool_results = [
-            b for m in r.messages for b in m.blocks if isinstance(b, ToolResultBlock)
-        ]
+        tool_results = [b for m in r.messages for b in m.blocks if isinstance(b, ToolResultBlock)]
         assert len(tool_results) >= 1
         assert tool_results[0].content == ""
         assert tool_results[0].is_error is False
@@ -579,13 +577,13 @@ class TestEdge011McpCrashReturnsError:
         assert r.stopped == "end_turn"
         # An error ToolResultBlock should exist in the messages
         error_blocks = [
-            b
-            for m in r.messages
-            for b in m.blocks
-            if isinstance(b, ToolResultBlock) and b.is_error
+            b for m in r.messages for b in m.blocks if isinstance(b, ToolResultBlock) and b.is_error
         ]
         assert len(error_blocks) >= 1
-        assert "connection lost" in error_blocks[0].content.lower() or "error" in error_blocks[0].content.lower()
+        assert (
+            "connection lost" in error_blocks[0].content.lower()
+            or "error" in error_blocks[0].content.lower()
+        )
 
 
 # ── EDGE-012: auto_topology with unreachable nodes → GraphResult.ok=False

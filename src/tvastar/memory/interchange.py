@@ -6,7 +6,6 @@ Zero runtime dependencies beyond stdlib (json, dataclasses).
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 

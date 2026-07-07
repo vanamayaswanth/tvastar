@@ -3,6 +3,7 @@
 Zero external dependencies — uses stdlib sqlite3. Provides persistent,
 ACID-safe fleet state that survives process restarts.
 """
+
 from __future__ import annotations
 
 import json

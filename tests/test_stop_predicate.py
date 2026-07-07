@@ -176,7 +176,7 @@ class TestStopPredicateReceivesRunResult:
         )
         h = Harness(agent)
         async with h.session() as sess:
-            result = await sess.prompt("hi")
+            await sess.prompt("hi")
 
         assert len(received) == 1
         partial = received[0]

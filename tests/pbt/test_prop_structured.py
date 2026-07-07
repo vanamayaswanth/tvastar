@@ -57,7 +57,9 @@ st_simple_user = st.builds(
 
 st_address = st.builds(
     Address,
-    street=st.text(min_size=1, max_size=100, alphabet=st.characters(categories=("L", "N", "Z", "P"))),
+    street=st.text(
+        min_size=1, max_size=100, alphabet=st.characters(categories=("L", "N", "Z", "P"))
+    ),
     city=st.text(min_size=1, max_size=50, alphabet=st.characters(categories=("L", "Z"))),
     zip_code=st.from_regex(r"[0-9]{5}", fullmatch=True),
 )
@@ -77,7 +79,9 @@ st_schema_and_instance = st.one_of(
 )
 
 # Strategy for generating user prompts
-st_prompt = st.text(min_size=1, max_size=200, alphabet=st.characters(categories=("L", "N", "Z", "P")))
+st_prompt = st.text(
+    min_size=1, max_size=200, alphabet=st.characters(categories=("L", "N", "Z", "P"))
+)
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +167,5 @@ async def test_run_result_data_populated_from_valid_json(
     assert run_result.data.model_dump() == instance.model_dump()
 
     # No fallback findings should be present
-    fallback_findings = [
-        f for f in run_result.findings if f.detector == "structured_parse_failure"
-    ]
+    fallback_findings = [f for f in run_result.findings if f.detector == "structured_parse_failure"]
     assert len(fallback_findings) == 0

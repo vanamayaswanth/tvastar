@@ -2,6 +2,7 @@
 
 Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6
 """
+
 from __future__ import annotations
 
 import inspect
@@ -453,9 +454,7 @@ async def test_litellm_router_error_raises_model_error():
     from tvastar.errors import ModelError
 
     mock_router_instance = MagicMock()
-    mock_router_instance.acompletion = AsyncMock(
-        side_effect=Exception("All deployments failed")
-    )
+    mock_router_instance.acompletion = AsyncMock(side_effect=Exception("All deployments failed"))
     mock_litellm = MagicMock()
     mock_litellm.Router = MagicMock(return_value=mock_router_instance)
 

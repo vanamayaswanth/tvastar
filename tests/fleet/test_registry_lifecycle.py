@@ -231,8 +231,7 @@ class TestTracerEmission:
 
         # Find the lifecycle span call
         deploy_calls = [
-            c for c in tracer.start_span.call_args_list
-            if "fleet.lifecycle.deploy" in str(c)
+            c for c in tracer.start_span.call_args_list if "fleet.lifecycle.deploy" in str(c)
         ]
         assert len(deploy_calls) >= 1
         call_kwargs = deploy_calls[0]

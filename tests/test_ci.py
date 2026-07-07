@@ -1,4 +1,5 @@
 """Tests for the tvastar-ci autonomous CI module."""
+
 from __future__ import annotations
 
 import json
@@ -97,9 +98,7 @@ async def test_runner_run_green_with_mock(tmp_path):
 
 async def test_runner_run_unfixed_with_mock(tmp_path):
     """CIRunner.run returns 'unfixed' when agent can't fix the failure."""
-    (tmp_path / "test_fail.py").write_text(
-        "def test_fail():\n    assert False\n", encoding="utf-8"
-    )
+    (tmp_path / "test_fail.py").write_text("def test_fail():\n    assert False\n", encoding="utf-8")
 
     config = CIConfig(repo_path=str(tmp_path), test_command=_PYTEST_CMD, timeout=30.0)
 

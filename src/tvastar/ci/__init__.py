@@ -11,6 +11,7 @@ Usage:
     loop = runner.as_loop(model)
     await loop.start()
 """
+
 from __future__ import annotations
 
 from .config import CIConfig

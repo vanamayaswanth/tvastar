@@ -156,10 +156,9 @@ class LoopConfig:
         if self.trigger_on is not None:
             if not self.trigger_on.startswith("event:"):
                 raise ValueError(
-                    "LoopConfig.trigger_on must start with 'event:' "
-                    f"(got {self.trigger_on!r})"
+                    f"LoopConfig.trigger_on must start with 'event:' (got {self.trigger_on!r})"
                 )
-            topic = self.trigger_on[len("event:"):]
+            topic = self.trigger_on[len("event:") :]
             if not topic.strip():
                 raise ValueError("LoopConfig.trigger_on topic must not be empty")
         # Validate schedule at construction time, not at 2am
@@ -178,9 +177,7 @@ class LoopConfig:
     def __setattr__(self, name: str, value: object) -> None:
         # ponytail: prevent mutation of sealed fields after construction
         if getattr(self, "_sealed", False) and name in self._SEALED_FIELDS:
-            raise AttributeError(
-                f"LoopConfig.{name} is immutable after construction"
-            )
+            raise AttributeError(f"LoopConfig.{name} is immutable after construction")
         object.__setattr__(self, name, value)
 
 
@@ -305,7 +302,7 @@ class Loop:
         """
         if not self._config.trigger_on or not self._config.trigger_on.startswith("event:"):
             return
-        topic = self._config.trigger_on[len("event:"):]
+        topic = self._config.trigger_on[len("event:") :]
 
         def _on_event(event: Any) -> None:
             import asyncio
@@ -361,7 +358,7 @@ class Loop:
             self._history.append(run)
             # Enforce cap to prevent unbounded memory growth
             if len(self._history) > self._max_history:
-                self._history = self._history[-self._max_history:]
+                self._history = self._history[-self._max_history :]
             self._checkpoint(run)
             self._emit(run, LoopState.TRIGGERED)
 

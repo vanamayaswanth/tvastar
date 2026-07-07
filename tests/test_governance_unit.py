@@ -203,9 +203,7 @@ async def test_governance_approval_gate_approves_allows_tool():
     result = await Harness(agent).run("try it")
     assert result.text == "done"
     # The tool was actually executed (approval granted)
-    tool_results = [
-        b for m in result.messages for b in m.blocks if isinstance(b, ToolResultBlock)
-    ]
+    tool_results = [b for m in result.messages for b in m.blocks if isinstance(b, ToolResultBlock)]
     # Should have a successful result (not an error)
     successful = [b for b in tool_results if not b.is_error]
     assert len(successful) >= 1
@@ -405,9 +403,7 @@ async def test_error_tool_result_block_loop_continues():
     result = await Harness(agent).run("go")
     assert result.text == "finished"
     # Both tool results should be present
-    all_results = [
-        b for m in result.messages for b in m.blocks if isinstance(b, ToolResultBlock)
-    ]
+    all_results = [b for m in result.messages for b in m.blocks if isinstance(b, ToolResultBlock)]
     errors = [b for b in all_results if b.is_error]
     successes = [b for b in all_results if not b.is_error]
     assert len(errors) >= 1  # blocked_tool got an error

@@ -272,8 +272,7 @@ def test_governance_copy_phase_change_does_not_affect_original(
 
     # Verify copy's phase was changed
     assert copy_gov.current_phase == new_phase, (
-        f"Copy's current_phase should be {new_phase!r} but is "
-        f"{copy_gov.current_phase!r}"
+        f"Copy's current_phase should be {new_phase!r} but is {copy_gov.current_phase!r}"
     )
 
 
@@ -312,8 +311,7 @@ def test_governance_copy_phase_change_on_original_does_not_affect_copy(
 
     # Verify original's phase was changed
     assert gov.current_phase == new_phase, (
-        f"Original's current_phase should be {new_phase!r} but is "
-        f"{gov.current_phase!r}"
+        f"Original's current_phase should be {new_phase!r} but is {gov.current_phase!r}"
     )
 
 

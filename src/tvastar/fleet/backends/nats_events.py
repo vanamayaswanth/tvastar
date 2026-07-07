@@ -3,6 +3,7 @@
 Requires: pip install tvastar[nats]
 Uses nats-py async client. Provides persistent pub/sub via NATS JetStream.
 """
+
 from __future__ import annotations
 
 import json
@@ -61,9 +62,7 @@ class NATSEventBackend:
         payload = json.dumps(
             {
                 "topic": event.topic,
-                "payload": (
-                    event.payload if not callable(event.payload) else str(event.payload)
-                ),
+                "payload": (event.payload if not callable(event.payload) else str(event.payload)),
                 "source_agent": event.source_agent,
                 "timestamp": event.timestamp,
                 "correlation_id": event.correlation_id,
@@ -80,9 +79,7 @@ class NATSEventBackend:
 
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(
-                self._subscribe_async(fleet_name, topic, handler, sub_id)
-            )
+            loop.create_task(self._subscribe_async(fleet_name, topic, handler, sub_id))
         except RuntimeError:
             asyncio.run(self._subscribe_async(fleet_name, topic, handler, sub_id))
 

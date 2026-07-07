@@ -192,9 +192,7 @@ class TestBudgetStop:
         """Stopped run still has valid RunResult fields."""
         agent = create_agent(
             "partial_test",
-            model=_priced_mock(
-                [ToolUseBlock(name="list_files", input={}), "final answer"]
-            ),
+            model=_priced_mock([ToolUseBlock(name="list_files", input={}), "final answer"]),
             tools=default_toolset(),
             budget=BudgetPolicy(max_usd=0.0000001, on_exceed="stop"),
         )
@@ -222,9 +220,7 @@ class TestBudgetApprove:
 
         agent = create_agent(
             "approve_test",
-            model=_priced_mock(
-                [ToolUseBlock(name="list_files", input={}), "done"]
-            ),
+            model=_priced_mock([ToolUseBlock(name="list_files", input={}), "done"]),
             tools=default_toolset(),
             budget=BudgetPolicy(max_usd=0.0000001, on_exceed="approve"),
             approval_gate=gate,
@@ -241,9 +237,7 @@ class TestBudgetApprove:
 
         agent = create_agent(
             "deny_test",
-            model=_priced_mock(
-                [ToolUseBlock(name="list_files", input={}), "done"]
-            ),
+            model=_priced_mock([ToolUseBlock(name="list_files", input={}), "done"]),
             tools=default_toolset(),
             budget=BudgetPolicy(max_usd=0.0000001, on_exceed="approve"),
             approval_gate=gate,
@@ -313,9 +307,7 @@ class TestRunResultCost:
         """Multi-step runs accumulate token counts from all model calls."""
         agent = create_agent(
             "multi_step_test",
-            model=_priced_mock(
-                [ToolUseBlock(name="list_files", input={}), "final"]
-            ),
+            model=_priced_mock([ToolUseBlock(name="list_files", input={}), "final"]),
             tools=default_toolset(),
             budget=BudgetPolicy(max_usd=100.0),  # high limit so it doesn't stop
         )

@@ -188,9 +188,7 @@ class TestWebSocketStream:
                 if msg.get("type") == "done":
                     break
             # Should have at least one content event before done
-            content_events = [
-                m for m in messages if m["type"] in ("text_delta", "turn_end")
-            ]
+            content_events = [m for m in messages if m["type"] in ("text_delta", "turn_end")]
             assert len(content_events) > 0
 
 
@@ -228,7 +226,7 @@ class TestSSEStream:
         body = r.text
         data_lines = [line for line in body.splitlines() if line.startswith("data:")]
         for line in data_lines:
-            payload = line[len("data:"):].strip()
+            payload = line[len("data:") :].strip()
             if payload == "[DONE]":
                 continue
             event = json.loads(payload)
@@ -247,7 +245,7 @@ class TestSSEStream:
         # Find text content in the events
         found_text = False
         for line in data_lines:
-            payload = line[len("data:"):].strip()
+            payload = line[len("data:") :].strip()
             if payload == "[DONE]":
                 continue
             event = json.loads(payload)
@@ -304,8 +302,7 @@ class TestImportErrorPath:
                     fresh_create_app(spec)
                 error_msg = str(exc_info.value).lower()
                 assert any(
-                    kw in error_msg
-                    for kw in ["serve", "fastapi", "pip install", "uv pip install"]
+                    kw in error_msg for kw in ["serve", "fastapi", "pip install", "uv pip install"]
                 ), f"Error should mention install instructions: {exc_info.value}"
             except ImportError as e:
                 # Module-level import failure — also valid

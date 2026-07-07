@@ -62,9 +62,7 @@ class TestBudgetReduction:
         result = engine._budget_reduction(msgs)
 
         # Tool result (in old part) should be truncated
-        tool_blocks = [
-            b for m in result for b in m.blocks if isinstance(b, ToolResultBlock)
-        ]
+        tool_blocks = [b for m in result for b in m.blocks if isinstance(b, ToolResultBlock)]
         assert len(tool_blocks) == 1
         assert len(tool_blocks[0].content) <= max_chars + 5  # +5 for "…" char
 
@@ -78,9 +76,7 @@ class TestBudgetReduction:
             _tool_result_msg("call_1", long_content),  # within keep_last
         ]
         result = engine._budget_reduction(msgs)
-        tool_blocks = [
-            b for m in result for b in m.blocks if isinstance(b, ToolResultBlock)
-        ]
+        tool_blocks = [b for m in result for b in m.blocks if isinstance(b, ToolResultBlock)]
         assert tool_blocks[0].content == long_content
 
     def test_short_results_unchanged(self):
@@ -92,9 +88,7 @@ class TestBudgetReduction:
             _msg("user", "latest"),
         ]
         result = engine._budget_reduction(msgs)
-        tool_blocks = [
-            b for m in result for b in m.blocks if isinstance(b, ToolResultBlock)
-        ]
+        tool_blocks = [b for m in result for b in m.blocks if isinstance(b, ToolResultBlock)]
         assert tool_blocks[0].content == "short"
 
     def test_no_op_when_all_within_keep_last(self):
@@ -204,10 +198,7 @@ class TestMicrocompact:
         tool_msgs = [m for m in result if m.role == "tool"]
         assert len(tool_msgs) == 1
         # Tool use block preserved too
-        tool_use_msgs = [
-            m for m in result
-            if any(isinstance(b, ToolUseBlock) for b in m.blocks)
-        ]
+        tool_use_msgs = [m for m in result if any(isinstance(b, ToolUseBlock) for b in m.blocks)]
         assert len(tool_use_msgs) == 1
 
     @pytest.mark.asyncio
@@ -250,7 +241,7 @@ class TestMicrocompact:
         max_chars = int((150 / _WORD_TOKEN_FACTOR) * 5)
         for s in summaries:
             # Remove "[Summary] " prefix for length check
-            body = s.text[len("[Summary] "):]
+            body = s.text[len("[Summary] ") :]
             assert len(body) <= max_chars + 5  # +5 for "…"
 
 

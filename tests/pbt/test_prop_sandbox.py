@@ -18,6 +18,10 @@ from hypothesis import given, settings, assume
 
 import pytest
 
+import fnmatch
+
+from tvastar.sandbox.base import CredentialFilter
+
 from tvastar.errors import SecurityViolation
 from tvastar.sandbox import SecurityPolicy
 
@@ -57,9 +61,7 @@ def st_denied_substrings(draw: st.DrawFn) -> set[str]:
 @st.composite
 def st_command_set(draw: st.DrawFn) -> set[str]:
     """Generate a set of command tokens (1-5 items)."""
-    cmds = draw(
-        st.lists(st_command_token, min_size=1, max_size=5, unique=True)
-    )
+    cmds = draw(st.lists(st_command_token, min_size=1, max_size=5, unique=True))
     return set(cmds)
 
 
@@ -220,9 +222,7 @@ def test_no_violation_when_all_checks_pass(
     violation_type=st.sampled_from(["denied_substring", "allowlist", "denylist"]),
     extra_allowed=st_command_set(),
 )
-def test_any_violation_condition_raises(
-    command: str, violation_type: str, extra_allowed: set[str]
-):
+def test_any_violation_condition_raises(command: str, violation_type: str, extra_allowed: set[str]):
     """Property 9 (combined): ANY single violation condition triggers SecurityViolation.
 
     For any command and violation type, if the matching condition is met,
@@ -266,10 +266,6 @@ def test_any_violation_condition_raises(
 # ---------------------------------------------------------------------------
 # Property 10: CredentialFilter completeness
 # ---------------------------------------------------------------------------
-
-import fnmatch
-
-from tvastar.sandbox.base import CredentialFilter
 
 
 # Env var names: uppercase letters, digits, and underscores (realistic env var names)

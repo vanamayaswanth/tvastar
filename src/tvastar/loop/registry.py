@@ -84,8 +84,7 @@ class LoopRegistry:
             total_fails += sum(
                 1
                 for r in history
-                if r.state
-                in (LoopState.FAIL, LoopState.HANDOFF, LoopState.HANDOFF_FAILED)
+                if r.state in (LoopState.FAIL, LoopState.HANDOFF, LoopState.HANDOFF_FAILED)
             )
             total_cost += loop._cumulative_usd
         return RegistryMetrics(total_runs, total_passes, total_fails, total_cost)
@@ -196,9 +195,7 @@ class LoopRegistry:
             if current in visited:
                 cycle_start = path.index(current)
                 cycle = path[cycle_start:] + [current]
-                raise ValueError(
-                    f"Loop chain cycle detected: {' → '.join(cycle)}"
-                )
+                raise ValueError(f"Loop chain cycle detected: {' → '.join(cycle)}")
             visited.add(current)
             path.append(current)
             current = graph.get(current)

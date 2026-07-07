@@ -7,8 +7,6 @@ Validates Requirements 23.2, 23.3, 23.4:
 - detect=list → use the provided list directly
 """
 
-
-
 from tvastar import Harness, create_agent
 from tvastar.detect import default_detectors
 from tvastar.model.mock import MockModel

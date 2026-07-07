@@ -118,6 +118,7 @@ class TestGitHubIssueHandoffEscalate:
 
     def _get_handoff(self, repo="owner/repo", token="tok-123"):
         from tvastar.loop.channels.github import GitHubIssueHandoff
+
         return GitHubIssueHandoff(repo=repo, token=token)
 
     async def test_creates_issue_with_correct_title(self, run, history):

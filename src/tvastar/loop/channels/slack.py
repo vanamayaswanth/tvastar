@@ -36,7 +36,9 @@ class SlackHandoff(HandoffPolicy):
 
         client = WebClient(token=self.token)
 
-        failure_kind = run.failure_kind.value if hasattr(run.failure_kind, "value") else str(run.failure_kind)
+        failure_kind = (
+            run.failure_kind.value if hasattr(run.failure_kind, "value") else str(run.failure_kind)
+        )
         error_text = (run.error or "")[:500]
         duration_str = f"{run.duration:.1f}s" if run.duration is not None else "unknown"
 

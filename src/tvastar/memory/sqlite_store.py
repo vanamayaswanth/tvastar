@@ -40,15 +40,10 @@ class SQLiteStore(Store):
     def _create_tables(self) -> None:
         with self._lock:
             self._conn.execute(
-                "CREATE TABLE IF NOT EXISTS kv ("
-                "    key TEXT PRIMARY KEY,"
-                "    value TEXT NOT NULL"
-                ")"
+                "CREATE TABLE IF NOT EXISTS kv (    key TEXT PRIMARY KEY,    value TEXT NOT NULL)"
             )
             self._conn.execute(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS kv_fts USING fts5("
-                "    key, content"
-                ")"
+                "CREATE VIRTUAL TABLE IF NOT EXISTS kv_fts USING fts5(    key, content)"
             )
             self._conn.commit()
 
@@ -107,8 +102,7 @@ class SQLiteStore(Store):
         """
         with self._lock:
             cur = self._conn.execute(
-                "SELECT key, content FROM kv_fts WHERE kv_fts MATCH ? "
-                "ORDER BY rank LIMIT ?",
+                "SELECT key, content FROM kv_fts WHERE kv_fts MATCH ? ORDER BY rank LIMIT ?",
                 (query, limit),
             )
             rows = cur.fetchall()

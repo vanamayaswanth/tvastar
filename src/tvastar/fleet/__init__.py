@@ -47,8 +47,7 @@ class LifecycleError(FleetError):
         self.current_state = current_state
         self.attempted_action = attempted_action
         super().__init__(
-            f"Cannot {attempted_action} agent {agent!r}: "
-            f"current state is {current_state!r}"
+            f"Cannot {attempted_action} agent {agent!r}: current state is {current_state!r}"
         )
 
 
@@ -62,10 +61,7 @@ class RateLimitError(FleetError):
     def __init__(self, scope: str, reset_after: float) -> None:
         self.scope = scope
         self.reset_after = reset_after
-        super().__init__(
-            f"Rate limit exceeded for {scope!r}: "
-            f"retry after {reset_after:.1f}s"
-        )
+        super().__init__(f"Rate limit exceeded for {scope!r}: retry after {reset_after:.1f}s")
 
 
 class BudgetExhaustedError(FleetError):
@@ -80,8 +76,7 @@ class ConflictError(FleetError):
         self.expected_version = expected_version
         self.actual_version = actual_version
         super().__init__(
-            f"Conflict on key {key!r}: "
-            f"expected version {expected_version}, actual {actual_version}"
+            f"Conflict on key {key!r}: expected version {expected_version}, actual {actual_version}"
         )
 
 
@@ -135,9 +130,7 @@ class FleetBudgetConfig:
     warn_threshold: float = 0.8
     throttle_threshold: float = 0.9
     exempt_agents: list[str] = field(default_factory=list)
-    reporting_periods: list[str] = field(
-        default_factory=lambda: ["hourly", "daily"]
-    )
+    reporting_periods: list[str] = field(default_factory=lambda: ["hourly", "daily"])
 
 
 @dataclass
@@ -185,7 +178,9 @@ class FleetConfig:
     state_backend: str | None = None  # None = in-memory, "redis" = Redis
     event_backend: str | None = None  # None = in-memory, "kafka" = Kafka
     defaults: FleetDefaults | None = None
-    alert_handlers: list[Any] = field(default_factory=list)  # list of callables to subscribe to all alert topics
+    alert_handlers: list[Any] = field(
+        default_factory=list
+    )  # list of callables to subscribe to all alert topics
 
 
 # ---------------------------------------------------------------------------
@@ -355,9 +350,7 @@ class Fleet:
             event_backend = None
 
         # --- Instantiate sub-components ---
-        self._registry = FleetRegistry(
-            config.name, defaults=config.defaults, tracer=tracer
-        )
+        self._registry = FleetRegistry(config.name, defaults=config.defaults, tracer=tracer)
         self._gateway = FleetGateway(
             self._registry,
             fleet_rate_limit=config.fleet_rate_limit,
@@ -434,6 +427,7 @@ class Fleet:
 
         def _on_loop_event(event):
             from tvastar.loop import LoopState
+
             if event.state == LoopState.PASS:
                 self._observer.record_outcome(is_error=False)
                 # Update quality score

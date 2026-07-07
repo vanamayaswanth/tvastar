@@ -47,7 +47,7 @@ class ToolOutputCompressor:
         if any(kw in name_lower for kw in self._SHELL_KEYWORDS):
             if len(result) > self.threshold:
                 omitted = len(result) - self.threshold
-                compressed = f"[truncated: {omitted} chars omitted]\n{result[-self.threshold:]}"
+                compressed = f"[truncated: {omitted} chars omitted]\n{result[-self.threshold :]}"
                 # Only return compressed if it actually saves space
                 if len(compressed) <= len(result):
                     return compressed

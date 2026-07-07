@@ -165,8 +165,7 @@ class TestRollback:
 
         # Should emit rollback span
         rollback_calls = [
-            c for c in tracer.start_span.call_args_list
-            if "fleet.registry.rollback" in str(c)
+            c for c in tracer.start_span.call_args_list if "fleet.registry.rollback" in str(c)
         ]
         assert len(rollback_calls) == 1
         attrs = rollback_calls[0][1]["attributes"]

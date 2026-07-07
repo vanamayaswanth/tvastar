@@ -174,9 +174,7 @@ async def test_concurrent_tool_execution():
     assert result.stopped == "end_turn"
 
     # Find the tool results message in the history
-    tool_result_msgs = [
-        m for m in sess.messages if m.role == "user" and _has_tool_results(m)
-    ]
+    tool_result_msgs = [m for m in sess.messages if m.role == "user" and _has_tool_results(m)]
     assert len(tool_result_msgs) == 1, "All tool results should be in a single message"
 
     # Verify all three tool results are present
@@ -235,7 +233,7 @@ async def test_message_history_growth_single_tool_step():
 
     sess = h.session()
     async with sess:
-        result = await sess.prompt("Greet Test")
+        await sess.prompt("Greet Test")
 
     # Expected messages:
     # 1. user prompt ("Greet Test")
@@ -278,13 +276,13 @@ async def test_message_history_growth_multiple_tool_steps():
 
     # Verify the alternating pattern
     expected_roles = [
-        "user",       # initial prompt
+        "user",  # initial prompt
         "assistant",  # tool_use 1
-        "user",       # tool_result 1
+        "user",  # tool_result 1
         "assistant",  # tool_use 2
-        "user",       # tool_result 2
+        "user",  # tool_result 2
         "assistant",  # tool_use 3
-        "user",       # tool_result 3
+        "user",  # tool_result 3
         "assistant",  # final text
     ]
     actual_roles = [m.role for m in sess.messages]
@@ -299,7 +297,7 @@ async def test_message_history_no_tool_call():
 
     sess = h.session()
     async with sess:
-        result = await sess.prompt("Simple question")
+        await sess.prompt("Simple question")
 
     # 1 user prompt + 1 assistant response = 2 messages
     assert len(sess.messages) == 2

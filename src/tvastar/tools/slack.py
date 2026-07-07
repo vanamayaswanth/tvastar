@@ -29,9 +29,7 @@ def _get_token(ctx: ToolContext) -> str:
     token = os.environ.get("SLACK_BOT_TOKEN")
     if token:
         return token
-    raise ToolError(
-        "No Slack token configured. Provide via ToolContext or SLACK_BOT_TOKEN env var"
-    )
+    raise ToolError("No Slack token configured. Provide via ToolContext or SLACK_BOT_TOKEN env var")
 
 
 def _ensure_slack_sdk():
@@ -63,9 +61,7 @@ async def slack_post_message(ctx: ToolContext, channel: str, text: str) -> dict:
 
 
 @tool
-async def slack_post_thread(
-    ctx: ToolContext, channel: str, thread_ts: str, text: str
-) -> dict:
+async def slack_post_thread(ctx: ToolContext, channel: str, thread_ts: str, text: str) -> dict:
     """Post a reply to an existing Slack thread.
 
     Args:
@@ -86,9 +82,7 @@ async def slack_post_thread(
 
 
 @tool
-async def slack_read_messages(
-    ctx: ToolContext, channel: str, limit: Optional[int] = None
-) -> dict:
+async def slack_read_messages(ctx: ToolContext, channel: str, limit: Optional[int] = None) -> dict:
     """Read recent messages from a Slack channel.
 
     Args:
@@ -104,9 +98,7 @@ async def slack_read_messages(
         limit = 20
     limit = max(1, min(limit, 200))
 
-    resp = await asyncio.to_thread(
-        client.conversations_history, channel=channel, limit=limit
-    )
+    resp = await asyncio.to_thread(client.conversations_history, channel=channel, limit=limit)
     if not resp.get("ok"):
         raise ToolError(f"Slack error: {resp.get('error', 'unknown_error')}")
     return {"ok": True, "messages": resp.get("messages", [])}

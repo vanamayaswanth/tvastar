@@ -8,6 +8,7 @@ The default is EARS (Easy Approach to Requirements Syntax):
 
 Users can plug in their own methodology by implementing the Protocol.
 """
+
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
@@ -51,7 +52,7 @@ class EARSMethodology:
         return "ears"
 
     def requirements_prompt(self, goal: str, context: str) -> str:
-        return f'''Analyze this goal and produce structured requirements.
+        return f"""Analyze this goal and produce structured requirements.
 
 GOAL: {goal}
 
@@ -68,10 +69,10 @@ For each requirement, produce:
 - Priority: must | should | could
 
 Output as JSON array of requirements.
-Format: [{{"id": "R1", "title": "...", "user_story": "...", "acceptance_criteria": ["WHEN..."], "priority": "must"}}]'''
+Format: [{{"id": "R1", "title": "...", "user_story": "...", "acceptance_criteria": ["WHEN..."], "priority": "must"}}]"""
 
     def design_prompt(self, goal: str, requirements: str) -> str:
-        return f'''Create a technical design for this goal based on the requirements.
+        return f"""Create a technical design for this goal based on the requirements.
 
 GOAL: {goal}
 
@@ -85,10 +86,10 @@ Produce:
 4. Correctness properties (invariants that must hold)
 
 Output as JSON:
-{{"overview": "...", "components": [...], "data_models": [...], "correctness_properties": [...]}}'''
+{{"overview": "...", "components": [...], "data_models": [...], "correctness_properties": [...]}}"""
 
     def tasks_prompt(self, goal: str, requirements: str, design: str) -> str:
-        return f'''Create an ordered implementation task list.
+        return f"""Create an ordered implementation task list.
 
 GOAL: {goal}
 
@@ -107,15 +108,15 @@ For each task, produce:
 - estimated_effort: small | medium | large
 
 Order tasks so dependencies come first.
-Output as JSON array: [{{"id": "T1", "title": "...", "description": "...", "depends_on": [], "requirements": ["R1"], "estimated_effort": "small"}}]'''
+Output as JSON array: [{{"id": "T1", "title": "...", "description": "...", "depends_on": [], "requirements": ["R1"], "estimated_effort": "small"}}]"""
 
     def decompose_prompt(self, goal: str) -> str:
-        return f'''Break this goal into 3-8 ordered implementation steps.
+        return f"""Break this goal into 3-8 ordered implementation steps.
 Keep each step concrete and actionable (one clear action per step).
 
 GOAL: {goal}
 
-Output as JSON array of strings: ["Step 1: ...", "Step 2: ...", ...]'''
+Output as JSON array of strings: ["Step 1: ...", "Step 2: ...", ...]"""
 
 
 class AgileMethodology:
@@ -126,7 +127,7 @@ class AgileMethodology:
         return "agile"
 
     def requirements_prompt(self, goal: str, context: str) -> str:
-        return f'''Break this goal into user stories (Agile format).
+        return f"""Break this goal into user stories (Agile format).
 
 GOAL: {goal}
 CONTEXT: {context}
@@ -138,29 +139,29 @@ For each story:
 - Acceptance Criteria (Given/When/Then format)
 - Priority: must | should | could
 
-Output as JSON array.'''
+Output as JSON array."""
 
     def design_prompt(self, goal: str, requirements: str) -> str:
-        return f'''Design the system architecture.
+        return f"""Design the system architecture.
 
 GOAL: {goal}
 USER STORIES:
 {requirements}
 
 Produce: overview, components, data models, key decisions.
-Output as JSON.'''
+Output as JSON."""
 
     def tasks_prompt(self, goal: str, requirements: str, design: str) -> str:
-        return f'''Create sprint-ready tasks from the stories and design.
+        return f"""Create sprint-ready tasks from the stories and design.
 
 GOAL: {goal}
 STORIES: {requirements}
 DESIGN: {design}
 
 For each task: id, title, description, depends_on, story_ids, effort (1-8 points).
-Output as JSON array.'''
+Output as JSON array."""
 
     def decompose_prompt(self, goal: str) -> str:
-        return f'''Break this into 3-8 actionable sprint tasks.
+        return f"""Break this into 3-8 actionable sprint tasks.
 GOAL: {goal}
-Output as JSON array of strings.'''
+Output as JSON array of strings."""

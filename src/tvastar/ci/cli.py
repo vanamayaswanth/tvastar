@@ -6,6 +6,7 @@ Commands:
     tvastar-ci watch   — Start continuous monitoring loop
     tvastar-ci status  — Show last run results
 """
+
 from __future__ import annotations
 
 import argparse

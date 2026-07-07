@@ -232,10 +232,10 @@ async def test_final_error_as_tool_result_block_via_session():
     # The run should still complete (model handles the error)
     assert r.text == "Got it, the tool failed."
     # Verify the tool result in messages is an error
-    tool_result_msgs = [
-        m for m in r.messages if m.role == "tool" or any(
-            getattr(b, "is_error", False) for b in m.blocks
-        )
+    [
+        m
+        for m in r.messages
+        if m.role == "tool" or any(getattr(b, "is_error", False) for b in m.blocks)
     ]
     # Find the ToolResultBlock with is_error=True in the message history
     found_error_block = False

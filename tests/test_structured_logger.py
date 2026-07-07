@@ -77,7 +77,9 @@ class TestStructuredLoggerFile:
 
         logger = StructuredLogger(output=log_file)
         logger(_make_event(state=LoopState.TRIGGERED, data={"from_state": "idle", "iteration": 1}))
-        logger(_make_event(state=LoopState.RUNNING, data={"from_state": "triggered", "iteration": 1}))
+        logger(
+            _make_event(state=LoopState.RUNNING, data={"from_state": "triggered", "iteration": 1})
+        )
 
         with open(log_file) as f:
             lines = f.readlines()

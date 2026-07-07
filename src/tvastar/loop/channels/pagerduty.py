@@ -60,10 +60,6 @@ class PagerDutyHandoff(HandoffPolicy):
         }
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                "https://events.pagerduty.com/v2/enqueue", json=payload
-            )
+            resp = await client.post("https://events.pagerduty.com/v2/enqueue", json=payload)
             if resp.status_code >= 400:
-                raise RuntimeError(
-                    f"PagerDuty API returned HTTP {resp.status_code}"
-                )
+                raise RuntimeError(f"PagerDuty API returned HTTP {resp.status_code}")

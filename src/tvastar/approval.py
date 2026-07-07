@@ -214,8 +214,7 @@ class ModelVerifier:
     """
 
     _SYSTEM_PROMPT = (
-        "You are a safety reviewer. Respond with exactly APPROVE or DENY "
-        "followed by a reason."
+        "You are a safety reviewer. Respond with exactly APPROVE or DENY followed by a reason."
     )
 
     def __init__(self, model: Any, *, timeout: float = 30.0) -> None:
@@ -259,9 +258,7 @@ class ModelVerifier:
                 timeout=effective_timeout,
             )
         except asyncio.TimeoutError:
-            raise ApprovalTimeout(
-                f"reviewer did not respond within {effective_timeout}s"
-            )
+            raise ApprovalTimeout(f"reviewer did not respond within {effective_timeout}s")
         except Exception as exc:
             raise ApprovalDenied(f"reviewer unavailable: {exc}") from exc
 

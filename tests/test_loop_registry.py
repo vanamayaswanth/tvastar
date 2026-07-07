@@ -21,6 +21,7 @@ from tvastar.loop.registry import LoopRegistry, RegistryMetrics
 @dataclass
 class FakeConfig:
     """Minimal config stub with `then` for chaining tests."""
+
     name: str
     then: str | None = None
 
@@ -238,7 +239,6 @@ def test_on_event_multiple_listeners():
 def test_concurrent_register_unregister():
     """Concurrent register/unregister from multiple threads doesn't corrupt state."""
     reg = LoopRegistry()
-    errors = []
     barrier = threading.Barrier(4)
 
     def _register_batch(prefix: str, count: int):
@@ -378,9 +378,7 @@ async def test_chain_trigger_on_pass():
     reg.register(source)
 
     # Emit a PASS event from source
-    event = LoopEvent(
-        loop_name="source", run_id="run_1", state=LoopState.PASS, at=time.time()
-    )
+    event = LoopEvent(loop_name="source", run_id="run_1", state=LoopState.PASS, at=time.time())
     source.emit(event)
 
     # Give the async task a moment to fire
@@ -400,9 +398,7 @@ async def test_chain_no_trigger_on_fail():
     source = FakeLoop("source", then="target")
     reg.register(source)
 
-    event = LoopEvent(
-        loop_name="source", run_id="run_2", state=LoopState.FAIL, at=time.time()
-    )
+    event = LoopEvent(loop_name="source", run_id="run_2", state=LoopState.FAIL, at=time.time())
     source.emit(event)
 
     await asyncio.sleep(0.05)
@@ -424,9 +420,7 @@ async def test_chain_missing_target_emits_warning():
     warnings_received: list[LoopEvent] = []
     reg.on_event(lambda e: warnings_received.append(e))
 
-    event = LoopEvent(
-        loop_name="source", run_id="run_3", state=LoopState.PASS, at=time.time()
-    )
+    event = LoopEvent(loop_name="source", run_id="run_3", state=LoopState.PASS, at=time.time())
     source.emit(event)  # should NOT raise
 
     # Find the warning event (not the PASS itself)
@@ -454,9 +448,7 @@ async def test_chain_suspended_target_emits_warning():
     warnings_received: list[LoopEvent] = []
     reg.on_event(lambda e: warnings_received.append(e))
 
-    event = LoopEvent(
-        loop_name="source", run_id="run_4", state=LoopState.PASS, at=time.time()
-    )
+    event = LoopEvent(loop_name="source", run_id="run_4", state=LoopState.PASS, at=time.time())
     source.emit(event)
 
     await asyncio.sleep(0.05)

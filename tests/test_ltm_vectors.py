@@ -1,4 +1,5 @@
 """Tests for tvastar.contrib.ltm.vectors — TF-IDF vector search."""
+
 from __future__ import annotations
 
 import pytest

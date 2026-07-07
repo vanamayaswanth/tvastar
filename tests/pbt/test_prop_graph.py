@@ -156,9 +156,7 @@ async def test_dag_topological_execution_order(dag: dict[str, list[str]]):
 
     # Verify: no task starts before all its dependencies have completed
     for task_name, deps in dag.items():
-        assert task_name in execution_log, (
-            f"Task {task_name!r} was not executed"
-        )
+        assert task_name in execution_log, f"Task {task_name!r} was not executed"
         task_start = execution_log[task_name]["start"]
 
         for dep in deps:

@@ -75,10 +75,12 @@ class TestExplicitRouting:
     @pytest.mark.asyncio
     async def test_explicit_routing_to_active_agent(self):
         """Explicit agent name routes directly without scoring."""
-        registry = _setup_registry_with_agents([
-            {"name": "writer", "goal": "Write documents", "state": AgentState.ACTIVE},
-            {"name": "coder", "goal": "Write Python code", "state": AgentState.ACTIVE},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "writer", "goal": "Write documents", "state": AgentState.ACTIVE},
+                {"name": "coder", "goal": "Write Python code", "state": AgentState.ACTIVE},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.3)
 
         result = await gw.submit("do something random", agent="writer")
@@ -91,9 +93,11 @@ class TestExplicitRouting:
     @pytest.mark.asyncio
     async def test_explicit_routing_nonexistent_agent_raises(self):
         """Explicit routing to unknown agent raises RoutingError."""
-        registry = _setup_registry_with_agents([
-            {"name": "writer", "goal": "Write docs", "state": AgentState.ACTIVE},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "writer", "goal": "Write docs", "state": AgentState.ACTIVE},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.3)
 
         with pytest.raises(RoutingError, match="not registered"):
@@ -102,9 +106,11 @@ class TestExplicitRouting:
     @pytest.mark.asyncio
     async def test_explicit_routing_to_paused_agent_raises(self):
         """Explicit routing to a paused agent raises RoutingError."""
-        registry = _setup_registry_with_agents([
-            {"name": "writer", "goal": "Write docs", "state": AgentState.PAUSED},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "writer", "goal": "Write docs", "state": AgentState.PAUSED},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.3)
 
         with pytest.raises(RoutingError, match="not active"):
@@ -113,9 +119,11 @@ class TestExplicitRouting:
     @pytest.mark.asyncio
     async def test_explicit_routing_to_retired_agent_raises(self):
         """Explicit routing to a retired agent raises RoutingError."""
-        registry = _setup_registry_with_agents([
-            {"name": "writer", "goal": "Write docs", "state": AgentState.RETIRED},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "writer", "goal": "Write docs", "state": AgentState.RETIRED},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.3)
 
         with pytest.raises(RoutingError, match="not active"):
@@ -133,11 +141,13 @@ class TestSemanticRouting:
     @pytest.mark.asyncio
     async def test_routes_to_best_matching_agent(self):
         """Task about testing should route to the tester agent."""
-        registry = _setup_registry_with_agents([
-            {"name": "tester", "goal": "Write and run unit tests for Python code"},
-            {"name": "coder", "goal": "Write and fix Python application code"},
-            {"name": "reviewer", "goal": "Review code for security and correctness"},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "tester", "goal": "Write and run unit tests for Python code"},
+                {"name": "coder", "goal": "Write and fix Python application code"},
+                {"name": "reviewer", "goal": "Review code for security and correctness"},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.1)
 
         result = await gw.submit("Write unit tests for the auth module")
@@ -150,9 +160,11 @@ class TestSemanticRouting:
     @pytest.mark.asyncio
     async def test_no_agents_above_threshold_raises(self):
         """When no agent scores above threshold, raise RoutingError."""
-        registry = _setup_registry_with_agents([
-            {"name": "sql-agent", "goal": "Execute SQL database queries"},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "sql-agent", "goal": "Execute SQL database queries"},
+            ]
+        )
         # Set absurdly high threshold
         gw = FleetGateway(registry, routing_threshold=0.99)
 
@@ -162,10 +174,12 @@ class TestSemanticRouting:
     @pytest.mark.asyncio
     async def test_no_active_agents_raises(self):
         """When no agents are active, raise RoutingError."""
-        registry = _setup_registry_with_agents([
-            {"name": "writer", "goal": "Write docs", "state": AgentState.PAUSED},
-            {"name": "coder", "goal": "Write code", "state": AgentState.RETIRED},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "writer", "goal": "Write docs", "state": AgentState.PAUSED},
+                {"name": "coder", "goal": "Write code", "state": AgentState.RETIRED},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.1)
 
         with pytest.raises(RoutingError, match="no active agents"):
@@ -183,10 +197,16 @@ class TestNonActiveExclusion:
     @pytest.mark.asyncio
     async def test_paused_agent_not_routed_to(self):
         """Paused agent should not be selected even if it best matches."""
-        registry = _setup_registry_with_agents([
-            {"name": "writer", "goal": "Write documents and reports", "state": AgentState.PAUSED},
-            {"name": "coder", "goal": "Write Python code", "state": AgentState.ACTIVE},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {
+                    "name": "writer",
+                    "goal": "Write documents and reports",
+                    "state": AgentState.PAUSED,
+                },
+                {"name": "coder", "goal": "Write Python code", "state": AgentState.ACTIVE},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.0)
 
         result = await gw.submit("Write a document report")
@@ -197,10 +217,16 @@ class TestNonActiveExclusion:
     @pytest.mark.asyncio
     async def test_registered_agent_not_routed_to(self):
         """Agent still in REGISTERED state should not be selected."""
-        registry = _setup_registry_with_agents([
-            {"name": "writer", "goal": "Write documents and reports", "state": AgentState.REGISTERED},
-            {"name": "coder", "goal": "Write Python code", "state": AgentState.ACTIVE},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {
+                    "name": "writer",
+                    "goal": "Write documents and reports",
+                    "state": AgentState.REGISTERED,
+                },
+                {"name": "coder", "goal": "Write Python code", "state": AgentState.ACTIVE},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.0)
 
         result = await gw.submit("Write a document report")
@@ -219,9 +245,11 @@ class TestDependencyDeferral:
     @pytest.mark.asyncio
     async def test_agent_with_unregistered_dependency_deferred(self):
         """Agent depending on unregistered agent gets deferred."""
-        registry = _setup_registry_with_agents([
-            {"name": "deployer", "goal": "Deploy applications", "dependencies": ["builder"]},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "deployer", "goal": "Deploy applications", "dependencies": ["builder"]},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.0)
 
         result = await gw.submit("Deploy the app", agent="deployer")
@@ -232,10 +260,12 @@ class TestDependencyDeferral:
     @pytest.mark.asyncio
     async def test_agent_with_active_dependency_proceeds(self):
         """Agent whose dependencies are all active should proceed normally."""
-        registry = _setup_registry_with_agents([
-            {"name": "builder", "goal": "Build applications", "state": AgentState.ACTIVE},
-            {"name": "deployer", "goal": "Deploy applications", "dependencies": ["builder"]},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "builder", "goal": "Build applications", "state": AgentState.ACTIVE},
+                {"name": "deployer", "goal": "Deploy applications", "dependencies": ["builder"]},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.0)
 
         result = await gw.submit("Deploy the app", agent="deployer")
@@ -246,10 +276,12 @@ class TestDependencyDeferral:
     @pytest.mark.asyncio
     async def test_agent_with_paused_dependency_deferred(self):
         """Agent depending on a paused agent gets deferred."""
-        registry = _setup_registry_with_agents([
-            {"name": "builder", "goal": "Build applications", "state": AgentState.PAUSED},
-            {"name": "deployer", "goal": "Deploy applications", "dependencies": ["builder"]},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "builder", "goal": "Build applications", "state": AgentState.PAUSED},
+                {"name": "deployer", "goal": "Deploy applications", "dependencies": ["builder"]},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.0)
 
         result = await gw.submit("Deploy the app", agent="deployer")
@@ -268,9 +300,11 @@ class TestAuditTrail:
     @pytest.mark.asyncio
     async def test_successful_route_recorded_in_audit(self):
         """Successful routing records an audit entry."""
-        registry = _setup_registry_with_agents([
-            {"name": "coder", "goal": "Write Python code"},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "coder", "goal": "Write Python code"},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.0)
 
         await gw.submit("Write some code")
@@ -285,9 +319,11 @@ class TestAuditTrail:
     @pytest.mark.asyncio
     async def test_failed_route_recorded_in_audit(self):
         """Failed routing (below threshold) records an audit entry."""
-        registry = _setup_registry_with_agents([
-            {"name": "sql-agent", "goal": "Execute SQL queries"},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "sql-agent", "goal": "Execute SQL queries"},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.99)
 
         with pytest.raises(RoutingError):
@@ -301,9 +337,11 @@ class TestAuditTrail:
     @pytest.mark.asyncio
     async def test_context_passed_through(self):
         """Context dict is passed through in the result."""
-        registry = _setup_registry_with_agents([
-            {"name": "coder", "goal": "Write Python code"},
-        ])
+        registry = _setup_registry_with_agents(
+            [
+                {"name": "coder", "goal": "Write Python code"},
+            ]
+        )
         gw = FleetGateway(registry, routing_threshold=0.0)
 
         ctx = {"repo": "my-repo", "branch": "main"}

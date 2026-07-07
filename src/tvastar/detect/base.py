@@ -208,15 +208,15 @@ def detect_from_messages(
     for m in reversed(messages):
         if m.role == "assistant":
             has_tool_use = any(isinstance(b, ToolUseBlock) for b in m.blocks)
-            has_text = any(
-                isinstance(b, TextBlock) and b.text.strip() for b in m.blocks
-            )
+            has_text = any(isinstance(b, TextBlock) and b.text.strip() for b in m.blocks)
             if has_tool_use and not has_text:
                 _stopped = "tool_use"
             break
 
     final_text = _final_text(messages)
-    tools_registry = _KnownToolsRegistry(known_tools) if known_tools is not None else _EmptyToolRegistry()
+    tools_registry = (
+        _KnownToolsRegistry(known_tools) if known_tools is not None else _EmptyToolRegistry()
+    )
     ctx = RunContext(
         messages=messages,
         tools=tools_registry,

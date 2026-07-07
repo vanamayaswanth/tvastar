@@ -36,8 +36,16 @@ from tvastar.boundary import _CLOSE, _OPEN, scan_for_injection, wrap_untrusted
 _OVERRIDE_VERBS = ["ignore", "disregard", "forget", "override"]
 _OVERRIDE_QUALIFIERS = ["previous", "prior", "above", "earlier", "all", "your"]
 _OVERRIDE_TARGETS = [
-    "instructions", "prompt", "rules", "directions", "context", "messages",
-    "instruction", "rule", "direction", "message",
+    "instructions",
+    "prompt",
+    "rules",
+    "directions",
+    "context",
+    "messages",
+    "instruction",
+    "rule",
+    "direction",
+    "message",
 ]
 
 # role_reassignment pattern:
@@ -54,24 +62,40 @@ _REVEAL_TARGETS = ["system prompt", "system message", "your instructions", "init
 # fake_system_turn pattern:
 #   (^|\n)\s*(\[?system\]?|<\s*system\s*>|###\s*system)\s*[:\]>]
 _FAKE_SYSTEM_PREFIXES = [
-    "\nsystem:", "\n[system]:", "\n<system>:",
-    "\n### system:", "\n [system]:", "\n  <system>:",
-    "system:", "[system]:", "< system >:",
+    "\nsystem:",
+    "\n[system]:",
+    "\n<system>:",
+    "\n### system:",
+    "\n [system]:",
+    "\n  <system>:",
+    "system:",
+    "[system]:",
+    "< system >:",
 ]
 
 # exfiltration pattern:
 #   \b(send|post|exfiltrate|leak|upload)\b ... (api[_ ]?key|secret|password|token|credential|env(?:ironment)? var)s?\b
 _EXFIL_VERBS = ["send", "post", "exfiltrate", "leak", "upload"]
 _EXFIL_TARGETS = [
-    "api key", "api_key", "apikey", "secret", "password",
-    "token", "credential", "credentials", "env var", "environment var",
-    "env vars", "environment vars",
+    "api key",
+    "api_key",
+    "apikey",
+    "secret",
+    "password",
+    "token",
+    "credential",
+    "credentials",
+    "env var",
+    "environment var",
+    "env vars",
+    "environment vars",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Composite strategies: build texts guaranteed to match each pattern
 # ---------------------------------------------------------------------------
+
 
 @st.composite
 def st_override_instructions_text(draw: st.DrawFn) -> str:

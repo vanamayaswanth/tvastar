@@ -230,10 +230,12 @@ async def test_corrupted_store_with_saved_then_corrupted():
     Validates: Requirement 11.3
     """
     # Use a real InMemoryStore, save a checkpoint, then corrupt it
-    spec = _make_agent([
-        ToolUseBlock(id="tu_1", name="echo", input={"text": "data"}),
-        "Saved.",
-    ])
+    spec = _make_agent(
+        [
+            ToolUseBlock(id="tu_1", name="echo", input={"text": "data"}),
+            "Saved.",
+        ]
+    )
     store = InMemoryStore()
     harness = Harness(spec, store=store, durable=True)
 
@@ -557,7 +559,9 @@ def test_message_to_dict_tool_use_block():
     """Verify ToolUseBlock serialization."""
     msg = Message("assistant", [ToolUseBlock(id="tu_1", name="search", input={"q": "test"})])
     d = message_to_dict(msg)
-    assert d["blocks"] == [{"type": "tool_use", "id": "tu_1", "name": "search", "input": {"q": "test"}}]
+    assert d["blocks"] == [
+        {"type": "tool_use", "id": "tu_1", "name": "search", "input": {"q": "test"}}
+    ]
 
 
 def test_message_to_dict_tool_result_block():

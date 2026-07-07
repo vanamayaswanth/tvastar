@@ -45,16 +45,18 @@ st_safe_messages = st.text(
     min_size=1,
     max_size=80,
 ).filter(
-    lambda s: not any(
-        phrase in s.lower()
-        for phrase in (
-            "context_length_exceeded",
-            "prompt is too long",
-            "context window exceeded",
-            "maximum context length",
-            "input is too long",
-            "request too large",
-            "token count exceeds",
+    lambda s: (
+        not any(
+            phrase in s.lower()
+            for phrase in (
+                "context_length_exceeded",
+                "prompt is too long",
+                "context window exceeded",
+                "maximum context length",
+                "input is too long",
+                "request too large",
+                "token count exceeds",
+            )
         )
     )
 )

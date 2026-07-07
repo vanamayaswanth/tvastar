@@ -674,7 +674,7 @@ async def test_handoff_policy_escalate_retries_three_times():
             raise RuntimeError("handoff service down")
 
     loop = _loop(max_iterations=1, handoff=FailingHandoff())
-    run = await _force_fail(loop)
+    await _force_fail(loop)
     # Let the handoff task fire — it retries with sleep(10), sleep(20)
     # We need to wait for all 3 attempts. The actual implementation uses
     # asyncio.sleep(10 * (attempt + 1)) between retries.

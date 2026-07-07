@@ -83,6 +83,7 @@ class SharedStateStore:
 
         # Audit trail for conflict events (optimistic locking rejections) — capped
         from collections import deque
+
         self._conflicts: deque[ConflictRecord] = deque(maxlen=1_000)
 
     # ------------------------------------------------------------------

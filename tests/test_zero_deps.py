@@ -65,8 +65,7 @@ class TestPyprojectDependenciesEmpty:
         """The [project].dependencies list SHALL remain empty."""
         deps = _parse_pyproject_dependencies()
         assert deps == [], (
-            f"Core dependencies must be empty (zero-dep constraint CON-001), "
-            f"but found: {deps}"
+            f"Core dependencies must be empty (zero-dep constraint CON-001), but found: {deps}"
         )
 
     def test_pyproject_file_exists(self):
@@ -77,9 +76,9 @@ class TestPyprojectDependenciesEmpty:
         """Optional extras should exist for provider SDKs and tools."""
         extras = _parse_optional_dependencies()
         expected_extras = {"anthropic", "openai", "litellm", "serve", "otel"}
-        assert expected_extras.issubset(
-            set(extras.keys())
-        ), f"Missing expected optional extras. Found: {list(extras.keys())}"
+        assert expected_extras.issubset(set(extras.keys())), (
+            f"Missing expected optional extras. Found: {list(extras.keys())}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -105,9 +104,9 @@ class TestLazyImportErrors:
                     AnthropicModel()
                 error_msg = str(exc_info.value).lower()
                 assert "anthropic" in error_msg
-                assert any(
-                    kw in error_msg for kw in ["pip install", "uv add", "install"]
-                ), f"Error should mention install instructions: {exc_info.value}"
+                assert any(kw in error_msg for kw in ["pip install", "uv add", "install"]), (
+                    f"Error should mention install instructions: {exc_info.value}"
+                )
             except ImportError as e:
                 # Module-level import fails — check the message
                 error_msg = str(e).lower()

@@ -9,6 +9,7 @@ Usage:
     fleet.bus.subscribe("fleet.alert.quality", SlackAlertHandler(webhook_url="..."))
     fleet.bus.subscribe("fleet.alert.error_rate", WebhookAlertHandler(url="..."))
 """
+
 from __future__ import annotations
 
 import json
@@ -81,7 +82,9 @@ class WebhookAlertHandler:
             "source_agent": event.source_agent,
             "timestamp": event.timestamp,
             "data": (
-                event.payload if isinstance(event.payload, dict) else {"message": str(event.payload)}
+                event.payload
+                if isinstance(event.payload, dict)
+                else {"message": str(event.payload)}
             ),
         }
         if event.correlation_id:

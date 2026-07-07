@@ -56,6 +56,7 @@ st_tool_name = st.from_regex(r"[a-z][a-z0-9_]{0,29}", fullmatch=True)
 # ContentBlock strategies
 # ---------------------------------------------------------------------------
 
+
 @st.composite
 def st_text_blocks(draw: st.DrawFn) -> TextBlock:
     """Generate a valid TextBlock."""
@@ -96,6 +97,7 @@ def st_tool_result_blocks(draw: st.DrawFn) -> ToolResultBlock:
 # Message strategy
 # ---------------------------------------------------------------------------
 
+
 @st.composite
 def st_messages(draw: st.DrawFn) -> Message:
     """Generate a valid Message instance.
@@ -130,18 +132,23 @@ def st_messages(draw: st.DrawFn) -> Message:
 # Finding strategy
 # ---------------------------------------------------------------------------
 
+
 @st.composite
 def st_findings(draw: st.DrawFn) -> Finding:
     """Generate a valid Finding instance."""
-    detector = draw(st.sampled_from([
-        "unverified_completion",
-        "thrash_loop",
-        "unknown_tool",
-        "schema_mismatch",
-        "prompt_injection",
-        "ignored_tool_error",
-        "empty_answer",
-    ]))
+    detector = draw(
+        st.sampled_from(
+            [
+                "unverified_completion",
+                "thrash_loop",
+                "unknown_tool",
+                "schema_mismatch",
+                "prompt_injection",
+                "ignored_tool_error",
+                "empty_answer",
+            ]
+        )
+    )
     severity = draw(st_severity)
     message = draw(st_text_content)
     evidence = draw(
@@ -158,6 +165,7 @@ def st_findings(draw: st.DrawFn) -> Finding:
 # ---------------------------------------------------------------------------
 # ToolSpec strategy
 # ---------------------------------------------------------------------------
+
 
 @st.composite
 def st_tool_specs(draw: st.DrawFn) -> ToolSpec:
@@ -184,6 +192,7 @@ def st_tool_specs(draw: st.DrawFn) -> ToolSpec:
 # ---------------------------------------------------------------------------
 # RunResult strategy
 # ---------------------------------------------------------------------------
+
 
 @st.composite
 def st_run_results(draw: st.DrawFn) -> RunResult:
@@ -216,6 +225,7 @@ def st_run_results(draw: st.DrawFn) -> RunResult:
 # ---------------------------------------------------------------------------
 # AgentSpec strategy
 # ---------------------------------------------------------------------------
+
 
 @st.composite
 def st_agent_specs(draw: st.DrawFn) -> AgentSpec:

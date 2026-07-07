@@ -118,9 +118,7 @@ class PermissionResolver:
                 # ponytail: TrustLog.append expects ExecutionReceipt — if the
                 # caller passes a real TrustLog, the dict won't work. Log and
                 # continue; never break the spawn path for audit failures.
-                logger.debug(
-                    "TrustLog append failed for permission_resolution record"
-                )
+                logger.debug("TrustLog append failed for permission_resolution record")
 
         return child_policy
 

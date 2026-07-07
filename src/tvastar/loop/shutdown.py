@@ -21,9 +21,7 @@ if TYPE_CHECKING:
 _CHECKPOINTABLE = {"idle", "pass", "fail"}
 
 
-def install_signal_handlers(
-    registry: "LoopRegistry", drain_timeout: float = 30.0
-) -> None:
+def install_signal_handlers(registry: "LoopRegistry", drain_timeout: float = 30.0) -> None:
     """Register SIGTERM + SIGINT handlers for graceful loop drain.
 
     On signal:
@@ -49,11 +47,7 @@ def install_signal_handlers(
         # 2. Wait for running loops to reach a checkpointable state
         deadline = asyncio.get_event_loop().time() + drain_timeout
         while True:
-            still_running = [
-                lp
-                for lp in loops.values()
-                if lp.state.value not in _CHECKPOINTABLE
-            ]
+            still_running = [lp for lp in loops.values() if lp.state.value not in _CHECKPOINTABLE]
             if not still_running:
                 break
             remaining = deadline - asyncio.get_event_loop().time()
@@ -82,6 +76,7 @@ def install_signal_handlers(
     # Use signal.signal() as fallback — it schedules the async shutdown via
     # call_soon_threadsafe since signal handlers run on the main thread.
     if sys.platform == "win32":
+
         def _win_handler(signum: int, frame: object) -> None:
             loop.call_soon_threadsafe(_handler)
 

@@ -59,9 +59,15 @@ class OverflowOnceModel(MockModel):
 
         # Detect if this is a compaction summary call (no tools, short max_tokens=1024)
         # vs a main loop call (has tools or normal max_tokens)
-        is_summary_call = (max_tokens == 1024 and tools is None and
-                           any("summarise" in m.text.lower() or "summary" in m.text.lower()
-                               for m in messages if hasattr(m, 'text') and m.text))
+        is_summary_call = (
+            max_tokens == 1024
+            and tools is None
+            and any(
+                "summarise" in m.text.lower() or "summary" in m.text.lower()
+                for m in messages
+                if hasattr(m, "text") and m.text
+            )
+        )
 
         if is_summary_call:
             # This is the compaction call — return a summary
@@ -90,20 +96,20 @@ class OverflowOnceModel(MockModel):
 # ---------------------------------------------------------------------------
 
 # Strategy: generates a valid context overflow message (must match _OVERFLOW_PHRASES)
-st_overflow_phrase = st.sampled_from([
-    "context_length_exceeded",
-    "prompt is too long",
-    "context window exceeded",
-    "maximum context length",
-    "input is too long",
-    "request too large",
-    "token count exceeds",
-])
+st_overflow_phrase = st.sampled_from(
+    [
+        "context_length_exceeded",
+        "prompt is too long",
+        "context window exceeded",
+        "maximum context length",
+        "input is too long",
+        "request too large",
+        "token count exceeds",
+    ]
+)
 
 # Strategy: builds a full error message containing an overflow phrase
-st_overflow_message = st_overflow_phrase.map(
-    lambda phrase: f"Error: {phrase} for this request"
-)
+st_overflow_message = st_overflow_phrase.map(lambda phrase: f"Error: {phrase} for this request")
 
 # Strategy: generates a success response text
 st_success_text = st.text(
@@ -177,8 +183,7 @@ async def test_context_overflow_compacts_and_retries_once(
     # Verify: model was called exactly twice in the main loop
     # (once overflow, once success after compaction)
     assert model._main_call_count == 2, (
-        f"Expected exactly 2 main loop model calls (overflow + retry), "
-        f"got {model._main_call_count}"
+        f"Expected exactly 2 main loop model calls (overflow + retry), got {model._main_call_count}"
     )
 
     # Verify: the run succeeded
@@ -244,9 +249,15 @@ class DoubleOverflowModel(MockModel):
         self.calls.append(list(messages))
 
         # Summary call for compaction
-        is_summary_call = (max_tokens == 1024 and tools is None and
-                           any("summarise" in m.text.lower() or "summary" in m.text.lower()
-                               for m in messages if hasattr(m, 'text') and m.text))
+        is_summary_call = (
+            max_tokens == 1024
+            and tools is None
+            and any(
+                "summarise" in m.text.lower() or "summary" in m.text.lower()
+                for m in messages
+                if hasattr(m, "text") and m.text
+            )
+        )
 
         if is_summary_call:
             return ModelResponse(
@@ -265,9 +276,7 @@ async def test_double_overflow_propagates_after_single_retry():
     The session should only retry once — if compaction doesn't help,
     the error propagates to the caller.
     """
-    model = DoubleOverflowModel(
-        overflow_message="Error: context_length_exceeded"
-    )
+    model = DoubleOverflowModel(overflow_message="Error: context_length_exceeded")
 
     agent = create_agent(
         "test-double-overflow",

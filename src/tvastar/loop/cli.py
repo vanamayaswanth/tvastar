@@ -308,7 +308,6 @@ def cmd_history(ref: str, limit: int = 10) -> int:
         print(f"No runs recorded for {loop.name!r}.")
         return 0
 
-
     print(f"\nRecent runs for {loop.name!r} (last {limit}):")
     print(f"{'Run ID':<16} {'State':<12} {'Duration':<10} {'Error'}")
     print("-" * 60)
@@ -452,4 +451,12 @@ def _print_audit(loop: "Loop", report: "ReadinessLevel") -> None:  # type: ignor
     print(f"{_hr}\n")
 
 
-__all__ = ["cmd_init", "cmd_run", "cmd_status", "cmd_audit", "cmd_trigger", "cmd_history", "cmd_reset"]
+__all__ = [
+    "cmd_init",
+    "cmd_run",
+    "cmd_status",
+    "cmd_audit",
+    "cmd_trigger",
+    "cmd_history",
+    "cmd_reset",
+]

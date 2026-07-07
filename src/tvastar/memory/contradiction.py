@@ -61,9 +61,7 @@ class ContradictionDetector:
         self._update_metadata(key)
         return True
 
-    def _log_contradiction(
-        self, key: str, old_value: Any, new_value: Any, source_ref: str
-    ) -> None:
+    def _log_contradiction(self, key: str, old_value: Any, new_value: Any, source_ref: str) -> None:
         """Append to dedicated contradiction log, evict oldest at 1000."""
         entry = {
             "key": key,

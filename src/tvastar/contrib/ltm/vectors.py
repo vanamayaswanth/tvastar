@@ -24,6 +24,7 @@ Usage:
     index.build()
     results = index.search("attention mechanism", limit=3)
 """
+
 from __future__ import annotations
 
 import math
@@ -80,8 +81,7 @@ class VectorIndex:
         ).fetchall()
 
         self._documents = [
-            Knowledge(id=r[0], text=r[1], source=r[2], agent=r[3], created_at=r[4])
-            for r in rows
+            Knowledge(id=r[0], text=r[1], source=r[2], agent=r[3], created_at=r[4]) for r in rows
         ]
 
         if self._embed_fn is not None:
@@ -152,10 +152,7 @@ class VectorIndex:
             for token in unique_tokens:
                 doc_freq[token] += 1
 
-        self._idf = {
-            word: math.log((n_docs + 1) / (df + 1)) + 1
-            for word, df in doc_freq.items()
-        }
+        self._idf = {word: math.log((n_docs + 1) / (df + 1)) + 1 for word, df in doc_freq.items()}
 
         # Compute TF-IDF vectors
         self._vectors = []
@@ -194,12 +191,54 @@ class VectorIndex:
         tokens = re.findall(r"[a-z0-9]+", text.lower())
         # Remove very short tokens and common stop words
         stop_words = {
-            "the", "a", "an", "is", "are", "was", "were", "be", "been",
-            "being", "have", "has", "had", "do", "does", "did", "will",
-            "would", "could", "should", "may", "might", "shall", "can",
-            "to", "of", "in", "for", "on", "with", "at", "by", "from",
-            "it", "this", "that", "these", "those", "and", "or", "but",
-            "not", "no", "if", "then", "than", "so", "as",
+            "the",
+            "a",
+            "an",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "shall",
+            "can",
+            "to",
+            "of",
+            "in",
+            "for",
+            "on",
+            "with",
+            "at",
+            "by",
+            "from",
+            "it",
+            "this",
+            "that",
+            "these",
+            "those",
+            "and",
+            "or",
+            "but",
+            "not",
+            "no",
+            "if",
+            "then",
+            "than",
+            "so",
+            "as",
         }
         return [t for t in tokens if len(t) > 1 and t not in stop_words]
 

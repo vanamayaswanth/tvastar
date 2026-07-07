@@ -114,8 +114,7 @@ async def test_loop_state_checkpointing_on_trigger(loop_name: str, goal: str):
 
     # Verify the run_id in the checkpoint matches the run
     assert checkpoint["run_id"] == run.run_id, (
-        f"Checkpointed run_id '{checkpoint['run_id']}' does not match "
-        f"run's run_id '{run.run_id}'"
+        f"Checkpointed run_id '{checkpoint['run_id']}' does not match run's run_id '{run.run_id}'"
     )
 
 
@@ -187,8 +186,7 @@ async def test_loop_state_checkpointing_captures_transitions(loop_name: str):
 
     # Last checkpoint should match the run's final state
     assert recorded_states[-1] == run.state.value, (
-        f"Last checkpoint should match final state '{run.state.value}', "
-        f"got '{recorded_states[-1]}'"
+        f"Last checkpoint should match final state '{run.state.value}', got '{recorded_states[-1]}'"
     )
 
 
@@ -277,9 +275,7 @@ async def test_exponential_backoff_calculation(backoff_base: float, iteration: i
 
     # Also verify the run's retry_after is set correctly
     assert run.retry_after is not None, "run.retry_after should be set after _handle_fail"
-    assert run.state == LoopState.RETRY, (
-        f"Expected state RETRY after _handle_fail, got {run.state}"
-    )
+    assert run.state == LoopState.RETRY, f"Expected state RETRY after _handle_fail, got {run.state}"
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +300,6 @@ async def test_circuit_breaker_activation(circuit_breaker_limit: int):
 
     **Validates: Requirements 7.4**
     """
-
 
     # Create a minimal agent (never actually called)
     model = MockModel(["unused"])
@@ -348,9 +343,7 @@ async def test_circuit_breaker_activation(circuit_breaker_limit: int):
         f">= circuit_breaker_limit ({circuit_breaker_limit}), "
         f"but got {loop.state}"
     )
-    assert run.state == LoopState.SUSPENDED, (
-        f"Expected run state SUSPENDED, got {run.state}"
-    )
+    assert run.state == LoopState.SUSPENDED, f"Expected run state SUSPENDED, got {run.state}"
 
 
 @settings(max_examples=100, deadline=None)

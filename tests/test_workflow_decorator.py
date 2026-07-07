@@ -8,7 +8,6 @@ Covers Requirement 21 (REQ-WORKFLOW-001) acceptance criteria:
   21.5 WorkflowContext.init(spec) provides WorkflowHarness
 """
 
-
 from tvastar import create_agent, workflow
 from tvastar.model import MockModel
 from tvastar.workflow import (

@@ -48,5 +48,11 @@ def test_channels_all_importable():
 def test_channels_init_all_list():
     import tvastar.loop.channels as ch
 
-    expected = {"SlackHandoff", "GitHubIssueHandoff", "PagerDutyHandoff", "WebhookHandoff", "EmailHandoff"}
+    expected = {
+        "SlackHandoff",
+        "GitHubIssueHandoff",
+        "PagerDutyHandoff",
+        "WebhookHandoff",
+        "EmailHandoff",
+    }
     assert expected.issubset(set(ch.__all__))

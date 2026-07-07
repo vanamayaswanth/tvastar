@@ -5,7 +5,6 @@ from __future__ import annotations
 from tvastar.memory.store import InMemoryStore
 from tvastar.memory.contradiction import (
     ContradictionDetector,
-    CONTRADICTION_LOG_PREFIX,
     MAX_CONTRADICTION_LOG,
 )
 

@@ -128,9 +128,7 @@ class TestProperty4ContextSentToReviewer:
             # The key property: only up to 5 messages are included
             history_section = user_content.split("Recent conversation:\n")
             if len(history_section) > 1:
-                history_lines = [
-                    line for line in history_section[1].split("\n") if line.strip()
-                ]
+                history_lines = [line for line in history_section[1].split("\n") if line.strip()]
                 assert len(history_lines) <= 5
 
 
@@ -178,9 +176,7 @@ class TestProperty5DenialIncludesReasoning:
         else:
             assert "reviewer denied without stated reason" in str(exc_info.value)
 
-    @given(
-        deny_word=st.sampled_from(["DENY", "NO", "REJECT", "BLOCK", "deny", "no"])
-    )
+    @given(deny_word=st.sampled_from(["DENY", "NO", "REJECT", "BLOCK", "deny", "no"]))
     @settings(max_examples=100)
     async def test_denial_without_reasoning(self, deny_word: str):
         """Non-APPROVE response with no reasoning text after the word raises with default message."""

@@ -35,7 +35,9 @@ def _get_token(ctx: ToolContext) -> str:
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         return token
-    raise ToolError("No GitHub token configured: set GITHUB_TOKEN or provide via ToolContext.memory")
+    raise ToolError(
+        "No GitHub token configured: set GITHUB_TOKEN or provide via ToolContext.memory"
+    )
 
 
 def _clamp_limit(limit: Optional[int]) -> int:

@@ -3,13 +3,13 @@
 Uses stdlib urllib only (zero deps). For full GitHub API features,
 users can pass their own token.
 """
+
 from __future__ import annotations
 
 import json
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
-
 
 
 @dataclass

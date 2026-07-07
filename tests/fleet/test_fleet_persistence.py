@@ -33,7 +33,7 @@ class TestFleetPersist:
         f.register(mock_loop, name="worker", version="1.0.0", owner="team-a")
         f.registry.deploy("worker")
 
-        path = f.persist(str(tmp_path / "state.json"))
+        f.persist(str(tmp_path / "state.json"))
         assert (tmp_path / "state.json").exists()
 
     def test_persist_and_load_round_trip(self, fleet, mock_loop):
@@ -42,7 +42,7 @@ class TestFleetPersist:
         f.registry.deploy("worker")
         f.registry.pause("worker")
 
-        path = f.persist(str(tmp_path / "state.json"))
+        f.persist(str(tmp_path / "state.json"))
 
         # Create a fresh fleet and load
         f2 = Fleet(FleetConfig(name="test-fleet"))
@@ -143,10 +143,12 @@ class TestFleetShutdown:
 
         # State file should exist in default location
         from pathlib import Path
+
         assert Path(".tvastar-fleet/shutdown-test.json").exists()
 
         # Cleanup
         import shutil
+
         shutil.rmtree(".tvastar-fleet", ignore_errors=True)
 
     @pytest.mark.asyncio
@@ -171,6 +173,7 @@ class TestFleetShutdown:
         await f.shutdown(persist=False)
         # No exception, no file created
         from pathlib import Path
+
         assert not Path(".tvastar-fleet/no-persist-test.json").exists()
 
     @pytest.mark.asyncio
@@ -188,4 +191,5 @@ class TestFleetShutdown:
 
         # Cleanup
         import shutil
+
         shutil.rmtree(".tvastar-fleet", ignore_errors=True)

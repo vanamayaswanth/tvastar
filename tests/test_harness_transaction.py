@@ -98,7 +98,7 @@ async def test_transaction_rollback_restores_exact_message_state():
         snapshot_count = len(snapshot_messages)
 
         with pytest.raises(ValueError, match="oops"):
-            async with h.transaction(sess) as s:
+            async with h.transaction(sess):
                 # Directly append messages to simulate activity
                 sess.messages.append(Message("user", "inside tx"))
                 sess.messages.append(Message("assistant", "tx reply"))
@@ -130,7 +130,7 @@ async def test_transaction_rollback_with_no_sandbox():
         messages_before = list(sess.messages)
 
         with pytest.raises(RuntimeError, match="error"):
-            async with h.transaction(sess) as s:
+            async with h.transaction(sess):
                 sess.messages.append(Message("user", "extra"))
                 raise RuntimeError("error")
 

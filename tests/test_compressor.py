@@ -39,22 +39,45 @@ from tvastar.model.mock import MockModel
 # ---------------------------------------------------------------------------
 
 # Tool names that trigger file-read dedup logic
-st_file_tool_names = st.sampled_from([
-    "read_file", "cat_file", "file_read", "read_content",
-    "cat", "read", "file_get",
-])
+st_file_tool_names = st.sampled_from(
+    [
+        "read_file",
+        "cat_file",
+        "file_read",
+        "read_content",
+        "cat",
+        "read",
+        "file_get",
+    ]
+)
 
 # Tool names that trigger shell truncation logic
-st_shell_tool_names = st.sampled_from([
-    "shell_exec", "run_command", "bash_run", "exec_cmd",
-    "shell", "run", "exec", "bash", "cmd",
-])
+st_shell_tool_names = st.sampled_from(
+    [
+        "shell_exec",
+        "run_command",
+        "bash_run",
+        "exec_cmd",
+        "shell",
+        "run",
+        "exec",
+        "bash",
+        "cmd",
+    ]
+)
 
 # Tool names that don't match either heuristic
-st_neutral_tool_names = st.sampled_from([
-    "search", "list_dir", "get_url", "write_output",
-    "compute", "analyze", "plan",
-])
+st_neutral_tool_names = st.sampled_from(
+    [
+        "search",
+        "list_dir",
+        "get_url",
+        "write_output",
+        "compute",
+        "analyze",
+        "plan",
+    ]
+)
 
 # All tool name categories combined
 st_any_tool_name = st.one_of(st_file_tool_names, st_shell_tool_names, st_neutral_tool_names)
@@ -134,23 +157,18 @@ def test_dedup_replaces_duplicate_with_reference(
 
     # First call — stores the hash
     first_result = compressor(tool_name, {}, content)
-    assert first_result is None, (
-        "First occurrence of content should not be deduped (returns None)"
-    )
+    assert first_result is None, "First occurrence of content should not be deduped (returns None)"
 
     # Second call — same content, should produce dedup reference
     second_result = compressor(tool_name, {}, content)
-    assert second_result is not None, (
-        "Second occurrence of identical content should be deduped"
-    )
+    assert second_result is not None, "Second occurrence of identical content should be deduped"
 
     # Verify the dedup pattern
     expected_hash = hashlib.sha256(content.encode()).hexdigest()
     expected_size = len(content)
     expected_pattern = f"[dedup: sha256={expected_hash}, size={expected_size} bytes]"
     assert second_result == expected_pattern, (
-        f"Expected dedup pattern:\n  {expected_pattern}\n"
-        f"Got:\n  {second_result}"
+        f"Expected dedup pattern:\n  {expected_pattern}\nGot:\n  {second_result}"
     )
 
 
@@ -236,9 +254,7 @@ class TestCompressToolOutputDisabled:
             user_hook_called.append(True)
             return "modified"
 
-        spec = create_agent(
-            "test", model=model, compress_tool_output=False, post_tool_hook=my_hook
-        )
+        spec = create_agent("test", model=model, compress_tool_output=False, post_tool_hook=my_hook)
 
         # The user's hook should be the post_tool_hook directly
         assert spec.post_tool_hook is my_hook

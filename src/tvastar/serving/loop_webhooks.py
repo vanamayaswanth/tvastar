@@ -79,11 +79,14 @@ def create_loop_webhook_router(
         if github_sig:
             if not loop_secrets or not loop_secrets.github_secret:
                 return JSONResponse({"error": "Signature validation failed"}, status_code=401)
-            expected = "sha256=" + hmac.new(
-                loop_secrets.github_secret.encode(),
-                body,
-                hashlib.sha256,
-            ).hexdigest()
+            expected = (
+                "sha256="
+                + hmac.new(
+                    loop_secrets.github_secret.encode(),
+                    body,
+                    hashlib.sha256,
+                ).hexdigest()
+            )
             if not hmac.compare_digest(github_sig, expected):
                 return JSONResponse({"error": "Invalid signature"}, status_code=401)
 
@@ -97,37 +100,32 @@ def create_loop_webhook_router(
             try:
                 ts = int(slack_ts)
                 if abs(time.time() - ts) > 300:
-                    return JSONResponse(
-                        {"error": "Request timestamp too old"}, status_code=401
-                    )
+                    return JSONResponse({"error": "Request timestamp too old"}, status_code=401)
             except (ValueError, TypeError):
-                return JSONResponse(
-                    {"error": "Invalid request timestamp"}, status_code=401
-                )
+                return JSONResponse({"error": "Invalid request timestamp"}, status_code=401)
             # Validate signature
             sig_basestring = f"v0:{slack_ts}:{body.decode()}"
-            expected = "v0=" + hmac.new(
-                loop_secrets.slack_secret.encode(),
-                sig_basestring.encode(),
-                hashlib.sha256,
-            ).hexdigest()
+            expected = (
+                "v0="
+                + hmac.new(
+                    loop_secrets.slack_secret.encode(),
+                    sig_basestring.encode(),
+                    hashlib.sha256,
+                ).hexdigest()
+            )
             if not hmac.compare_digest(slack_sig, expected):
                 return JSONResponse({"error": "Invalid signature"}, status_code=401)
 
         # 4. Look up the loop
         loop = registry.get(loop_name)
         if loop is None:
-            return JSONResponse(
-                {"error": f"Loop '{loop_name}' not found"}, status_code=404
-            )
+            return JSONResponse({"error": f"Loop '{loop_name}' not found"}, status_code=404)
 
         # 5. Check if suspended
         from ..loop import LoopState
 
         if loop.state == LoopState.SUSPENDED:
-            return JSONResponse(
-                {"error": f"Loop '{loop_name}' is suspended"}, status_code=409
-            )
+            return JSONResponse({"error": f"Loop '{loop_name}' is suspended"}, status_code=409)
 
         # 6. Trigger
         try:

@@ -81,32 +81,26 @@ class TestSemanticHTMLAndARIA:
 
     def test_semantic_header_element(self, parsed_tags):
         """Page uses semantic <header> element."""
-        assert "header" in parsed_tags.semantic_tags, (
-            "Page must use semantic <header> element"
-        )
+        assert "header" in parsed_tags.semantic_tags, "Page must use semantic <header> element"
 
     def test_button_elements_used(self, parsed_tags):
         """Interactive elements use <button> rather than non-semantic divs."""
         buttons = [(tag, attrs) for tag, attrs in parsed_tags.tags if tag == "button"]
-        assert len(buttons) >= 1, (
-            "Page must use <button> elements for interactive controls"
-        )
+        assert len(buttons) >= 1, "Page must use <button> elements for interactive controls"
 
     def test_document_has_title(self, html_content):
         """Document has a title element for screen readers."""
-        assert re.search(r"<title>.+</title>", html_content), (
-            "Document must have a <title> element"
-        )
+        assert re.search(r"<title>.+</title>", html_content), "Document must have a <title> element"
 
     def test_meta_viewport_present(self, html_content):
         """Viewport meta tag present for responsive accessibility."""
-        assert re.search(r'<meta[^>]+viewport', html_content), (
+        assert re.search(r"<meta[^>]+viewport", html_content), (
             "Document must have viewport meta tag"
         )
 
     def test_meta_charset_present(self, html_content):
         """Character encoding declared for proper rendering."""
-        assert re.search(r'<meta[^>]+charset', html_content, re.IGNORECASE), (
+        assert re.search(r"<meta[^>]+charset", html_content, re.IGNORECASE), (
             "Document must declare character encoding"
         )
 
@@ -121,9 +115,7 @@ class TestFocusIndicators:
         """Interactive elements (buttons, clickable items) have focus-visible styling
         or rely on browser default focus outlines (not suppressed)."""
         # Check that outline is NOT globally removed without replacement
-        outline_none_global = re.search(
-            r"\*\s*\{[^}]*outline\s*:\s*none", css_content, re.DOTALL
-        )
+        outline_none_global = re.search(r"\*\s*\{[^}]*outline\s*:\s*none", css_content, re.DOTALL)
         outline_none_focus = re.search(
             r":focus\s*\{[^}]*outline\s*:\s*none", css_content, re.DOTALL
         )
@@ -206,22 +198,16 @@ class TestColourNotSoleIndicator:
     def test_run_status_has_text_indicator(self, js_content):
         """Run list items show text status, not just coloured dots."""
         # The run-meta section includes text status indicators
-        assert re.search(r"✓\s*ok", js_content), (
-            "Run status must show text label for ok status"
-        )
+        assert re.search(r"✓\s*ok", js_content), "Run status must show text label for ok status"
         assert re.search(r"⚠\s*warn", js_content), (
             "Run status must show text label for warning status"
         )
-        assert re.search(r"✗\s*err", js_content), (
-            "Run status must show text label for error status"
-        )
+        assert re.search(r"✗\s*err", js_content), "Run status must show text label for error status"
 
     def test_finding_severity_has_text_label(self, js_content):
         """Finding cards display severity as text, not just colour."""
         # The finding template includes severity text: ${esc(f.severity)}
-        assert re.search(r"f\.severity", js_content), (
-            "Finding cards must display severity as text"
-        )
+        assert re.search(r"f\.severity", js_content), "Finding cards must display severity as text"
         assert re.search(r"f\.detector", js_content), (
             "Finding cards must display detector name as text"
         )
@@ -241,36 +227,26 @@ class TestHTMLEscaping:
 
     def test_esc_handles_ampersand(self, js_content):
         """Escape function handles & → &amp;"""
-        assert re.search(r"&amp;", js_content), (
-            "Escape function must handle ampersand"
-        )
+        assert re.search(r"&amp;", js_content), "Escape function must handle ampersand"
 
     def test_esc_handles_less_than(self, js_content):
         """Escape function handles < → &lt;"""
-        assert re.search(r"&lt;", js_content), (
-            "Escape function must handle less-than"
-        )
+        assert re.search(r"&lt;", js_content), "Escape function must handle less-than"
 
     def test_esc_handles_greater_than(self, js_content):
         """Escape function handles > → &gt;"""
-        assert re.search(r"&gt;", js_content), (
-            "Escape function must handle greater-than"
-        )
+        assert re.search(r"&gt;", js_content), "Escape function must handle greater-than"
 
     def test_esc_handles_quotes(self, js_content):
         """Escape function handles " → &quot;"""
-        assert re.search(r"&quot;", js_content), (
-            "Escape function must handle double quotes"
-        )
+        assert re.search(r"&quot;", js_content), "Escape function must handle double quotes"
 
     def test_dynamic_content_uses_esc(self, js_content):
         """All dynamic content rendering uses the esc() function."""
         # Find template literals that insert variables
         # Check that user-controlled data is wrapped in esc()
         # Key places: agent name, tool names, finding messages, result previews
-        assert re.search(r"esc\(r\.agent\)", js_content), (
-            "Agent name must be escaped in rendering"
-        )
+        assert re.search(r"esc\(r\.agent\)", js_content), "Agent name must be escaped in rendering"
         # Tool name is assigned to `name` variable and escaped via esc(name)
         assert re.search(r"name\s*=\s*s\.tool", js_content), (
             "Tool name must be sourced from step data"
@@ -328,9 +304,7 @@ class TestColourContrast:
     def test_primary_text_contrast(self, css_content):
         """Primary text colour (#e2e8f0) on background (#0f1117) meets 4.5:1."""
         ratio = self._contrast_ratio("#e2e8f0", "#0f1117")
-        assert ratio >= 4.5, (
-            f"Primary text contrast ratio {ratio:.2f}:1 must be >= 4.5:1"
-        )
+        assert ratio >= 4.5, f"Primary text contrast ratio {ratio:.2f}:1 must be >= 4.5:1"
 
     def test_muted_text_contrast_on_bg(self, css_content):
         """Muted text colour (#64748b) on darkest background (#0f1117) meets 3:1
@@ -343,23 +317,17 @@ class TestColourContrast:
     def test_accent_contrast(self, css_content):
         """Accent colour (#7c6af7) on background (#0f1117) meets 3:1 for UI components."""
         ratio = self._contrast_ratio("#7c6af7", "#0f1117")
-        assert ratio >= 3.0, (
-            f"Accent colour contrast ratio {ratio:.2f}:1 must be >= 3:1"
-        )
+        assert ratio >= 3.0, f"Accent colour contrast ratio {ratio:.2f}:1 must be >= 3:1"
 
     def test_error_colour_contrast(self, css_content):
         """Error colour (#ef4444) on dark backgrounds meets 3:1."""
         ratio = self._contrast_ratio("#ef4444", "#0f1117")
-        assert ratio >= 3.0, (
-            f"Error colour contrast ratio {ratio:.2f}:1 must be >= 3:1"
-        )
+        assert ratio >= 3.0, f"Error colour contrast ratio {ratio:.2f}:1 must be >= 3:1"
 
     def test_green_status_contrast(self, css_content):
         """Green status colour (#22c55e) on dark background meets 3:1."""
         ratio = self._contrast_ratio("#22c55e", "#0f1117")
-        assert ratio >= 3.0, (
-            f"Green status contrast ratio {ratio:.2f}:1 must be >= 3:1"
-        )
+        assert ratio >= 3.0, f"Green status contrast ratio {ratio:.2f}:1 must be >= 3:1"
 
 
 # ── WCAG 1.1.1: Text alternatives for non-text content ──────────────────
@@ -372,28 +340,18 @@ class TestTextAlternatives:
         """Status dots (non-text colour indicators) are accompanied by text labels."""
         # The run-meta section provides text status alongside the coloured dot
         # Verify that text equivalents exist for each status
-        assert re.search(r"✓\s*ok", js_content), (
-            "OK status dot must have text equivalent"
-        )
-        assert re.search(r"⚠\s*warn", js_content), (
-            "Warning status dot must have text equivalent"
-        )
-        assert re.search(r"✗\s*err", js_content), (
-            "Error status dot must have text equivalent"
-        )
+        assert re.search(r"✓\s*ok", js_content), "OK status dot must have text equivalent"
+        assert re.search(r"⚠\s*warn", js_content), "Warning status dot must have text equivalent"
+        assert re.search(r"✗\s*err", js_content), "Error status dot must have text equivalent"
 
     def test_icon_emoji_have_adjacent_text(self, js_content):
         """Emoji/icon characters are accompanied by descriptive text."""
         # Check that emoji icons (⚙, 🔧, ⏱) are followed by descriptive text
-        assert re.search(r"⚙.*steps", js_content), (
-            "Gear icon must be accompanied by 'steps' text"
-        )
+        assert re.search(r"⚙.*steps", js_content), "Gear icon must be accompanied by 'steps' text"
         assert re.search(r"🔧.*tools", js_content), (
             "Wrench icon must be accompanied by 'tools' text"
         )
-        assert re.search(r"⏱", js_content), (
-            "Timer icon must be present with duration context"
-        )
+        assert re.search(r"⏱", js_content), "Timer icon must be present with duration context"
 
     def test_logo_text_alternative(self, html_content):
         """Logo/brand area has visible text content (not image-only)."""

@@ -79,7 +79,9 @@ class TestPerAgentRateLimit:
         """Requests within per-agent capacity should pass."""
         gw = FleetGateway(
             registry=None,
-            agent_rate_limits={"agent-a": RateLimitConfig(requests_per_window=3, window_seconds=60.0)},
+            agent_rate_limits={
+                "agent-a": RateLimitConfig(requests_per_window=3, window_seconds=60.0)
+            },
         )
         for _ in range(3):
             gw._check_rate_limits("agent-a")
@@ -88,7 +90,9 @@ class TestPerAgentRateLimit:
         """Requests exceeding per-agent capacity should raise RateLimitError."""
         gw = FleetGateway(
             registry=None,
-            agent_rate_limits={"agent-a": RateLimitConfig(requests_per_window=2, window_seconds=60.0)},
+            agent_rate_limits={
+                "agent-a": RateLimitConfig(requests_per_window=2, window_seconds=60.0)
+            },
         )
         gw._check_rate_limits("agent-a")
         gw._check_rate_limits("agent-a")
@@ -120,7 +124,9 @@ class TestPerAgentRateLimit:
         """Agents without a configured rate limit should pass freely."""
         gw = FleetGateway(
             registry=None,
-            agent_rate_limits={"agent-a": RateLimitConfig(requests_per_window=1, window_seconds=60.0)},
+            agent_rate_limits={
+                "agent-a": RateLimitConfig(requests_per_window=1, window_seconds=60.0)
+            },
         )
         # agent-b has no configured limit
         for _ in range(100):
@@ -135,7 +141,9 @@ class TestCombinedRateLimits:
         gw = FleetGateway(
             registry=None,
             fleet_rate_limit=RateLimitConfig(requests_per_window=1, window_seconds=60.0),
-            agent_rate_limits={"agent-a": RateLimitConfig(requests_per_window=5, window_seconds=60.0)},
+            agent_rate_limits={
+                "agent-a": RateLimitConfig(requests_per_window=5, window_seconds=60.0)
+            },
         )
         # First request passes both checks
         gw._check_rate_limits("agent-a")
@@ -151,7 +159,9 @@ class TestCombinedRateLimits:
         gw = FleetGateway(
             registry=None,
             fleet_rate_limit=RateLimitConfig(requests_per_window=10, window_seconds=60.0),
-            agent_rate_limits={"agent-a": RateLimitConfig(requests_per_window=2, window_seconds=60.0)},
+            agent_rate_limits={
+                "agent-a": RateLimitConfig(requests_per_window=2, window_seconds=60.0)
+            },
         )
         gw._check_rate_limits("agent-a")
         gw._check_rate_limits("agent-a")
@@ -198,7 +208,9 @@ class TestSetAgentRateLimit:
             gw._check_rate_limits("agent-x")
 
         # Set a limit
-        gw.set_agent_rate_limit("agent-x", RateLimitConfig(requests_per_window=2, window_seconds=60.0))
+        gw.set_agent_rate_limit(
+            "agent-x", RateLimitConfig(requests_per_window=2, window_seconds=60.0)
+        )
 
         # Now limited to 2
         gw._check_rate_limits("agent-x")
@@ -211,7 +223,9 @@ class TestSetAgentRateLimit:
         """set_agent_rate_limit replaces an existing rate limit."""
         gw = FleetGateway(
             registry=None,
-            agent_rate_limits={"agent-a": RateLimitConfig(requests_per_window=1, window_seconds=60.0)},
+            agent_rate_limits={
+                "agent-a": RateLimitConfig(requests_per_window=1, window_seconds=60.0)
+            },
         )
         # Exhaust original limit
         gw._check_rate_limits("agent-a")
@@ -219,7 +233,9 @@ class TestSetAgentRateLimit:
             gw._check_rate_limits("agent-a")
 
         # Update to a more generous limit
-        gw.set_agent_rate_limit("agent-a", RateLimitConfig(requests_per_window=10, window_seconds=60.0))
+        gw.set_agent_rate_limit(
+            "agent-a", RateLimitConfig(requests_per_window=10, window_seconds=60.0)
+        )
 
         # Now should allow more requests (new bucket starts full)
         for _ in range(10):

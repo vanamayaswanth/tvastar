@@ -1,4 +1,5 @@
 """Tests for the planning module — goal decomposition and spec-driven planning."""
+
 from __future__ import annotations
 
 import json
@@ -19,83 +20,91 @@ from tvastar.planning import (
 # --- Fixtures ---
 
 
-SAMPLE_STEPS = json.dumps([
-    "Step 1: Set up project structure",
-    "Step 2: Implement core logic",
-    "Step 3: Add tests",
-])
+SAMPLE_STEPS = json.dumps(
+    [
+        "Step 1: Set up project structure",
+        "Step 2: Implement core logic",
+        "Step 3: Add tests",
+    ]
+)
 
-SAMPLE_REQUIREMENTS = json.dumps([
-    {
-        "id": "R1",
-        "title": "User login",
-        "user_story": "As a user, I want to log in, so that I can access my account",
-        "acceptance_criteria": [
-            "WHEN a user submits valid credentials, THE system SHALL grant access",
-            "IF credentials are invalid, THEN THE system SHALL reject the attempt",
-        ],
-        "priority": "must",
-    },
-    {
-        "id": "R2",
-        "title": "Session management",
-        "user_story": "As a user, I want my session maintained, so that I stay logged in",
-        "acceptance_criteria": [
-            "WHILE a session is active, THE system SHALL refresh the token",
-        ],
-        "priority": "should",
-    },
-])
-
-SAMPLE_DESIGN = json.dumps({
-    "overview": "Token-based auth with JWT and session store.",
-    "components": [
+SAMPLE_REQUIREMENTS = json.dumps(
+    [
         {
-            "name": "AuthService",
-            "description": "Handles login/logout",
-            "interfaces": ["login()", "logout()"],
-            "dependencies": ["TokenStore"],
+            "id": "R1",
+            "title": "User login",
+            "user_story": "As a user, I want to log in, so that I can access my account",
+            "acceptance_criteria": [
+                "WHEN a user submits valid credentials, THE system SHALL grant access",
+                "IF credentials are invalid, THEN THE system SHALL reject the attempt",
+            ],
+            "priority": "must",
         },
         {
-            "name": "TokenStore",
-            "description": "Manages JWT tokens",
-            "interfaces": ["create()", "validate()"],
-            "dependencies": [],
+            "id": "R2",
+            "title": "Session management",
+            "user_story": "As a user, I want my session maintained, so that I stay logged in",
+            "acceptance_criteria": [
+                "WHILE a session is active, THE system SHALL refresh the token",
+            ],
+            "priority": "should",
         },
-    ],
-    "data_models": ["User", "Session", "Token"],
-    "correctness_properties": [
-        "A valid token always maps to an active session",
-        "Expired tokens are never accepted",
-    ],
-})
+    ]
+)
 
-SAMPLE_TASKS = json.dumps([
+SAMPLE_DESIGN = json.dumps(
     {
-        "id": "T1",
-        "title": "Set up auth module",
-        "description": "Create the auth service skeleton",
-        "depends_on": [],
-        "requirements": ["R1"],
-        "estimated_effort": "small",
-    },
-    {
-        "id": "T2",
-        "title": "Implement token store",
-        "description": "Build JWT creation and validation",
-        "depends_on": ["T1"],
-        "requirements": ["R1", "R2"],
-        "estimated_effort": "medium",
-    },
-    {
-        "id": "T3",
-        "title": "Add session refresh",
-        "description": "Implement token refresh logic",
-        "depends_on": ["T2"],
-        "requirements": ["R2"],
-        "estimated_effort": "small",
-    },
-])
+        "overview": "Token-based auth with JWT and session store.",
+        "components": [
+            {
+                "name": "AuthService",
+                "description": "Handles login/logout",
+                "interfaces": ["login()", "logout()"],
+                "dependencies": ["TokenStore"],
+            },
+            {
+                "name": "TokenStore",
+                "description": "Manages JWT tokens",
+                "interfaces": ["create()", "validate()"],
+                "dependencies": [],
+            },
+        ],
+        "data_models": ["User", "Session", "Token"],
+        "correctness_properties": [
+            "A valid token always maps to an active session",
+            "Expired tokens are never accepted",
+        ],
+    }
+)
+
+SAMPLE_TASKS = json.dumps(
+    [
+        {
+            "id": "T1",
+            "title": "Set up auth module",
+            "description": "Create the auth service skeleton",
+            "depends_on": [],
+            "requirements": ["R1"],
+            "estimated_effort": "small",
+        },
+        {
+            "id": "T2",
+            "title": "Implement token store",
+            "description": "Build JWT creation and validation",
+            "depends_on": ["T1"],
+            "requirements": ["R1", "R2"],
+            "estimated_effort": "medium",
+        },
+        {
+            "id": "T3",
+            "title": "Add session refresh",
+            "description": "Implement token refresh logic",
+            "depends_on": ["T2"],
+            "requirements": ["R2"],
+            "estimated_effort": "small",
+        },
+    ]
+)
 
 
 # --- Test decompose (simple mode) ---
@@ -359,9 +368,11 @@ async def test_planner_with_custom_methodology():
     methodology = MinimalMethodology()
     assert isinstance(methodology, PlanningMethodology)
 
-    model = MockModel(script=[
-        '["Step A", "Step B"]',
-    ])
+    model = MockModel(
+        script=[
+            '["Step A", "Step B"]',
+        ]
+    )
     planner = Planner(model=model, methodology=methodology)
 
     assert planner.methodology.name == "minimal"

@@ -151,9 +151,7 @@ class EventBus:
         # Delegate to backend if present
         if self._backend is not None:
             try:
-                backend_id = self._backend.subscribe(
-                    self._fleet_name, topic, handler
-                )
+                backend_id = self._backend.subscribe(self._fleet_name, topic, handler)
                 # Use backend's subscription ID if available
                 if backend_id:
                     subscription_id = backend_id

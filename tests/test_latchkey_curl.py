@@ -31,7 +31,9 @@ from hypothesis import given, settings
 http_methods = st.sampled_from(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
 
 # Generate valid URLs (http or https with a host)
-urls = st.from_regex(r"https?://[a-z][a-z0-9]{0,20}\.[a-z]{2,4}(/[a-z0-9]{1,10}){0,3}", fullmatch=True)
+urls = st.from_regex(
+    r"https?://[a-z][a-z0-9]{0,20}\.[a-z]{2,4}(/[a-z0-9]{1,10}){0,3}", fullmatch=True
+)
 
 # Generate header strings like "Content-Type: application/json"
 header_keys = st.from_regex(r"[A-Z][a-zA-Z\-]{1,20}", fullmatch=True)
@@ -43,7 +45,10 @@ headers = st.lists(
 )
 
 # Optional body content
-bodies = st.one_of(st.none(), st.text(min_size=1, max_size=200, alphabet=st.characters(blacklist_categories=("Cs",))))
+bodies = st.one_of(
+    st.none(),
+    st.text(min_size=1, max_size=200, alphabet=st.characters(blacklist_categories=("Cs",))),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +63,9 @@ bodies = st.one_of(st.none(), st.text(min_size=1, max_size=200, alphabet=st.char
     hdrs=headers,
     body=bodies,
 )
-def test_latchkey_curl_command_construction(url: str, method: str, hdrs: list[str], body: str | None):
+def test_latchkey_curl_command_construction(
+    url: str, method: str, hdrs: list[str], body: str | None
+):
     """Property 14: latchkey_curl command construction.
 
     For any valid URL, HTTP method, list of headers, and optional body,
@@ -104,7 +111,9 @@ def test_latchkey_curl_command_construction(url: str, method: str, hdrs: list[st
 @settings(max_examples=100, deadline=None)
 @given(
     exit_code=st.integers(min_value=1, max_value=255),
-    stderr_content=st.text(min_size=0, max_size=200, alphabet=st.characters(blacklist_categories=("Cs",))),
+    stderr_content=st.text(
+        min_size=0, max_size=200, alphabet=st.characters(blacklist_categories=("Cs",))
+    ),
 )
 def test_latchkey_curl_nonzero_exit_handling(exit_code: int, stderr_content: str):
     """Property 15: latchkey_curl non-zero exit handling.
@@ -132,9 +141,7 @@ def test_latchkey_curl_nonzero_exit_handling(exit_code: int, stderr_content: str
         )
     else:
         # Empty stderr → result should indicate exit code
-        assert str(exit_code) in result, (
-            f"Expected exit code {exit_code} in result {result!r}"
-        )
+        assert str(exit_code) in result, f"Expected exit code {exit_code} in result {result!r}"
 
 
 # ---------------------------------------------------------------------------

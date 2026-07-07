@@ -119,9 +119,7 @@ class LTMStore:
         now = time.time()
         serialized = json.dumps(value)
 
-        existing = self._conn.execute(
-            "SELECT version FROM facts WHERE key = ?", (key,)
-        ).fetchone()
+        existing = self._conn.execute("SELECT version FROM facts WHERE key = ?", (key,)).fetchone()
 
         if existing:
             new_version = existing[0] + 1
@@ -136,7 +134,14 @@ class LTMStore:
                 (key, serialized, agent, confidence, now, new_version),
             )
         self._conn.commit()
-        return Fact(key=key, value=value, agent=agent, confidence=confidence, updated_at=now, version=new_version)
+        return Fact(
+            key=key,
+            value=value,
+            agent=agent,
+            confidence=confidence,
+            updated_at=now,
+            version=new_version,
+        )
 
     def recall(self, key: str) -> Any | None:
         """Retrieve a fact's value by key. Returns None if not found."""
@@ -148,11 +153,19 @@ class LTMStore:
     def recall_fact(self, key: str) -> Fact | None:
         """Retrieve the full Fact record by key."""
         row = self._conn.execute(
-            "SELECT key, value, agent, confidence, updated_at, version FROM facts WHERE key = ?", (key,)
+            "SELECT key, value, agent, confidence, updated_at, version FROM facts WHERE key = ?",
+            (key,),
         ).fetchone()
         if row is None:
             return None
-        return Fact(key=row[0], value=json.loads(row[1]), agent=row[2], confidence=row[3], updated_at=row[4], version=row[5])
+        return Fact(
+            key=row[0],
+            value=json.loads(row[1]),
+            agent=row[2],
+            confidence=row[3],
+            updated_at=row[4],
+            version=row[5],
+        )
 
     def forget(self, key: str) -> bool:
         """Delete a fact. Returns True if it existed."""
@@ -171,7 +184,17 @@ class LTMStore:
             rows = self._conn.execute(
                 "SELECT key, value, agent, confidence, updated_at, version FROM facts ORDER BY updated_at DESC"
             ).fetchall()
-        return [Fact(key=r[0], value=json.loads(r[1]), agent=r[2], confidence=r[3], updated_at=r[4], version=r[5]) for r in rows]
+        return [
+            Fact(
+                key=r[0],
+                value=json.loads(r[1]),
+                agent=r[2],
+                confidence=r[3],
+                updated_at=r[4],
+                version=r[5],
+            )
+            for r in rows
+        ]
 
     # --- Episodes API ---
 
@@ -186,7 +209,9 @@ class LTMStore:
         self._conn.commit()
         return Episode(id=cursor.lastrowid, agent=agent, event=event, data=data, timestamp=now)
 
-    def recent_episodes(self, agent: str | None = None, *, limit: int = 20, event: str | None = None) -> list[Episode]:
+    def recent_episodes(
+        self, agent: str | None = None, *, limit: int = 20, event: str | None = None
+    ) -> list[Episode]:
         """Get recent episodes, optionally filtered by agent and/or event type."""
         query = "SELECT id, agent, event, data, timestamp FROM episodes"
         params: list[Any] = []
@@ -205,7 +230,10 @@ class LTMStore:
         params.append(limit)
 
         rows = self._conn.execute(query, params).fetchall()
-        return [Episode(id=r[0], agent=r[1], event=r[2], data=json.loads(r[3]), timestamp=r[4]) for r in rows]
+        return [
+            Episode(id=r[0], agent=r[1], event=r[2], data=json.loads(r[3]), timestamp=r[4])
+            for r in rows
+        ]
 
     # --- Knowledge API ---
 
@@ -235,7 +263,9 @@ class LTMStore:
         self._conn.commit()
         return Knowledge(id=row_id, text=text, source=source, agent=agent, created_at=now)
 
-    def search_knowledge(self, query: str, *, limit: int = 5, agent: str | None = None) -> list[Knowledge]:
+    def search_knowledge(
+        self, query: str, *, limit: int = 5, agent: str | None = None
+    ) -> list[Knowledge]:
         """Search knowledge using FTS5 BM25 ranking. Returns ranked results."""
         fts_query = self._prepare_fts_query(query)
         if agent:
@@ -258,7 +288,10 @@ class LTMStore:
                    LIMIT ?""",
                 (fts_query, limit),
             ).fetchall()
-        return [Knowledge(id=r[0], text=r[1], source=r[2], agent=r[3], created_at=r[4], rank=abs(r[5])) for r in rows]
+        return [
+            Knowledge(id=r[0], text=r[1], source=r[2], agent=r[3], created_at=r[4], rank=abs(r[5]))
+            for r in rows
+        ]
 
     # --- Lifecycle ---
 

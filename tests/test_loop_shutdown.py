@@ -82,8 +82,7 @@ async def test_shutdown_waits_for_running_loops():
     deadline = asyncio.get_event_loop().time() + 2.0
     while True:
         still_running = [
-            lp for lp in registry.all().values()
-            if lp.state.value not in _CHECKPOINTABLE
+            lp for lp in registry.all().values() if lp.state.value not in _CHECKPOINTABLE
         ]
         if not still_running:
             break
@@ -108,8 +107,7 @@ async def test_shutdown_force_cancels_on_timeout(capsys):
 
     while True:
         still_running = [
-            lp for lp in registry.all().values()
-            if lp.state.value not in _CHECKPOINTABLE
+            lp for lp in registry.all().values() if lp.state.value not in _CHECKPOINTABLE
         ]
         if not still_running:
             break

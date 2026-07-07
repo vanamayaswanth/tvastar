@@ -158,7 +158,9 @@ class CompactionEngine:
             # Word-count heuristic
             words = sum(len(re.findall(r"\S+", m.text)) for m in messages)
             tokens = max(1, int(words * _WORD_TOKEN_FACTOR))
-        return tokens / self._policy.max_context_tokens if self._policy.max_context_tokens > 0 else 0.0
+        return (
+            tokens / self._policy.max_context_tokens if self._policy.max_context_tokens > 0 else 0.0
+        )
 
     def pending_stages(self, usage_ratio: float) -> list[CompactionStage]:
         """Return stages that should fire (ascending order) for given usage.
@@ -197,7 +199,8 @@ class CompactionEngine:
             except Exception as exc:
                 self._logger.warning(
                     "Compaction stage %s failed: %s — restoring snapshot",
-                    stage.name, exc,
+                    stage.name,
+                    exc,
                 )
                 messages = snapshot
 
@@ -213,7 +216,8 @@ class CompactionEngine:
                 messages = self._update_summary_in_place(messages)
             except Exception as exc:
                 self._logger.warning(
-                    "Re-run AUTO_COMPACT failed: %s — restoring snapshot", exc,
+                    "Re-run AUTO_COMPACT failed: %s — restoring snapshot",
+                    exc,
                 )
                 messages = snapshot
 
@@ -250,7 +254,8 @@ class CompactionEngine:
         """
         # Find existing compaction notice + summary pair
         compact_indices = [
-            i for i, m in enumerate(messages)
+            i
+            for i, m in enumerate(messages)
             if m.role == "user" and "[Context compacted:" in m.text
         ]
         if len(compact_indices) >= 2:
@@ -258,7 +263,7 @@ class CompactionEngine:
             oldest = compact_indices[0]
             # Remove the oldest compaction notice and its following summary
             if oldest + 1 < len(messages) and messages[oldest + 1].role == "assistant":
-                messages = messages[:oldest] + messages[oldest + 2:]
+                messages = messages[:oldest] + messages[oldest + 2 :]
         return messages
 
     # --- Stage strategies ---
@@ -295,7 +300,15 @@ class CompactionEngine:
                         )
                     else:
                         new_blocks.append(block)
-                result.append(Message(msg.role, new_blocks, id=msg.id, created_at=msg.created_at, metadata=msg.metadata))
+                result.append(
+                    Message(
+                        msg.role,
+                        new_blocks,
+                        id=msg.id,
+                        created_at=msg.created_at,
+                        metadata=msg.metadata,
+                    )
+                )
             else:
                 result.append(msg)
         return result + tail
@@ -370,9 +383,15 @@ class CompactionEngine:
                 return
             # Process in chunks of max_segment
             for i in range(0, len(segment), max_segment):
-                chunk = segment[i:i + max_segment]
+                chunk = segment[i : i + max_segment]
                 summary_text = self._summarize_segment_sync(chunk, max_summary_chars, model)
-                result.append(Message("assistant", f"[Summary] {summary_text}", metadata={"compaction_summary": True}))
+                result.append(
+                    Message(
+                        "assistant",
+                        f"[Summary] {summary_text}",
+                        metadata={"compaction_summary": True},
+                    )
+                )
             segment.clear()
 
         for msg in old_messages:
@@ -497,11 +516,7 @@ class CompactionEngine:
         goal = self._extract_goal(old_messages)
         state = self._extract_tool_state(old_messages)
 
-        summary_text = (
-            f"[Emergency Compact]\n"
-            f"Goal: {goal}\n"
-            f"Tool State: {state}"
-        )
+        summary_text = f"[Emergency Compact]\nGoal: {goal}\nTool State: {state}"
         summary_msg = Message("assistant", summary_text, metadata={"compaction_summary": True})
 
         # Keep system messages
@@ -539,7 +554,15 @@ class CompactionEngine:
                     else:
                         keep_blocks.append(block)
                 if keep_blocks:
-                    result.append(Message(msg.role, keep_blocks, id=msg.id, created_at=msg.created_at, metadata=msg.metadata))
+                    result.append(
+                        Message(
+                            msg.role,
+                            keep_blocks,
+                            id=msg.id,
+                            created_at=msg.created_at,
+                            metadata=msg.metadata,
+                        )
+                    )
             else:
                 result.append(msg)
         return result

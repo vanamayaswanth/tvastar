@@ -1,4 +1,5 @@
 """Tests for event-driven loop triggers (Loop.subscribe_trigger + EventBus)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -99,7 +100,7 @@ class TestSubscribeTrigger:
         # Verify trigger was called with event context
         mock_loop.trigger.assert_called_once()
         call_kwargs = mock_loop.trigger.call_args
-        context = call_kwargs[1]["context"] if call_kwargs[1] else call_kwargs[0][0] if call_kwargs[0] else {}
+        call_kwargs[1]["context"] if call_kwargs[1] else call_kwargs[0][0] if call_kwargs[0] else {}
         # The context should contain the event payload
         if "context" in (call_kwargs[1] or {}):
             assert call_kwargs[1]["context"]["event"] == {"commit": "abc123"}

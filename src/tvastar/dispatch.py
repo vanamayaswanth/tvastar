@@ -222,7 +222,9 @@ class DispatchPool:
                     # All are active — evict the oldest
                     evict_key = next(iter(self._default_harnesses))
                 self._default_harnesses.pop(evict_key, None)
-            self._default_harnesses[id] = Harness(spec, store=shared_store, durable=True, tracer=tracer)
+            self._default_harnesses[id] = Harness(
+                spec, store=shared_store, durable=True, tracer=tracer
+            )
         harness = self._default_harnesses[id]
 
         self._emit(

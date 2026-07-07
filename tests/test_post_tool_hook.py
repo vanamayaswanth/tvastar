@@ -42,6 +42,7 @@ async def test_post_tool_hook_called_with_name_args_and_result():
 
 async def test_post_tool_hook_modifies_result():
     """Req 13.3: When post_tool_hook returns a string, it replaces the tool result."""
+
     def hook(name: str, args: dict, result: str):
         return "MODIFIED_RESULT"
 
@@ -62,9 +63,11 @@ async def test_post_tool_hook_modifies_result():
         r = await sess.prompt("write")
         # The tool result message fed back to the model should contain "MODIFIED_RESULT"
         # Check messages for tool_result content
-        tool_results = [
-            m for m in sess.messages
-            if hasattr(m, "role") and m.role == "tool_result"
+        [
+            m
+            for m in sess.messages
+            if hasattr(m, "role")
+            and m.role == "tool_result"
             or (isinstance(m, dict) and m.get("role") == "tool_result")
         ]
         # The modified result appears in the message flow — verify via the model
@@ -74,6 +77,7 @@ async def test_post_tool_hook_modifies_result():
 
 async def test_post_tool_hook_returns_none_uses_original():
     """Req 13.4: When post_tool_hook returns None, the original result is used."""
+
     def hook(name: str, args: dict, result: str):
         return None  # explicitly return None
 
@@ -99,6 +103,7 @@ async def test_post_tool_hook_returns_none_uses_original():
 
 async def test_post_tool_hook_exception_does_not_break_run():
     """Req 13.5: If post_tool_hook raises, Session logs a warning and uses original result."""
+
     def broken_hook(name: str, args: dict, result: str):
         raise ValueError("hook exploded")
 
@@ -138,10 +143,13 @@ async def test_post_tool_hook_called_for_each_tool_in_step():
     from tvastar.types import Message
 
     # Multi-tool step: pass a Message with multiple ToolUseBlocks
-    multi_tool_msg = Message("assistant", [
-        ToolUseBlock(name="write_file", input={"path": "a.txt", "content": "aa"}),
-        ToolUseBlock(name="write_file", input={"path": "b.txt", "content": "bb"}),
-    ])
+    multi_tool_msg = Message(
+        "assistant",
+        [
+            ToolUseBlock(name="write_file", input={"path": "a.txt", "content": "aa"}),
+            ToolUseBlock(name="write_file", input={"path": "b.txt", "content": "bb"}),
+        ],
+    )
     script = [
         multi_tool_msg,
         "Done.",

@@ -51,7 +51,7 @@ def test_tool_retry_backoff_formula(
     delay = policy.sleep_for(attempt)
 
     # Expected deterministic component (capped exponential)
-    expected_base = min(backoff_max, backoff_base * (2 ** attempt))
+    expected_base = min(backoff_max, backoff_base * (2**attempt))
 
     # The delay must be at least the capped base (jitter >= 0)
     assert delay >= expected_base, (

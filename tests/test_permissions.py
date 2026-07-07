@@ -98,7 +98,7 @@ class TestPermissionResolver:
         resolver = self._make_resolver({"x": entry}, trust_log=log)
 
         # The record is appended during resolve(), before the return
-        child = resolver.resolve("x", "parent", SecurityPolicy())
+        resolver.resolve("x", "parent", SecurityPolicy())
         # By the time we have child, the log already has the record
         assert len(log) == 1
         assert log[0]["timestamp"] <= time.time()

@@ -101,12 +101,10 @@ async def test_compaction_preserves_tail(
 
     for i, (res_msg, orig_msg) in enumerate(zip(result_tail, original_tail)):
         assert res_msg.role == orig_msg.role, (
-            f"Tail message {i}: role mismatch — got {res_msg.role!r}, "
-            f"expected {orig_msg.role!r}"
+            f"Tail message {i}: role mismatch — got {res_msg.role!r}, expected {orig_msg.role!r}"
         )
         assert res_msg.text == orig_msg.text, (
-            f"Tail message {i}: text mismatch — got {res_msg.text!r}, "
-            f"expected {orig_msg.text!r}"
+            f"Tail message {i}: text mismatch — got {res_msg.text!r}, expected {orig_msg.text!r}"
         )
 
 

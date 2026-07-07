@@ -237,9 +237,7 @@ async def test_connect_error_raises_tool_error(monkeypatch):
     )
 
     mock_client = AsyncMock()
-    mock_client.request = AsyncMock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    mock_client.request = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 

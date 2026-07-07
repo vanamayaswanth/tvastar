@@ -190,9 +190,7 @@ class TestProperty17ResumeSkipsJournaledNodes:
         for name in node_names:
             graph.task(name, f"do {name}")
 
-        result = await graph.run(
-            resume=True, graph_run_id=graph_run_id, journal=journal
-        )
+        result = await graph.run(resume=True, graph_run_id=graph_run_id, journal=journal)
 
         # Model should only be called for uncached nodes
         assert model.call_count == len(uncached_nodes), (
@@ -242,9 +240,7 @@ class TestProperty18JournalFaultTolerance:
             graph.task(name, f"do {name}")
 
         # Should complete without raising, despite the journal failing
-        result = await graph.run(
-            graph_run_id=graph_run_id, journal=failing_journal
-        )
+        result = await graph.run(graph_run_id=graph_run_id, journal=failing_journal)
 
         # All nodes should have completed
         assert len(result) == len(node_names)
@@ -310,9 +306,7 @@ class TestProperty19CorruptJournalEntryCausesReExecution:
         for name in node_names:
             graph.task(name, f"do {name}")
 
-        result = await graph.run(
-            resume=True, graph_run_id=graph_run_id, journal=journal
-        )
+        result = await graph.run(resume=True, graph_run_id=graph_run_id, journal=journal)
 
         # All nodes should have been re-executed because entries are corrupt
         assert model.call_count == len(node_names), (
@@ -351,9 +345,7 @@ class TestNoResumeExecutesAllNodes:
         graph.task("node_b", "do b")
 
         # Run WITHOUT resume=True — all nodes should execute
-        result = await graph.run(
-            graph_run_id=graph_run_id, journal=journal
-        )
+        result = await graph.run(graph_run_id=graph_run_id, journal=journal)
 
         # Both nodes should have been executed (not skipped)
         assert model.call_count == 2
@@ -389,9 +381,7 @@ class TestStaleEntriesIgnored:
         graph.task("current_a", "do a")
         graph.task("current_b", "do b")
 
-        result = await graph.run(
-            resume=True, graph_run_id=graph_run_id, journal=journal
-        )
+        result = await graph.run(resume=True, graph_run_id=graph_run_id, journal=journal)
 
         # current_a should be loaded from cache, current_b should execute
         assert result["current_a"].text == "cached_a"

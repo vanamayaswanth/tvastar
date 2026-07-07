@@ -81,5 +81,5 @@ class TestStructuredRetriesConfig:
             instructions="test",
             tools=default_toolset(),
         )
-        r = await Harness(agent).run("get user", result=User)
+        await Harness(agent).run("get user", result=User)
         assert len(model.calls) == 3  # 1 initial + 2 retries

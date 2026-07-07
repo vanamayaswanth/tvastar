@@ -1,4 +1,5 @@
 """Integration test proving Fleet.submit() triggers Loop.trigger()."""
+
 import pytest
 from tvastar.agent import create_agent
 from tvastar.fleet import Fleet, FleetConfig

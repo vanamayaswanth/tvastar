@@ -38,18 +38,14 @@ class LoopSupervisor:
             (False, active_run_id) if trigger should be skipped.
         """
         async with self._lock:
-            allow_concurrent = getattr(
-                self._loop.config, "allow_concurrent", False
-            )
+            allow_concurrent = getattr(self._loop.config, "allow_concurrent", False)
             active_states = (LoopState.RUNNING, LoopState.VERIFYING)
 
             if not allow_concurrent:
                 if self._loop.state in active_states:
                     return (
                         False,
-                        self._active_run_ids[0]
-                        if self._active_run_ids
-                        else "unknown",
+                        self._active_run_ids[0] if self._active_run_ids else "unknown",
                     )
                 return True, None
             else:

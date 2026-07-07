@@ -204,9 +204,7 @@ def _scan_message_text(text: str, msg_index: int, source: str, evidence: list[st
         match = pattern.search(text)
         if match:
             snippet = match.group(0)[:100]
-            evidence.append(
-                f"[msg {msg_index}, {source}] pattern '{pattern_name}': \"{snippet}\""
-            )
+            evidence.append(f"[msg {msg_index}, {source}] pattern '{pattern_name}': \"{snippet}\"")
 
 
 # ---------------------------------------------------------------------------

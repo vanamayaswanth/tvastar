@@ -26,6 +26,7 @@ Usage:
         graph.task(task.id, task.description, depends_on=task.depends_on)
     result = await graph.run()
 """
+
 from __future__ import annotations
 
 import json
@@ -72,6 +73,7 @@ class Planner:
         prompt = self._methodology.decompose_prompt(goal)
 
         from ..types import Message
+
         messages = [Message("user", prompt)]
 
         resp = await self._model.generate(
@@ -103,7 +105,12 @@ class Planner:
             temperature=0.3,
         )
         requirements = self._parse_requirements(req_resp.message.text)
-        req_text = json.dumps([{"id": r.id, "title": r.title, "criteria": r.acceptance_criteria} for r in requirements])
+        req_text = json.dumps(
+            [
+                {"id": r.id, "title": r.title, "criteria": r.acceptance_criteria}
+                for r in requirements
+            ]
+        )
 
         # Phase 2: Design
         design_prompt = self._methodology.design_prompt(goal, req_text)
@@ -115,7 +122,9 @@ class Planner:
             temperature=0.3,
         )
         design = self._parse_design(design_resp.message.text)
-        design_text = json.dumps({"overview": design.overview, "components": [c.name for c in design.components]})
+        design_text = json.dumps(
+            {"overview": design.overview, "components": [c.name for c in design.components]}
+        )
 
         # Phase 3: Tasks
         tasks_prompt = self._methodology.tasks_prompt(goal, req_text, design_text)
@@ -157,7 +166,7 @@ class Planner:
             if isinstance(data, list):
                 return [
                     Requirement(
-                        id=r.get("id", f"R{i+1}"),
+                        id=r.get("id", f"R{i + 1}"),
                         title=r.get("title", "Untitled"),
                         user_story=r.get("user_story", ""),
                         acceptance_criteria=r.get("acceptance_criteria", []),
@@ -168,7 +177,15 @@ class Planner:
         except (json.JSONDecodeError, ValueError):
             pass
         # Fallback: single requirement from the goal
-        return [Requirement(id="R1", title="Main requirement", user_story=text[:200], acceptance_criteria=[], priority="must")]
+        return [
+            Requirement(
+                id="R1",
+                title="Main requirement",
+                user_story=text[:200],
+                acceptance_criteria=[],
+                priority="must",
+            )
+        ]
 
     def _parse_design(self, text: str) -> DesignDoc:
         """Parse design JSON into a DesignDoc."""
@@ -178,12 +195,14 @@ class Planner:
                 components = []
                 for c in data.get("components", []):
                     if isinstance(c, dict):
-                        components.append(DesignComponent(
-                            name=c.get("name", ""),
-                            description=c.get("description", ""),
-                            interfaces=c.get("interfaces", []),
-                            dependencies=c.get("dependencies", []),
-                        ))
+                        components.append(
+                            DesignComponent(
+                                name=c.get("name", ""),
+                                description=c.get("description", ""),
+                                interfaces=c.get("interfaces", []),
+                                dependencies=c.get("dependencies", []),
+                            )
+                        )
                     elif isinstance(c, str):
                         components.append(DesignComponent(name=c, description=""))
                 return DesignDoc(
@@ -194,7 +213,9 @@ class Planner:
                 )
         except (json.JSONDecodeError, ValueError):
             pass
-        return DesignDoc(overview=text[:200], components=[], data_models=[], correctness_properties=[])
+        return DesignDoc(
+            overview=text[:200], components=[], data_models=[], correctness_properties=[]
+        )
 
     def _parse_tasks(self, text: str) -> list[Task]:
         """Parse tasks JSON into Task objects."""
@@ -203,7 +224,7 @@ class Planner:
             if isinstance(data, list):
                 return [
                     Task(
-                        id=t.get("id", f"T{i+1}"),
+                        id=t.get("id", f"T{i + 1}"),
                         title=t.get("title", "Untitled"),
                         description=t.get("description", ""),
                         depends_on=t.get("depends_on", []),
@@ -214,7 +235,15 @@ class Planner:
                 ]
         except (json.JSONDecodeError, ValueError):
             pass
-        return [Task(id="T1", title="Implementation", description=text[:200], depends_on=[], requirements=[])]
+        return [
+            Task(
+                id="T1",
+                title="Implementation",
+                description=text[:200],
+                depends_on=[],
+                requirements=[],
+            )
+        ]
 
     @staticmethod
     def _extract_json(text: str) -> str:
@@ -242,6 +271,6 @@ class Planner:
                     elif text[j] in "]}":
                         depth -= 1
                         if depth == 0:
-                            return text[i:j+1]
+                            return text[i : j + 1]
                 return text[i:]
         return text

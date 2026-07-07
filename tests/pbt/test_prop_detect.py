@@ -24,7 +24,14 @@ from __future__ import annotations
 import hypothesis.strategies as st
 from hypothesis import given, settings
 
-from tvastar.detect import Finding, RunContext, Severity, run_detectors, thrash_loop, unverified_completion
+from tvastar.detect import (
+    Finding,
+    RunContext,
+    Severity,
+    run_detectors,
+    thrash_loop,
+    unverified_completion,
+)
 from tvastar.detect.base import Detector
 from tvastar.tools.base import ToolRegistry
 from tvastar.types import Message, ToolResultBlock, ToolUseBlock
@@ -172,7 +179,9 @@ def st_tool_input(draw: st.DrawFn) -> dict:
     values = draw(
         st.lists(
             st.one_of(
-                st.text(min_size=1, max_size=10, alphabet=st.characters(whitelist_categories=("L", "N"))),
+                st.text(
+                    min_size=1, max_size=10, alphabet=st.characters(whitelist_categories=("L", "N"))
+                ),
                 st.integers(min_value=-100, max_value=100),
                 st.booleans(),
             ),
@@ -183,9 +192,7 @@ def st_tool_input(draw: st.DrawFn) -> dict:
     return dict(zip(keys, values))
 
 
-def _build_thrash_context(
-    tool_name: str, tool_input: dict, repeat_count: int
-) -> RunContext:
+def _build_thrash_context(tool_name: str, tool_input: dict, repeat_count: int) -> RunContext:
     """Build a RunContext with the same tool+args repeated `repeat_count` times."""
     blocks = [
         ToolUseBlock(name=tool_name, input=tool_input, id=f"call_{i:04d}")

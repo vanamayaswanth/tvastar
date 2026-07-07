@@ -4,6 +4,7 @@ Validates:
 - Requirements 26.1: scrub_after_run=True replaces all message content with SHA-256 hashes
 - Requirements 26.2: scrub_after_run=False preserves message content unchanged
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -35,9 +36,7 @@ async def test_scrub_after_run_true_replaces_all_message_content():
     assert len(result.messages) >= 2  # at least user + assistant
     for msg in result.messages:
         content_str = str(msg.content)
-        assert SCRUB_PATTERN.match(content_str), (
-            f"Message content not scrubbed: {content_str!r}"
-        )
+        assert SCRUB_PATTERN.match(content_str), f"Message content not scrubbed: {content_str!r}"
 
 
 @pytest.mark.asyncio
@@ -113,6 +112,4 @@ async def test_scrub_after_run_true_with_multi_turn():
     # All messages should be scrubbed regardless of role
     for msg in result.messages:
         content_str = str(msg.content)
-        assert SCRUB_PATTERN.match(content_str), (
-            f"Message content not scrubbed: {content_str!r}"
-        )
+        assert SCRUB_PATTERN.match(content_str), f"Message content not scrubbed: {content_str!r}"

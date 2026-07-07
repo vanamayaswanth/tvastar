@@ -101,7 +101,7 @@ def _blocks_equivalent(original_blocks, loaded_blocks) -> bool:
     if len(original_blocks) != len(loaded_blocks):
         return False
     for orig, loaded in zip(original_blocks, loaded_blocks):
-        if type(orig) != type(loaded):
+        if type(orig) is not type(loaded):
             return False
         if isinstance(orig, TextBlock):
             if orig.text != loaded.text:

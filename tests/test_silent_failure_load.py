@@ -131,9 +131,7 @@ def test_loads_directory_of_json_files(tmp_path):
 
 def test_directory_ignores_non_json_files(tmp_path):
     (tmp_path / "readme.txt").write_text("not data", encoding="utf-8")
-    (tmp_path / "data.json").write_text(
-        json.dumps([_valid_entry()]), encoding="utf-8"
-    )
+    (tmp_path / "data.json").write_text(json.dumps([_valid_entry()]), encoding="utf-8")
 
     result = load_trajectories(tmp_path)
     assert len(result) == 1

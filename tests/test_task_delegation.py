@@ -101,7 +101,6 @@ class TestChildSessionCreation:
     async def test_task_with_cwd_prepends_to_prompt(self):
         """cwd parameter adds working directory context to prompt."""
         prompts_seen = []
-        original_generate = MockModel.generate
 
         class CapturingModel(MockModel):
             async def generate(self, messages, **kwargs):
@@ -171,9 +170,7 @@ class TestSpecResolutionPrecedence:
         h = Harness(spec)
         sess = h.session()
         async with sess:
-            result = await sess.task(
-                "go", instructions="override instructions"
-            )
+            result = await sess.task("go", instructions="override instructions")
         # Task completes successfully with override instructions active
         assert result.text == "result."
 
@@ -205,9 +202,7 @@ class TestSpecResolutionPrecedence:
         h = Harness(spec)
         sess = h.session()
         async with sess:
-            result = await sess.task(
-                "go", agent="worker", thinking_level="high"
-            )
+            result = await sess.task("go", agent="worker", thinking_level="high")
         assert result.text == "done."
 
 
@@ -227,9 +222,7 @@ class TestRouterProfileSelection:
         h = Harness(spec)
         sess = h.session()
         async with sess:
-            result = await sess.task(
-                "Write unit tests for auth.py", router=router
-            )
+            result = await sess.task("Write unit tests for auth.py", router=router)
         assert result.text == "tests written."
 
     async def test_router_picks_coder_for_code_prompt(self):
@@ -242,9 +235,7 @@ class TestRouterProfileSelection:
         h = Harness(spec)
         sess = h.session()
         async with sess:
-            result = await sess.task(
-                "Write Python code for the new feature", router=router
-            )
+            result = await sess.task("Write Python code for the new feature", router=router)
         assert result.text == "code written."
 
     async def test_router_returns_none_below_threshold(self):
@@ -271,9 +262,7 @@ class TestRouterProfileSelection:
         sess = h.session()
         async with sess:
             # Even though prompt mentions "tests", explicit agent="coder" wins
-            result = await sess.task(
-                "Write unit tests", agent="coder", router=router
-            )
+            result = await sess.task("Write unit tests", agent="coder", router=router)
         assert result.text == "from coder."
 
 

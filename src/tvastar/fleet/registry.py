@@ -192,9 +192,7 @@ class FleetRegistry:
         # Check for duplicate (name, version) pair
         existing = self._agents.get(name)
         if existing is not None and existing.version == version:
-            raise RegistrationError(
-                f"Agent {name!r} version {version!r} is already registered"
-            )
+            raise RegistrationError(f"Agent {name!r} version {version!r} is already registered")
 
         deps = dependencies or []
 
@@ -203,9 +201,7 @@ class FleetRegistry:
             cycle = self._detect_cycle(name, deps)
             if cycle is not None:
                 cycle_path = " -> ".join(cycle)
-                raise RegistrationError(
-                    f"Circular dependency detected: {cycle_path}"
-                )
+                raise RegistrationError(f"Circular dependency detected: {cycle_path}")
 
         # Build config_overrides — apply fleet defaults if agent has none
         config_overrides: dict[str, Any] = {}
@@ -415,9 +411,7 @@ class FleetRegistry:
     # Dependency tracking
     # ------------------------------------------------------------------
 
-    def _detect_cycle(
-        self, agent_name: str, dependencies: list[str]
-    ) -> list[str] | None:
+    def _detect_cycle(self, agent_name: str, dependencies: list[str]) -> list[str] | None:
         """Detect if adding agent_name with given dependencies creates a cycle.
 
         Uses DFS to traverse the existing dependency graph starting from each
@@ -471,9 +465,7 @@ class FleetRegistry:
         """
         entry = self._agents.get(name)
         if entry is None:
-            raise RegistrationError(
-                f"Agent {name!r} not found in registry"
-            )
+            raise RegistrationError(f"Agent {name!r} not found in registry")
 
         return list(self._versions.get(name, []))
 
@@ -502,9 +494,7 @@ class FleetRegistry:
         """
         entry = self._agents.get(name)
         if entry is None:
-            raise RegistrationError(
-                f"Agent {name!r} not found in registry"
-            )
+            raise RegistrationError(f"Agent {name!r} not found in registry")
 
         versions = self._versions.get(name, [])
         target: AgentVersion | None = None
@@ -514,9 +504,7 @@ class FleetRegistry:
                 break
 
         if target is None:
-            raise RegistrationError(
-                f"Version {version!r} not found in history for agent {name!r}"
-            )
+            raise RegistrationError(f"Version {version!r} not found in history for agent {name!r}")
 
         # Restore agent to the target version
         entry.version = target.version

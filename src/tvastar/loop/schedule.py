@@ -181,7 +181,8 @@ def resolve_next_run(
             if clamped != int(hint):
                 logger.warning(
                     "Adaptive schedule clamped: requested=%s, applied=%s",
-                    hint, clamped,
+                    hint,
+                    clamped,
                 )
             return after + timedelta(seconds=clamped)
         elif hint is not None:

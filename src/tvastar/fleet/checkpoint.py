@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..memory.store import Store
@@ -70,9 +70,7 @@ class FleetCheckpointManager:
         Returns messages unchanged if no checkpoint exists or on failure.
         """
         try:
-            keys = sorted(
-                store.keys(f"fleet_checkpoint:{loop_name}:"), reverse=True
-            )
+            keys = sorted(store.keys(f"fleet_checkpoint:{loop_name}:"), reverse=True)
             if not keys:
                 return messages
             raw = store.get(keys[0])
@@ -91,9 +89,7 @@ class FleetCheckpointManager:
     def _prune(self, loop_name: str, store: "Store") -> None:
         """Keep only the 3 most recent checkpoints, delete older."""
         try:
-            keys = sorted(
-                store.keys(f"fleet_checkpoint:{loop_name}:"), reverse=True
-            )
+            keys = sorted(store.keys(f"fleet_checkpoint:{loop_name}:"), reverse=True)
             for old_key in keys[self.MAX_CHECKPOINTS :]:
                 store.delete(old_key)
         except Exception as exc:

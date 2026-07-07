@@ -110,6 +110,7 @@ class FleetBudget:
 
         # Cumulative spend tracking — capped to prevent unbounded memory growth
         from collections import deque
+
         self._cost_events: deque[_CostEvent] = deque(maxlen=100_000)
         self._spend_by_agent: dict[str, float] = {}
         self._spend_by_owner: dict[str, float] = {}
@@ -165,9 +166,7 @@ class FleetBudget:
 
         # Update cumulative totals
         self._total_spent += usd
-        self._spend_by_agent[agent_name] = (
-            self._spend_by_agent.get(agent_name, 0.0) + usd
-        )
+        self._spend_by_agent[agent_name] = self._spend_by_agent.get(agent_name, 0.0) + usd
         self._spend_by_owner[owner] = self._spend_by_owner.get(owner, 0.0) + usd
 
         # Update per-agent allocation tracking

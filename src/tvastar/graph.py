@@ -241,9 +241,7 @@ class TaskGraph:
                     from .session import RunResult as _RunResult
                     from .types import Usage as _Usage
 
-                    completed[name] = _RunResult(
-                        text=stored, messages=[], usage=_Usage(), steps=0
-                    )
+                    completed[name] = _RunResult(text=stored, messages=[], usage=_Usage(), steps=0)
                     done_events[name].set()
                     return  # skip execution
                 # else: discard (None or non-string) and re-execute
@@ -253,6 +251,7 @@ class TaskGraph:
             sess = self._harness.session()
             if node.model is not None:
                 import dataclasses
+
                 sess.spec = dataclasses.replace(sess.spec, model=node.model)
             try:
                 # Build prompt — inject dependency results when requested
@@ -355,5 +354,5 @@ class TaskGraph:
 
         # Model interface validation
         for node in self._nodes.values():
-            if node.model is not None and not hasattr(node.model, 'generate'):
+            if node.model is not None and not hasattr(node.model, "generate"):
                 raise TypeError(f"Task {node.name!r} model must implement the Model interface")

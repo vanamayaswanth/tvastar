@@ -88,6 +88,7 @@ class FleetObserver:
 
         # Error/success tracking for error rate alerting — capped to prevent OOM
         from collections import deque
+
         self._outcomes: deque[tuple[float, bool]] = deque(maxlen=50_000)
 
         # Cost tracking for cost spike alerting — capped

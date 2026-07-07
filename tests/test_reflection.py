@@ -1,4 +1,5 @@
 """Tests for tvastar.reflection — self-critique loop."""
+
 from __future__ import annotations
 
 import pytest
@@ -75,11 +76,13 @@ class TestReflect:
     @pytest.mark.asyncio
     async def test_accepted_on_second_round(self):
         """Model critiques first, revises, then accepts on second round."""
-        model = MockModel(script=[
-            "The output is missing error handling.",  # critique round 1
-            "some output with error handling",       # revision round 1
-            "ACCEPTABLE",                            # critique round 2 → accept
-        ])
+        model = MockModel(
+            script=[
+                "The output is missing error handling.",  # critique round 1
+                "some output with error handling",  # revision round 1
+                "ACCEPTABLE",  # critique round 2 → accept
+            ]
+        )
         result = await reflect("some output", model=model)
 
         assert result.original_text == "some output"
@@ -92,12 +95,14 @@ class TestReflect:
     @pytest.mark.asyncio
     async def test_max_rounds_reached(self):
         """Model never says ACCEPTABLE — stops at max_rounds."""
-        model = MockModel(script=[
-            "Needs improvement: add types.",        # critique round 1
-            "revised version 1",                    # revision round 1
-            "Still needs improvement: add docs.",   # critique round 2
-            "revised version 2",                    # revision round 2
-        ])
+        model = MockModel(
+            script=[
+                "Needs improvement: add types.",  # critique round 1
+                "revised version 1",  # revision round 1
+                "Still needs improvement: add docs.",  # critique round 2
+                "revised version 2",  # revision round 2
+            ]
+        )
         result = await reflect("original", model=model, max_rounds=2)
 
         assert result.original_text == "original"
@@ -129,10 +134,12 @@ class TestReflect:
     @pytest.mark.asyncio
     async def test_single_round(self):
         """max_rounds=1: one critique + one revision if not accepted."""
-        model = MockModel(script=[
-            "Missing edge case handling.",  # critique
-            "improved output",             # revision
-        ])
+        model = MockModel(
+            script=[
+                "Missing edge case handling.",  # critique
+                "improved output",  # revision
+            ]
+        )
         result = await reflect("output", model=model, max_rounds=1)
 
         assert result.final_text == "improved output"
@@ -143,10 +150,12 @@ class TestReflect:
     @pytest.mark.asyncio
     async def test_no_improvement_when_text_unchanged(self):
         """If revision produces same text, improved is False."""
-        model = MockModel(script=[
-            "It could be better.",  # critique
-            "output",              # revision same as original
-        ])
+        model = MockModel(
+            script=[
+                "It could be better.",  # critique
+                "output",  # revision same as original
+            ]
+        )
         result = await reflect("output", model=model, max_rounds=1)
 
         assert result.final_text == "output"

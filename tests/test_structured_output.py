@@ -157,9 +157,7 @@ class TestSuccessfulParse:
         """Successful structured output should not produce fallback findings."""
         agent = _make_agent(['{"name": "Carol", "age": 40}'])
         r = await Harness(agent).run("get user", result=UserV2)
-        fallback_findings = [
-            f for f in r.findings if f.detector == "structured_parse_failure"
-        ]
+        fallback_findings = [f for f in r.findings if f.detector == "structured_parse_failure"]
         assert len(fallback_findings) == 0
 
     async def test_json_with_markdown_fences_still_parsed(self):
@@ -252,9 +250,7 @@ class TestFallbackBehavior:
         script = ["bad"] * total
         agent = _make_agent(script)
         r = await Harness(agent).run("get user", result=UserV2)
-        fallback_findings = [
-            f for f in r.findings if f.detector == "structured_parse_failure"
-        ]
+        fallback_findings = [f for f in r.findings if f.detector == "structured_parse_failure"]
         assert len(fallback_findings) == 1
         assert fallback_findings[0].severity == Severity.WARNING
 
@@ -264,9 +260,7 @@ class TestFallbackBehavior:
         script = ["garbage"] * total
         agent = _make_agent(script)
         r = await Harness(agent).run("get user", result=UserV2)
-        fallback_findings = [
-            f for f in r.findings if f.detector == "structured_parse_failure"
-        ]
+        fallback_findings = [f for f in r.findings if f.detector == "structured_parse_failure"]
         msg = fallback_findings[0].message
         assert f"{_STRUCTURED_RETRIES + 1} attempt" in msg
 

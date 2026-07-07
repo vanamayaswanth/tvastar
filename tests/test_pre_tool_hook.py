@@ -41,6 +41,7 @@ async def test_pre_tool_hook_called_with_name_and_args():
 
 async def test_pre_tool_hook_modifies_args():
     """Req 12.3: When pre_tool_hook returns a dict, the tool receives modified args."""
+
     def hook(name: str, args: dict):
         if name == "write_file":
             return {"path": "modified.txt", "content": "modified_content"}
@@ -60,7 +61,7 @@ async def test_pre_tool_hook_modifies_args():
     h = Harness(agent)
     sess = h.session()
     async with sess:
-        r = await sess.prompt("write")
+        await sess.prompt("write")
         # The hook modified the path to "modified.txt"
         assert sess.sandbox.fs.read("modified.txt") == "modified_content"
         # Original file should NOT exist
@@ -70,6 +71,7 @@ async def test_pre_tool_hook_modifies_args():
 
 async def test_pre_tool_hook_returns_none_uses_original():
     """Req 12.4: When pre_tool_hook returns None, original args are used."""
+
     def hook(name: str, args: dict):
         return None  # explicitly return None
 
@@ -87,12 +89,13 @@ async def test_pre_tool_hook_returns_none_uses_original():
     h = Harness(agent)
     sess = h.session()
     async with sess:
-        r = await sess.prompt("write")
+        await sess.prompt("write")
         assert sess.sandbox.fs.read("original.txt") == "data"
 
 
 async def test_pre_tool_hook_exception_does_not_break_run():
     """Req 12.5: If pre_tool_hook raises, Session logs a warning and uses original args."""
+
     def broken_hook(name: str, args: dict):
         raise ValueError("hook exploded")
 

@@ -3,6 +3,7 @@
 Uses the fleet alerting handlers (SlackAlertHandler, WebhookAlertHandler)
 for actual delivery. This module formats CI-specific messages.
 """
+
 from __future__ import annotations
 
 from .runner import CIRunResult
@@ -10,9 +11,12 @@ from .runner import CIRunResult
 
 def format_ci_report(result: CIRunResult, *, repo: str = "") -> str:
     """Format a CIRunResult as a human-readable report."""
-    emoji = {"green": "\u2705", "fixed": "\U0001f527", "unfixed": "\u274c", "error": "\U0001f4a5"}.get(
-        result.status, "\u2753"
-    )
+    emoji = {
+        "green": "\u2705",
+        "fixed": "\U0001f527",
+        "unfixed": "\u274c",
+        "error": "\U0001f4a5",
+    }.get(result.status, "\u2753")
 
     lines = [f"{emoji} **CI Status: {result.status.upper()}**"]
     if repo:

@@ -51,7 +51,7 @@ async def test_step_callback_receives_model_response():
         detect=False,
     )
     h = Harness(agent)
-    r = await h.run("hi")
+    await h.run("hi")
     assert len(responses_received) == 1
     # ModelResponse should have a text property or message containing "Hello world"
     resp = responses_received[0]
@@ -73,7 +73,7 @@ async def test_step_callback_receives_current_messages():
         detect=False,
     )
     h = Harness(agent)
-    r = await h.run("hello")
+    await h.run("hello")
     assert len(messages_snapshots) == 1
     # Messages should contain at least the user message and the assistant response
     msgs = messages_snapshots[0]
@@ -137,7 +137,7 @@ async def test_step_callback_called_before_tool_execution():
         detect=False,
     )
     h = Harness(agent)
-    r = await h.run("list")
+    await h.run("list")
     # First callback (step 1 = tool use): messages should have user + assistant but no tool result yet
     step1_msgs = call_messages[0]
     # The last message should be the assistant (tool use), not a user (tool result)

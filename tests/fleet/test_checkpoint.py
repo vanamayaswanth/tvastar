@@ -6,16 +6,14 @@ Validates: Requirements 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
 from __future__ import annotations
 
 import json
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from tvastar.fleet.checkpoint import FleetCheckpointManager
-from tvastar.fleet.registry import FleetRegistry, AgentState
+from tvastar.fleet.registry import FleetRegistry
 from tvastar.fleet.observer import FleetObserver
 from tvastar.fleet.bus import EventBus
-from tvastar.fleet import AgentHealthSnapshot
 from tvastar.memory.store import InMemoryStore
 
 

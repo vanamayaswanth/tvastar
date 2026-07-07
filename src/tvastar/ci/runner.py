@@ -9,6 +9,7 @@ Intelligence features:
 - Auto-PR: creates fix branches and opens PRs via GitHubClient
 - Generalized: handles build errors, not just test failures
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -135,7 +136,9 @@ class CIRunner:
                     )
 
             # --- Gap 1: Flaky detection — re-run to check if flaky ---
-            retry_result = await sandbox.exec(self._config.test_command, timeout=self._config.timeout)
+            retry_result = await sandbox.exec(
+                self._config.test_command, timeout=self._config.timeout
+            )
             if retry_result.ok:
                 # Passed on second run → flaky!
                 flaky_names = _extract_test_names(baseline.render())
@@ -262,8 +265,8 @@ class CIRunner:
                     repo,
                     title=f"fix: {summary}",
                     body=f"## Auto-fix by tvastar-ci\n\n"
-                         f"**Changed files:** {', '.join(fix_result.changed_files)}\n\n"
-                         f"**Summary:** {fix_result.summary[:500]}",
+                    f"**Changed files:** {', '.join(fix_result.changed_files)}\n\n"
+                    f"**Summary:** {fix_result.summary[:500]}",
                     head=branch_name,
                     base=self._config.branch,
                 )

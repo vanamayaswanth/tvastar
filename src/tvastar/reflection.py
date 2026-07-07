@@ -16,6 +16,7 @@ Usage:
     result = await session.prompt("Write a function to sort a list")
     reviewed = await reflect(result, model=model, criteria="Check for correctness and edge cases")
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

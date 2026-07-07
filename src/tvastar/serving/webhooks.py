@@ -11,6 +11,7 @@ Usage:
     # Then POST /webhooks/trigger/{agent_name} triggers that agent's loop
     # POST /webhooks/event/{topic} publishes to EventBus
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -54,9 +55,15 @@ def create_webhook_router(fleet: Any) -> Any:
             run = await loop.trigger(context={"webhook": True, **body})
             # Record outcome in observer for health tracking
             from tvastar.loop import LoopState
+
             is_error = run.state not in (LoopState.PASS, LoopState.VERIFYING)
             fleet.observer.record_outcome(is_error=is_error)
-            return {"status": "triggered", "run_id": run.run_id, "agent": agent_name, "state": run.state.value}
+            return {
+                "status": "triggered",
+                "run_id": run.run_id,
+                "agent": agent_name,
+                "state": run.state.value,
+            }
         except RuntimeError as e:
             fleet.observer.record_outcome(is_error=True)
             raise HTTPException(status_code=409, detail=str(e))

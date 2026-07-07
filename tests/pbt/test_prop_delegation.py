@@ -132,8 +132,7 @@ async def test_child_task_depth_increments_correctly(depth: int):
     # After task() completes, the child session should have the incremented depth
     assert len(child_sessions) >= 1, "Expected at least one child session to be created"
     assert child_sessions[0]._task_depth == depth + 1, (
-        f"Expected child _task_depth={depth + 1}, "
-        f"but got {child_sessions[0]._task_depth}"
+        f"Expected child _task_depth={depth + 1}, but got {child_sessions[0]._task_depth}"
     )
 
 
