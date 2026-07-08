@@ -243,7 +243,7 @@ def __getattr__(name: str):
     raise AttributeError(f"module 'tvastar' has no attribute {name!r}")
 
 
-__version__ = "0.22.0"
+__version__ = "0.23.0"
 
 __all__ = [
     "create_agent",

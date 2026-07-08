@@ -362,6 +362,12 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 | 7-year SOX / 6-year HIPAA retention | Archive old entries; legal hold freezes the log entirely | `RetentionPolicy` |
 | Quality SLA drops in production | Raise `SLABreached` or escalate when score falls below threshold | `AssurancePolicy(min_score=80, on_fail="raise")` |
 | Need to verify EU AI Act compliance | Programmatic checker for Articles 9, 12, 13, 14 with remediation | `ComplianceVerifier().verify(loop)` |
+| Continuous compliance monitoring across fleet | WatchDaemon re-audits all loops at configurable interval, alerts on drift | `WatchDaemon` + `AlertEngine` |
+| Fleet-wide compliance posture at a glance | Thread-safe dashboard with staleness detection | `ComplianceDashboard.query()` |
+| Multiple regulatory frameworks (HIPAA, CCPA, GLBA, DORA) | Extensible registry with per-framework checks | `FrameworkRegistry` |
+| Compliance overhead eating into budget | Track compliance vs. business tokens per loop | `CostTracker.overhead_ratio()` |
+| Retention policy per regulatory framework | Framework-specific minimums with legal hold freeze | `RetentionManager` |
+| CI/CD compliance gate | CLI exits 2 on non-compliant — blocks pipeline | `tvastar-comply audit <loop>` |
 | Child agents inherit too many permissions | Fresh minimal SecurityPolicy from registry, never from parent | `PermissionResolver` |
 | Fleet state lost after compaction | Automatic checkpoint + inject on resume (≤4096 chars) | `FleetCheckpointManager` |
 | Need to test loop resilience | Inject tool failures (timeout/error/partial/corrupt) during evals | `ChaosProfile` + `ChaosInjector` |
@@ -1183,6 +1189,90 @@ count = log.apply_retention(RetentionPolicy(
 ```
 
 Archive files are standalone verifiable JSONL chains — a regulator can run `TrustLog(archive_path).verify_chain()` independently.
+
+---
+
+## Compliance Copilot — continuous compliance for your agent fleet
+
+The Verifiable Execution layer above proves what happened in each run. The Compliance Copilot builds on top of that to continuously monitor, alert, and report across your entire fleet.
+
+```python
+from tvastar.comply import (
+    audit_compliance, WatchDaemon, ComplianceDashboard,
+    AlertEngine, CostTracker, ReportGenerator, RetentionManager,
+)
+```
+
+### One-shot audit — CI/CD gate
+
+```python
+result = audit_compliance(loop, framework="EU_AI_Act")
+print(result.status)       # "COMPLIANT" or "NON_COMPLIANT"
+print(result.remediation)  # ["Set AgentSpec.assurance to an AssurancePolicy..."]
+```
+
+Or from the CLI (exit code 2 blocks your pipeline):
+
+```bash
+tvastar-comply audit billing-agent --config comply.json
+# Exit 0 = compliant, Exit 2 = non-compliant, Exit 1 = operational error
+```
+
+### Continuous monitoring
+
+```python
+daemon = WatchDaemon(
+    loops=[billing_loop, hiring_loop],
+    interval=60.0,
+    alert_engine=AlertEngine(sinks=[StderrSink(), FileSink("/var/log/comply.jsonl")]),
+    dashboard=ComplianceDashboard(),
+)
+await daemon.start()
+# Detects drift, chain breaches, PII leaks — per-loop fault isolation
+```
+
+### Fleet dashboard
+
+```python
+dashboard = ComplianceDashboard(check_interval=60.0)
+summary = dashboard.query()
+print(summary.fleet_compliance_pct)  # 95.0
+print(summary.stale)                 # 1 loop not checked recently
+print(dashboard.to_json())           # JSON endpoint for ops tooling
+```
+
+### Multi-framework support
+
+```python
+from tvastar.comply import FrameworkRegistry, RegulatoryFramework
+
+registry = FrameworkRegistry()  # EU_AI_Act registered by default
+registry.register(RegulatoryFramework(name="HIPAA", checks=[...]))
+registry.register(RegulatoryFramework(name="CCPA", checks=[...]))
+
+result = audit_compliance(loop, framework="HIPAA", registry=registry)
+```
+
+### Cost tracking
+
+```python
+tracker = CostTracker(alert_engine=engine, threshold=0.15)
+tracker.record_compliance_tokens("billing-agent", run_id, tokens=200)
+tracker.record_business_tokens("billing-agent", run_id, tokens=1800)
+print(tracker.overhead_ratio("billing-agent"))  # 0.10
+# Alert fires automatically when ratio exceeds 15%
+```
+
+### Retention and legal holds
+
+```python
+rm = RetentionManager(trust_log, framework="HIPAA")  # 6-year retention
+rm.activate_hold()       # litigation freeze — nothing archived
+rm.apply_retention()     # → affected_count=0 (hold active)
+rm.release_hold()        # unfreeze
+rm.apply_retention()     # → archives entries older than 6 years
+rm.check_approaching_expiry(within_days=30)  # → count of entries nearing expiry
+```
 
 ---
 

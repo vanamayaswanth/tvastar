@@ -6,6 +6,70 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.23.0] — 2025-07-16
+
+### Added — AI Act Compliance Copilot (`tvastar.comply`)
+
+Continuous compliance layer built on top of the existing ComplianceVerifier → TrustLog → ExecutionReceipt chain. Provides fleet-wide compliance monitoring, multi-framework support, alerting, retention management, cost tracking, and CLI tooling. Zero runtime dependencies beyond stdlib.
+
+#### Core Audit Engine
+
+- **`audit_compliance(loop, framework=...)`** — pure function wrapping `ComplianceVerifier.verify()` with framework routing, PII verification, and structured result packaging. Fault-isolated: never raises into the calling agent loop. Returns `AuditResult` with per-article pass/fail, remediation text, and status (COMPLIANT / NON_COMPLIANT).
+- **`verify_pii_protection(receipt, vault_configured)`** — scans ExecutionReceipt prompts for 7 PII patterns (SSN, email, phone, IP, DOB, bearer token, API key), counts opaque tokens to confirm TokenVault was active. Returns `PIIVerificationRecord`.
+
+#### Multi-Framework Registry
+
+- **`FrameworkRegistry`** — register and query compliance frameworks (EU_AI_Act, HIPAA, CCPA, GLBA, DORA). Default EU_AI_Act includes Articles 9, 12, 13, 14. Custom frameworks registerable via Python API without modifying existing definitions.
+- **`RegulatoryFramework`** / **`FrameworkCheck`** protocol — extensible framework definition.
+
+#### Alert Engine
+
+- **`AlertEngine`** — delivers ComplianceAlerts to configured sinks with O(1) suppression logic. Same `(loop_name, alert_type)` within configurable window (default 300s) suppressed; next delivery includes `suppression_count`.
+- **`StderrSink`** (default), **`FileSink`**, **`CallbackSink`** — pluggable alert delivery.
+
+#### Fleet Dashboard
+
+- **`ComplianceDashboard`** — thread-safe aggregation of compliance status across all registered Loops. `query()` returns `FleetSummary` with total/compliant/non_compliant/stale counts, fleet compliance percentage, per-loop status. Staleness: loops not checked within 2×interval marked STALE.
+
+#### Report Generator
+
+- **`ReportGenerator`** — regulator-ready reports in text, HTML, and JSON formats. Reuses existing `ExecutionReceipt.to_audit_report()` renderers. Includes cryptographic PII proof section. Raises `KeyError` on missing run_id.
+
+#### Watch Daemon
+
+- **`WatchDaemon`** — asyncio-based continuous monitoring. Re-audits registered loops at configurable interval. Detects compliance drift (COMPLIANT→NON_COMPLIANT), chain breaches (first corrupted run_id), and PII leaks. Fault isolation per loop. Updates dashboard on each cycle.
+
+#### Retention Manager
+
+- **`RetentionManager`** — enforces framework-specific minimum retention periods (SOX: 7yr, HIPAA: 6yr, GDPR/GLBA/DORA: 5yr). Legal hold blocks all archival until released. `check_approaching_expiry()` surfaces entries nearing max_age_days.
+- **`FRAMEWORK_RETENTION`** mapping constant.
+
+#### Cost Tracker
+
+- **`CostTracker`** — tracks compliance vs. business token spend per loop. `overhead_ratio()` = compliance_tokens / total_tokens. Emits INFO alert when threshold exceeded (default 15%). `fleet_overhead()` for org-wide view. `report()` generates `ComplianceCostReport` for time windows.
+
+#### CLI Interface
+
+- **`tvastar-comply`** CLI with subcommands: `audit`, `report`, `watch`, `dashboard`, `compliance-cost`.
+- Global flags: `--format json|text`, `--config PATH`.
+- Exit codes: 0 success, 1 operational error, 2 compliance violation.
+
+#### Configuration
+
+- **`load_config(path)`** — parses JSON (stdlib) or YAML (optional PyYAML) config files specifying loops, frameworks, alert sinks, thresholds, and retention settings.
+- **`build_from_config(config)`** — wires config into runtime components (AlertEngine, Dashboard, CostTracker).
+
+#### Data Models
+
+- `AuditResult`, `PIIVerificationRecord`, `ComplianceAlert`, `LoopStatus`, `FleetSummary`, `ComplianceCostReport`, `RetentionAction` dataclasses.
+- `ComplianceError`, `LoopNotFoundError`, `RunNotFoundError` exceptions.
+
+### Changed
+
+- `__version__` bumped to `0.23.0`.
+- `tvastar-comply` CLI script added to `pyproject.toml`.
+- Full suite: **2297 passed**, 0 failures.
+
 ## [0.22.0] — 2025-07-15
 
 ### Added — GitHub Adaptation Map (12 Adaptations)

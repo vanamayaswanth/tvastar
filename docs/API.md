@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.22.0. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.23.0. Every public symbol, field, and signature.
 
 ---
 
@@ -2253,3 +2253,195 @@ def redact_hook(name, args, result):
 
 agent = create_agent("x", model=model, pre_tool_hook=audit_hook, post_tool_hook=redact_hook)
 ```
+
+---
+
+## Compliance Copilot (`tvastar/comply/`)
+
+Continuous compliance layer. Zero runtime deps beyond stdlib.
+
+### Core Functions
+
+```python
+from tvastar.comply import audit_compliance, verify_pii_protection
+
+def audit_compliance(
+    loop: Any,
+    *,
+    framework: str | None = None,       # None defaults to "EU_AI_Act"
+    registry: FrameworkRegistry | None = None,
+) -> AuditResult
+# Pure function. Fault-isolated — never raises into the calling agent loop.
+# Returns NON_COMPLIANT with remediation on exception.
+
+def verify_pii_protection(
+    receipt: ExecutionReceipt,
+    vault_configured: bool,
+) -> PIIVerificationRecord
+# Scans receipt prompt for 7 PII patterns + counts opaque tokens.
+```
+
+### Data Models
+
+```python
+from tvastar.comply import (
+    AuditResult, PIIVerificationRecord, ComplianceAlert,
+    LoopStatus, FleetSummary, ComplianceCostReport, RetentionAction,
+)
+
+@dataclass
+class AuditResult:
+    loop_name: str
+    status: str                    # "COMPLIANT" | "NON_COMPLIANT"
+    framework: str
+    checks: list[ArticleCheck]
+    pii_verification: PIIVerificationRecord | None
+    timestamp: float
+    remediation: list[str]
+
+@dataclass
+class PIIVerificationRecord:
+    vault_active: bool
+    token_count: int
+    leak_count: int
+    content_hash: str
+    leaked_types: list[str]
+
+@dataclass
+class ComplianceAlert:
+    severity: str                  # "INFO" | "WARNING" | "CRITICAL"
+    alert_type: str                # "DRIFT" | "CHAIN_BREACH" | "PII_LEAK"
+    loop_name: str
+    run_id: str
+    timestamp: float
+    description: str
+    suppression_count: int = 0
+
+@dataclass
+class FleetSummary:
+    total: int
+    compliant: int
+    non_compliant: int
+    stale: int
+    fleet_compliance_pct: float
+    per_loop: list[LoopStatus]
+    compliance_overhead: dict[str, float] | None
+
+@dataclass
+class ComplianceCostReport:
+    loop_name: str
+    compliance_tokens: int
+    total_tokens: int
+    overhead_ratio: float
+    window_start: float
+    window_end: float
+```
+
+### FrameworkRegistry
+
+```python
+from tvastar.comply import FrameworkRegistry, RegulatoryFramework
+
+class FrameworkRegistry:
+    def __init__(self) -> None            # EU_AI_Act registered by default
+    def register(self, framework: RegulatoryFramework) -> None
+    def get(self, name: str) -> RegulatoryFramework | None
+    def get_checks(self, name: str | None = None) -> list[FrameworkCheck]
+    def list_frameworks(self) -> list[str]
+```
+
+### AlertEngine
+
+```python
+from tvastar.comply import AlertEngine, StderrSink, FileSink, CallbackSink
+
+class AlertEngine:
+    def __init__(self, sinks: list[AlertSink] | None = None, suppression_window: float = 300.0)
+    def emit(self, alert: ComplianceAlert) -> bool   # True if delivered (not suppressed)
+```
+
+### ComplianceDashboard
+
+```python
+from tvastar.comply import ComplianceDashboard
+
+class ComplianceDashboard:
+    def __init__(self, *, check_interval: float = 60.0)
+    def update(self, loop_name: str, result: AuditResult) -> None
+    def query(self) -> FleetSummary
+    def to_json(self) -> str
+```
+
+### WatchDaemon
+
+```python
+from tvastar.comply import WatchDaemon
+
+class WatchDaemon:
+    def __init__(self, loops: list, *, interval: float = 60.0, alert_engine=None, dashboard=None, framework=None, retention_manager=None)
+    async def start(self) -> None    # runs indefinitely; logs config to stderr
+    async def stop(self) -> None     # graceful shutdown
+    # Raises ValueError if loops is empty
+```
+
+### RetentionManager
+
+```python
+from tvastar.comply import RetentionManager, FRAMEWORK_RETENTION
+
+# FRAMEWORK_RETENTION = {"SOX": 2555, "HIPAA": 2190, "GDPR": 1825, "GLBA": 1825, "DORA": 1825}
+
+class RetentionManager:
+    def __init__(self, trust_log: TrustLog, framework: str = "EU_AI_Act")
+    def activate_hold(self) -> RetentionAction
+    def release_hold(self) -> RetentionAction
+    def is_held(self) -> bool
+    def check_approaching_expiry(self, within_days: int = 30) -> int
+    def apply_retention(self) -> RetentionAction
+```
+
+### CostTracker
+
+```python
+from tvastar.comply import CostTracker
+
+class CostTracker:
+    def __init__(self, *, alert_engine=None, threshold: float = 0.15)
+    def record_compliance_tokens(self, loop_name: str, run_id: str, tokens: int) -> None
+    def record_business_tokens(self, loop_name: str, run_id: str, tokens: int) -> None
+    def overhead_ratio(self, loop_name: str) -> float
+    def fleet_overhead(self) -> dict[str, float]
+    def report(self, loop_name: str | None = None, *, window_hours: float = 24.0) -> list[ComplianceCostReport]
+```
+
+### ReportGenerator
+
+```python
+from tvastar.comply import ReportGenerator
+
+class ReportGenerator:
+    def __init__(self, trust_log: TrustLog)
+    def generate(self, run_id: str, *, fmt: str = "text", include_pii_proof: bool = True, output: str | None = None) -> str
+    # Raises KeyError if run_id not found
+```
+
+### Configuration
+
+```python
+from tvastar.comply import load_config, ComplianceConfig
+
+def load_config(path: str) -> ComplianceConfig
+# JSON (stdlib) or YAML (optional PyYAML). Raises ComplianceError on invalid config.
+```
+
+### CLI
+
+```bash
+tvastar-comply audit <loop> [--framework EU_AI_Act] [--config comply.json] [--format json|text]
+tvastar-comply report <run_id> [--output report.html] [--fmt html|text|json]
+tvastar-comply watch [--config comply.json]
+tvastar-comply dashboard [--format json|text]
+tvastar-comply compliance-cost [--window-hours 24] [--format json|text]
+```
+
+Exit codes: 0 success, 1 operational error, 2 compliance violation.
