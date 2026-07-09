@@ -1,6 +1,6 @@
 """AgentRouter — auto-route sess.task() to the right AgentProfile.
 
-Uses difflib word-overlap — zero dependencies, works everywhere.
+Uses word-set overlap — zero dependencies, works everywhere.
 
 Usage::
 
@@ -17,7 +17,6 @@ Usage::
 
 from __future__ import annotations
 
-import difflib
 from typing import Any, Callable, Iterable, Optional
 
 from .profiles import AgentProfile
@@ -35,8 +34,8 @@ class AgentRouter:
         scoring_fn: Optional custom scoring function. If provided, it is called
                     with ``(text, profile)`` for each profile and must return a
                     float score. The profile with the highest score (at or above
-                    *threshold*) wins. When ``None``, the built-in difflib
-                    word-overlap heuristic is used.
+                    *threshold*) wins. When ``None``, the built-in word-overlap
+                    heuristic is used.
 
     Example::
 
@@ -72,7 +71,7 @@ class AgentRouter:
                     best_score, best_name = score, name
             return best_name if best_score >= self._threshold else None
 
-        # difflib word-overlap — no deps
+        # word-overlap — no deps
         words = set(text.lower().split())
         best_name, best_score = None, 0.0
         for name, profile in self._profiles.items():
@@ -81,16 +80,15 @@ class AgentRouter:
             if not desc_words:
                 continue
             overlap = len(words & desc_words) / max(len(words | desc_words), 1)
-            # also check subsequence similarity on the full strings
-            seq = difflib.SequenceMatcher(None, text.lower(), desc.lower()).ratio()
-            score = max(overlap, seq * 0.7)  # weight seq lower — it penalises length diff
+            # ponytail: word-overlap alone is O(w). SequenceMatcher was O(n×m) for a marginal tiebreaker. Deletion wins.
+            score = overlap
             if score > best_score:
                 best_score, best_name = score, name
 
         return best_name if best_score >= self._threshold else None
 
     def __repr__(self) -> str:
-        backend = "custom" if self._scoring_fn else "difflib"
+        backend = "custom" if self._scoring_fn else "word-overlap"
         return f"AgentRouter({list(self._profiles)!r}, backend={backend!r})"
 
 

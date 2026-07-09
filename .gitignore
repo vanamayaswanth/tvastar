@@ -15,12 +15,14 @@ tvastar-trace.jsonl
 
 .pytest_cache/
 .ruff_cache/
-.mypy_cache/
+# .mypy_cache/
 
 # Local agent / editor state
 .claude/
 .vscode/
 .idea/
+
+
 .kiro/
 .cursor/
 

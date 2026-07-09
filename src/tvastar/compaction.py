@@ -131,7 +131,7 @@ class ProgressiveCompactionPolicy:
 
 def _estimate_tokens(messages: list[Message]) -> int:
     """Rough token estimate: ~1.3 tokens per word across all message text."""
-    words = sum(len(re.findall(r"\S+", m.text)) for m in messages)
+    words = sum(sum(1 for _ in re.finditer(r"\S+", m.text)) for m in messages)
     return max(1, int(words * 1.3))
 
 
@@ -156,7 +156,7 @@ class CompactionEngine:
             tokens = self._policy.token_estimator(messages)
         else:
             # Word-count heuristic
-            words = sum(len(re.findall(r"\S+", m.text)) for m in messages)
+            words = sum(sum(1 for _ in re.finditer(r"\S+", m.text)) for m in messages)
             tokens = max(1, int(words * _WORD_TOKEN_FACTOR))
         return (
             tokens / self._policy.max_context_tokens if self._policy.max_context_tokens > 0 else 0.0
@@ -524,35 +524,25 @@ class CompactionEngine:
         return system_msgs + [summary_msg] + tail
 
     def _deduplicate_tool_outputs(self, messages: list[Message]) -> list[Message]:
-        """Retain most recent unique tool output per tool name."""
+        """Remove orphaned ToolResultBlocks whose tool_use_id has no corresponding ToolUseBlock."""
 
-        # Track most recent tool_use_id per tool name
-        seen_tools: dict[str, str] = {}  # tool_name -> most recent tool_use_id
-        tool_use_names: dict[str, str] = {}  # tool_use_id -> tool_name
+        # First pass: collect all tool_use_ids that have a ToolUseBlock present
+        present_tool_use_ids: set[str] = {
+            block.id
+            for msg in messages
+            for block in msg.blocks
+            if isinstance(block, ToolUseBlock)
+        }
 
-        # First pass: map tool_use_id -> tool_name and find most recent per name
-        for msg in messages:
-            for block in msg.blocks:
-                if isinstance(block, ToolUseBlock):
-                    tool_use_names[block.id] = block.name
-                    seen_tools[block.name] = block.id
-
-        # Second pass: remove ToolResultBlocks that aren't the most recent for their tool
+        # Second pass: keep ToolResultBlocks only if their tool_use_id is present
         result = []
         for msg in messages:
             if msg.role == "tool":
-                # Check if any tool result blocks should be kept
-                keep_blocks = []
-                for block in msg.blocks:
-                    if isinstance(block, ToolResultBlock):
-                        tool_name = tool_use_names.get(block.tool_use_id)
-                        if tool_name and seen_tools.get(tool_name) == block.tool_use_id:
-                            keep_blocks.append(block)
-                        elif not tool_name:
-                            # Unknown tool_use_id — keep it
-                            keep_blocks.append(block)
-                    else:
-                        keep_blocks.append(block)
+                keep_blocks = [
+                    block for block in msg.blocks
+                    if not isinstance(block, ToolResultBlock)
+                    or block.tool_use_id in present_tool_use_ids
+                ]
                 if keep_blocks:
                     result.append(
                         Message(

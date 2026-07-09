@@ -11,7 +11,6 @@ Provides:
 
 from __future__ import annotations
 
-import difflib
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -157,7 +156,7 @@ def _make_bucket(config: RateLimitConfig) -> TokenBucket:
 class FleetGateway:
     """Fleet gateway — routes tasks with rate limiting and model routing.
 
-    Provides semantic routing (difflib word-overlap), fleet-wide and per-agent
+    Provides semantic routing (word-set overlap), fleet-wide and per-agent
     token-bucket rate limiting, model routing policy, dependency-aware
     deferral, and a capped audit trail (deque).
     """
@@ -266,7 +265,7 @@ class FleetGateway:
     ) -> dict[str, Any]:
         """Route and submit a task to the best-matching active agent.
 
-        Implements semantic routing via difflib word-overlap (same algorithm as
+        Implements semantic routing via word-set overlap (same algorithm as
         the existing AgentRouter) when no explicit agent is provided.
 
         Parameters
@@ -388,7 +387,7 @@ class FleetGateway:
             )
             raise RoutingError("No suitable agent found: no active agents in the fleet")
 
-        # Score each active agent using difflib word-overlap (same as AgentRouter)
+        # Score each active agent using word-set overlap (same as AgentRouter)
         scored = self._score_agents(task, active_agents)
 
         # Filter by threshold
@@ -483,11 +482,10 @@ class FleetGateway:
     # ------------------------------------------------------------------
 
     def _score_agents(self, task: str, agents: list[Any]) -> list[tuple[str, float]]:
-        """Score agents against a task description using difflib word-overlap.
+        """Score agents against a task description using word-set overlap.
 
         Returns a list of (agent_name, score) tuples sorted by score descending.
-        Uses the same algorithm as tvastar.router.AgentRouter: word-set overlap
-        combined with SequenceMatcher ratio (weighted at 0.7).
+        Uses the same algorithm as tvastar.router.AgentRouter: word-set overlap.
         """
         words = set(task.lower().split())
         results: list[tuple[str, float]] = []
@@ -501,10 +499,8 @@ class FleetGateway:
 
             # Word set overlap (Jaccard-like)
             overlap = len(words & desc_words) / max(len(words | desc_words), 1)
-
-            # SequenceMatcher ratio weighted lower (penalises length diff)
-            seq = difflib.SequenceMatcher(None, task.lower(), desc.lower()).ratio()
-            score = max(overlap, seq * 0.7)
+            # ponytail: word-overlap alone is O(w). SequenceMatcher was O(n×m) for a marginal tiebreaker. Deletion wins.
+            score = overlap
 
             results.append((entry.name, score))
 

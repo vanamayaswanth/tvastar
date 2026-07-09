@@ -69,10 +69,11 @@ def thrash_loop(ctx: RunContext, *, threshold: int = 3) -> list[Finding]:
     """Same tool invoked with identical arguments >= threshold times — a sign
     the agent is stuck repeating itself instead of making progress."""
     import json
+    import hashlib
 
     counts: dict[tuple, int] = {}
     for call in ctx.tool_calls:
-        key = (call.name, json.dumps(call.input, sort_keys=True, default=str))
+        key = (call.name, hashlib.md5(json.dumps(call.input, sort_keys=True, default=str).encode()).hexdigest())
         counts[key] = counts.get(key, 0) + 1
     out = []
     for (name, _args), n in counts.items():

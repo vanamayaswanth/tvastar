@@ -124,10 +124,12 @@ class FleetRegistry:
         *,
         defaults: FleetDefaults | None = None,
         tracer: Any | None = None,
+        max_versions: int = 50,
     ) -> None:
         self._fleet_name = fleet_name
         self._defaults = defaults or FleetDefaults()
         self._tracer = tracer
+        self._max_versions = max_versions
 
         # Agent storage: name -> AgentEntry
         self._agents: dict[str, AgentEntry] = {}
@@ -137,6 +139,9 @@ class FleetRegistry:
 
         # Version history: name -> list[AgentVersion]
         self._versions: dict[str, list[AgentVersion]] = {}
+
+        # Version index: name -> {version_str -> AgentVersion} for O(1) rollback
+        self._version_index: dict[str, dict[str, AgentVersion]] = {}
 
         # Dependency graph: name -> list of dependency names
         self._dependencies: dict[str, list[str]] = {}
@@ -229,6 +234,15 @@ class FleetRegistry:
             config_snapshot=dict(config_overrides),
         )
         self._versions.setdefault(name, []).append(version_entry)
+
+        # Update version index for O(1) rollback (Bug 4 fix)
+        self._version_index.setdefault(name, {})[version] = version_entry
+
+        # Cap version history (Bug 3 fix)
+        if len(self._versions[name]) > self._max_versions:
+            self._versions[name] = self._versions[name][-self._max_versions:]
+            # Rebuild index from trimmed list
+            self._version_index[name] = {v.version: v for v in self._versions[name]}
 
         # Record dependencies
         self._dependencies[name] = list(deps)
@@ -497,11 +511,9 @@ class FleetRegistry:
             raise RegistrationError(f"Agent {name!r} not found in registry")
 
         versions = self._versions.get(name, [])
-        target: AgentVersion | None = None
-        for v in versions:
-            if v.version == version:
-                target = v
-                break
+        # O(1) dict-index lookup (Bug 4 fix)
+        agent_index = self._version_index.get(name, {})
+        target = agent_index.get(version)
 
         if target is None:
             raise RegistrationError(f"Version {version!r} not found in history for agent {name!r}")

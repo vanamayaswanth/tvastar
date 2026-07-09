@@ -9,6 +9,7 @@ are swallowed by the hook wrapper in create_agent.
 from __future__ import annotations
 
 import hashlib
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 
@@ -24,7 +25,8 @@ class ToolOutputCompressor:
     """
 
     threshold: int = 4000
-    _seen_hashes: dict[str, int] = field(default_factory=dict)
+    max_cache_size: int = 1024
+    _seen_hashes: OrderedDict = field(default_factory=OrderedDict)
 
     # Tool-name heuristics
     _FILE_KEYWORDS: tuple[str, ...] = ("read", "cat", "file")
@@ -38,9 +40,12 @@ class ToolOutputCompressor:
         if any(kw in name_lower for kw in self._FILE_KEYWORDS):
             hex_digest = hashlib.sha256(result.encode()).hexdigest()
             if hex_digest in self._seen_hashes:
+                self._seen_hashes.move_to_end(hex_digest)
                 size = self._seen_hashes[hex_digest]
                 return f"[dedup: sha256={hex_digest}, size={size} bytes]"
             self._seen_hashes[hex_digest] = len(result)
+            if len(self._seen_hashes) > self.max_cache_size:
+                self._seen_hashes.popitem(last=False)
             return None
 
         # Truncation for shell tools

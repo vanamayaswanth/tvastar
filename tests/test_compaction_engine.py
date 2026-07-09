@@ -200,7 +200,7 @@ def test_update_summary_in_place_removes_older_summary():
 
 
 def test_deduplicate_retains_most_recent_tool_output():
-    """Retains only the most recent tool output per tool name."""
+    """All unique tool invocations survive dedup (keyed by tool_use_id, not tool_name)."""
     policy = ProgressiveCompactionPolicy()
     engine = CompactionEngine(policy)
     msgs = [
@@ -211,12 +211,13 @@ def test_deduplicate_retains_most_recent_tool_output():
         _msg("user", "thanks"),
     ]
     result = engine._deduplicate_tool_outputs(msgs)
-    # The first tool result (call_1) should be removed, call_2 kept
+    # Both results survive — each has a unique tool_use_id with a matching ToolUseBlock
     tool_results = [
         block for msg in result for block in msg.blocks if isinstance(block, ToolResultBlock)
     ]
-    assert len(tool_results) == 1
-    assert tool_results[0].content == "second content"
+    assert len(tool_results) == 2
+    assert tool_results[0].content == "first content"
+    assert tool_results[1].content == "second content"
 
 
 def test_deduplicate_different_tools_preserved():
