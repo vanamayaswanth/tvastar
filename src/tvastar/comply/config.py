@@ -119,9 +119,7 @@ def _parse_content(content: str, path: str) -> Dict[str, Any]:
     try:
         data = yaml.safe_load(content)
     except yaml.YAMLError as exc:
-        raise ComplianceError(
-            f"Config file '{path}' is not valid JSON or YAML: {exc}"
-        ) from exc
+        raise ComplianceError(f"Config file '{path}' is not valid JSON or YAML: {exc}") from exc
 
     if not isinstance(data, dict):
         raise ComplianceError(
@@ -139,15 +137,11 @@ def _validate(data: Dict[str, Any], path: str) -> ComplianceConfig:
     """Validate parsed config dict and return structured ComplianceConfig."""
     # loops is mandatory
     if "loops" not in data:
-        raise ComplianceError(
-            f"Config file '{path}' missing required key 'loops'"
-        )
+        raise ComplianceError(f"Config file '{path}' missing required key 'loops'")
 
     loops_raw = data["loops"]
     if not isinstance(loops_raw, list) or not loops_raw:
-        raise ComplianceError(
-            f"Config file '{path}': 'loops' must be a non-empty list"
-        )
+        raise ComplianceError(f"Config file '{path}': 'loops' must be a non-empty list")
 
     loops = _validate_loops(loops_raw, path)
     alert_sinks = _validate_alert_sinks(data.get("alert_sinks", []), path)
@@ -171,18 +165,12 @@ def _validate_loops(raw: List[Any], path: str) -> List[LoopConfig]:
                 f"Config '{path}': loops[{i}] must be a mapping, got {type(entry).__name__}"
             )
         if "name" not in entry:
-            raise ComplianceError(
-                f"Config '{path}': loops[{i}] missing required key 'name'"
-            )
+            raise ComplianceError(f"Config '{path}': loops[{i}] missing required key 'name'")
         if "trust_log" not in entry:
-            raise ComplianceError(
-                f"Config '{path}': loops[{i}] missing required key 'trust_log'"
-            )
+            raise ComplianceError(f"Config '{path}': loops[{i}] missing required key 'trust_log'")
         frameworks = entry.get("frameworks", ["EU_AI_Act"])
         if not isinstance(frameworks, list):
-            raise ComplianceError(
-                f"Config '{path}': loops[{i}].frameworks must be a list"
-            )
+            raise ComplianceError(f"Config '{path}': loops[{i}].frameworks must be a list")
         loops.append(
             LoopConfig(
                 name=str(entry["name"]),
@@ -198,16 +186,12 @@ def _validate_alert_sinks(raw: Any, path: str) -> List[AlertSinkConfig]:
     if not raw:
         return []
     if not isinstance(raw, list):
-        raise ComplianceError(
-            f"Config '{path}': 'alert_sinks' must be a list"
-        )
+        raise ComplianceError(f"Config '{path}': 'alert_sinks' must be a list")
     sinks: List[AlertSinkConfig] = []
     valid_types = {"stderr", "file", "callback"}
     for i, entry in enumerate(raw):
         if not isinstance(entry, dict):
-            raise ComplianceError(
-                f"Config '{path}': alert_sinks[{i}] must be a mapping"
-            )
+            raise ComplianceError(f"Config '{path}': alert_sinks[{i}] must be a mapping")
         sink_type = entry.get("type")
         if sink_type not in valid_types:
             raise ComplianceError(
@@ -230,9 +214,7 @@ def _validate_thresholds(raw: Any, path: str) -> ThresholdsConfig:
     if not raw:
         return ThresholdsConfig()
     if not isinstance(raw, dict):
-        raise ComplianceError(
-            f"Config '{path}': 'thresholds' must be a mapping"
-        )
+        raise ComplianceError(f"Config '{path}': 'thresholds' must be a mapping")
     kwargs: Dict[str, float] = {}
     for key in ("compliance_overhead_max", "suppression_window_seconds", "check_interval_seconds"):
         if key in raw:
@@ -240,8 +222,7 @@ def _validate_thresholds(raw: Any, path: str) -> ThresholdsConfig:
                 kwargs[key] = float(raw[key])
             except (TypeError, ValueError):
                 raise ComplianceError(
-                    f"Config '{path}': thresholds.{key} must be a number, "
-                    f"got '{raw[key]}'"
+                    f"Config '{path}': thresholds.{key} must be a number, got '{raw[key]}'"
                 )
     return ThresholdsConfig(**kwargs)
 
@@ -251,17 +232,14 @@ def _validate_retention(raw: Any, path: str) -> Optional[RetentionConfig]:
     if raw is None:
         return None
     if not isinstance(raw, dict):
-        raise ComplianceError(
-            f"Config '{path}': 'retention' must be a mapping"
-        )
+        raise ComplianceError(f"Config '{path}': 'retention' must be a mapping")
     framework = str(raw.get("framework", "EU_AI_Act"))
     max_age = raw.get("max_age_days", 1825)
     try:
         max_age = int(max_age)
     except (TypeError, ValueError):
         raise ComplianceError(
-            f"Config '{path}': retention.max_age_days must be an integer, "
-            f"got '{max_age}'"
+            f"Config '{path}': retention.max_age_days must be an integer, got '{max_age}'"
         )
     if max_age <= 0:
         raise ComplianceError(
@@ -290,7 +268,7 @@ def build_from_config(config: ComplianceConfig) -> Dict[str, Any]:
     Tvastar Loop instantiation which depends on the caller's context.
     This builds the supporting infrastructure from config values.
     """
-    from .alert import AlertEngine, FileSink, StderrSink
+    from .alert import AlertEngine
     from .cost import CostTracker
     from .dashboard import ComplianceDashboard
 

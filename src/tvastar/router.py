@@ -82,7 +82,7 @@ class AgentRouter:
             overlap = len(words & desc_words) / max(len(words | desc_words), 1)
             # ponytail: word-overlap alone is O(w). SequenceMatcher was O(n×m) for a marginal tiebreaker. Deletion wins.
             score = overlap
-            if score > best_score:
+            if score > best_score or (score == best_score and best_name is None):
                 best_score, best_name = score, name
 
         return best_name if best_score >= self._threshold else None

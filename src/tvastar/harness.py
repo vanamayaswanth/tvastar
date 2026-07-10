@@ -14,15 +14,46 @@ New in 0.2.0:
 
 from __future__ import annotations
 
+import time
+import warnings
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from .agent import AgentSpec
+from .conversation.reducer import reduce
+from .conversation.records import RecordType, record_to_dict, Record
+from .conversation.writer import ConversationWriter
 from .durable import Checkpointer
 from .memory.store import InMemoryStore, Store
 from .observability import NULL_TRACER, Tracer
+from .sandbox.virtual import VirtualSandbox
+
+if TYPE_CHECKING:
+    from .conversation.session_info import SessionInfo
 from .session import RunResult, Session
+
+
+def _detect_interrupted_tools(log: list[dict[str, Any]]) -> list[str]:
+    """Find tool_call_started records without a matching tool_result (by call_id).
+
+    Returns the list of unresolved call_ids. Pure scan, no mutation.
+    """
+    started: set[str] = set()
+    completed: set[str] = set()
+    for record in log:
+        if not isinstance(record, dict):
+            continue
+        rtype = record.get("type")
+        data = record.get("data", {})
+        call_id = data.get("call_id")
+        if not call_id:
+            continue
+        if rtype == RecordType.TOOL_CALL_STARTED.value:
+            started.add(call_id)
+        elif rtype == RecordType.TOOL_RESULT.value:
+            completed.add(call_id)
+    return list(started - completed)
 
 
 class HarnessFS:
@@ -85,14 +116,33 @@ class Harness:
         store: Optional[Store] = None,
         tracer: Optional[Tracer] = None,
         durable: bool = True,
+        compaction_threshold: int = 500,
     ):
         self.spec = spec
         self.store: Store = store or InMemoryStore()
         self.tracer: Tracer = tracer or NULL_TRACER
-        self.checkpointer: Optional[Checkpointer] = Checkpointer(self.store) if durable else None
+        self._durable: bool = durable
+        self._compaction_threshold: int = compaction_threshold
+        # ponytail: keep _checkpointer for one release cycle (backward compat)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            self._checkpointer: Optional[Checkpointer] = (
+                Checkpointer(self.store) if durable else None
+            )
         self._sessions: dict[str, Session] = {}
         self._sandbox: Any = None  # lazily created shared sandbox
         self._fs: Optional[HarnessFS] = None
+
+    @property
+    def checkpointer(self) -> Optional[Checkpointer]:
+        """Deprecated: use the writer/reducer pattern instead."""
+        warnings.warn(
+            "Harness.checkpointer is deprecated; durability is now handled by "
+            "ConversationWriter/reduce. Use harness._durable to check mode.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._checkpointer
 
     # ---- application-level filesystem / shell --------------------------------
 
@@ -181,29 +231,147 @@ class Harness:
             import dataclasses
 
             eff_spec = dataclasses.replace(eff_spec, governance=gov.copy())
-        s = Session(spec=eff_spec, harness=self)
         if sid:
-            s.id = sid
+            s = Session(spec=eff_spec, harness=self, id=sid)
+        else:
+            s = Session(spec=eff_spec, harness=self)
         self._sessions[s.id] = s
         return s
 
     def resume(self, session_id: str) -> Optional[Session]:
-        """Rehydrate a session from a durable checkpoint, if one exists."""
-        if not self.checkpointer:
+        """Resume a session from its event log, or return None."""
+        if not self._durable:
             return None
-        record = self.checkpointer.load(session_id)
-        if not record:
-            return None
-        s = self.session(session_id=session_id)
-        s.sandbox = s.spec.sandbox_factory()
-        s._started = True
-        s.restore(record)
-        return s
+        # Try new event-log approach first
+        key = f"event_log:{session_id}"
+        log = self.store.get(key)
+        if log:
+            s = self.session(name=session_id)
+            # Detect and mark interrupted tool calls before reducing (REQ 11.3, 11.4, 11.5, 11.6)
+            interrupted_ids = _detect_interrupted_tools(log)
+            if interrupted_ids:
+                from .durable import message_to_dict
+                from .types import Message, ToolResultBlock
 
-    def list_sessions(self) -> list[str]:
-        if not self.checkpointer:
-            return list(self._sessions)
-        return sorted(set(self._sessions) | set(self.checkpointer.list_sessions()))
+                for call_id in interrupted_ids:
+                    # Append interrupted_marker as a TOOL_RESULT record
+                    seq = len(log)
+                    marker_record = Record(
+                        type=RecordType.TOOL_RESULT,
+                        seq=seq,
+                        timestamp=time.time(),
+                        data={
+                            "call_id": call_id,
+                            "tool_use_id": call_id,
+                            "content": "[interrupted] Tool execution was interrupted and never completed.",
+                            "is_error": True,
+                            "interrupted": True,
+                        },
+                    )
+                    log.append(record_to_dict(marker_record))
+                    # Append a USER_MESSAGE with the tool result so the model sees it in context
+                    msg = Message(
+                        "user",
+                        [
+                            ToolResultBlock(
+                                tool_use_id=call_id,
+                                content="[interrupted] Tool execution was interrupted and never completed.",
+                                is_error=True,
+                            )
+                        ],
+                    )
+                    seq = len(log)
+                    msg_record = Record(
+                        type=RecordType.USER_MESSAGE,
+                        seq=seq,
+                        timestamp=time.time(),
+                        data={"message": message_to_dict(msg)},
+                    )
+                    log.append(record_to_dict(msg_record))
+                # Persist updated log with markers
+                self.store.set(key, log)
+
+            s.messages = reduce(log)
+            s._writer = ConversationWriter(
+                self.store,
+                session_id,
+                compaction_threshold=self._compaction_threshold,
+                event_bus=getattr(self, "_event_bus", None),
+            )
+            s._writer._seq = len(log)
+            s.sandbox = s.spec.sandbox_factory()
+            s._started = True
+            # Restore filesystem snapshot from legacy checkpoint if available
+            if self._checkpointer:
+                record = self._checkpointer.load(session_id)
+                if record:
+                    snap = record.get("fs_snapshot")
+                    if snap and isinstance(s.sandbox, VirtualSandbox):
+                        s.sandbox.fs.restore(snap)
+            return s
+        # Fallback to legacy checkpointer for sessions created before migration
+        if self._checkpointer:
+            record = self._checkpointer.load(session_id)
+            if record:
+                s = self.session(session_id=session_id)
+                s.sandbox = s.spec.sandbox_factory()
+                s._started = True
+                s.restore(record)
+                return s
+        return None
+
+    def list_sessions(self, filter: Optional[str] = None, limit: int = 100) -> "list[SessionInfo]":
+        """Return metadata for all known sessions (in-memory + persisted).
+
+        When *filter* is provided, only sessions whose ID contains the filter
+        string are returned.  Results are capped at *limit*.
+        """
+        from .conversation.session_info import SessionInfo
+
+        sessions: dict[str, SessionInfo] = {}
+
+        # Persisted sessions from session_meta:* entries in the store
+        for key in self.store.keys(prefix="session_meta:"):
+            meta = self.store.get(key)
+            if meta and isinstance(meta, dict):
+                sid = meta.get("id") or meta.get("persistence_key") or meta.get("name", "")
+                info = SessionInfo(
+                    id=sid,
+                    last_activity=meta.get("last_activity", 0.0),
+                )
+                sessions[info.id] = info
+
+        # In-memory active sessions (may not yet have persisted metadata)
+        import time
+
+        for sid in self._sessions:
+            if sid not in sessions:
+                sessions[sid] = SessionInfo(
+                    id=sid,
+                    last_activity=time.time(),
+                )
+
+        result = list(sessions.values())
+
+        if filter is not None:
+            result = [s for s in result if filter in s.id]
+
+        return result[:limit]
+
+    def delete_session(self, session_id: str) -> bool:
+        """Remove all event log records and metadata for a session.
+
+        Returns True if the session existed and was deleted, False otherwise.
+        """
+        key_log = f"event_log:{session_id}"
+        key_meta = f"session_meta:{session_id}"
+        exists = self.store.get(key_log) is not None or self.store.get(key_meta) is not None
+        if not exists:
+            return False
+        self.store.delete(key_log)
+        self.store.delete(key_meta)
+        self._sessions.pop(session_id, None)
+        return True
 
     # ---- convenience --------------------------------------------------------
 

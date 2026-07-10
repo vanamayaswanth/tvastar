@@ -14,12 +14,17 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from tvastar import Harness, create_agent
-from tvastar.durable import Checkpointer, message_from_dict, message_to_dict
-from tvastar.memory.store import InMemoryStore, Store
-from tvastar.model.mock import MockModel
-from tvastar.tools.base import tool
-from tvastar.types import (
+import pytest
+
+# Suppress the DeprecationWarning from Checkpointer (testing legacy code intentionally)
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+
+from tvastar import Harness, create_agent  # noqa: E402
+from tvastar.durable import Checkpointer, message_from_dict, message_to_dict  # noqa: E402
+from tvastar.memory.store import InMemoryStore, Store  # noqa: E402
+from tvastar.model.mock import MockModel  # noqa: E402
+from tvastar.tools.base import tool  # noqa: E402
+from tvastar.types import (  # noqa: E402
     Message,
     TextBlock,
     ToolResultBlock,
@@ -248,6 +253,8 @@ async def test_corrupted_store_with_saved_then_corrupted():
 
     # Now corrupt the data by replacing with something invalid
     store.set("session:corrupt-001", None)
+    # Also corrupt the event log (new durable architecture)
+    store.set("event_log:corrupt-001", None)
 
     # Resume should return None because the record is falsy
     spec2 = _make_agent(["Done."])

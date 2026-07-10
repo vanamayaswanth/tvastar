@@ -316,8 +316,7 @@ def test_bug7_thrash_loop_uses_hash_keys(arg_size: int, num_calls: int):
         for i in range(num_calls)
     ]
     tool_results = [
-        ToolResultBlock(tool_use_id=f"call_{i:04d}", content="ok")
-        for i in range(num_calls)
+        ToolResultBlock(tool_use_id=f"call_{i:04d}", content="ok") for i in range(num_calls)
     ]
 
     messages = [
@@ -344,7 +343,9 @@ def test_bug7_thrash_loop_uses_hash_keys(arg_size: int, num_calls: int):
 
     # After the fix, thrash_loop should produce keys with a 32-char md5 hexdigest
     # (not the raw serialized JSON). Verify by checking the expected hash matches.
-    expected_hash = hashlib.md5(json.dumps(large_input, sort_keys=True, default=str).encode()).hexdigest()
+    expected_hash = hashlib.md5(
+        json.dumps(large_input, sort_keys=True, default=str).encode()
+    ).hexdigest()
     assert len(expected_hash) == 32, "md5 hexdigest should be 32 chars"
 
     # The key used should be (tool_name, hash) where hash is 32 chars.
@@ -352,7 +353,10 @@ def test_bug7_thrash_loop_uses_hash_keys(arg_size: int, num_calls: int):
     # We re-run the internal logic to confirm the key format:
     counts: dict[tuple, int] = {}
     for call in ctx.tool_calls:
-        key = (call.name, hashlib.md5(json.dumps(call.input, sort_keys=True, default=str).encode()).hexdigest())
+        key = (
+            call.name,
+            hashlib.md5(json.dumps(call.input, sort_keys=True, default=str).encode()).hexdigest(),
+        )
         counts[key] = counts.get(key, 0) + 1
 
     # All keys' second element should be exactly 32 chars (md5 hexdigest)

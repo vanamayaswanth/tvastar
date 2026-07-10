@@ -37,11 +37,14 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tvastar.fleet import AgentHealthSnapshot, AlertConfig
-from tvastar.fleet.bus import EventBus
+from tvastar.fleet.bus import EventBus, FleetEvent
 from tvastar.fleet.registry import FleetRegistry
+
+if TYPE_CHECKING:
+    from tvastar.memory.store import Store
 
 
 # ---------------------------------------------------------------------------
@@ -77,21 +80,23 @@ class FleetObserver:
         *,
         tracer: Any | None = None,
         alert_config: AlertConfig | None = None,
+        store: "Store | None" = None,
     ) -> None:
         self._registry = registry
         self._event_bus = event_bus
         self._tracer = tracer
         self._alert_config = alert_config or AlertConfig()
+        self._store: "Store | None" = store
 
-        # Quality score tracking: agent_name -> score
+        # Quality score tracking: agent_name -> score (hot cache from EventBus events, Req 5.6)
         self._quality_scores: dict[str, float] = {}
 
-        # Error/success tracking for error rate alerting — capped to prevent OOM
+        # Error/success tracking for error rate alerting — windowed deque (Req 6.4)
         from collections import deque
 
         self._outcomes: deque[tuple[float, bool]] = deque(maxlen=50_000)
 
-        # Cost tracking for cost spike alerting — capped
+        # Cost tracking for cost spike alerting — windowed deque (Req 6.4)
         self._cost_events: deque[tuple[float, float]] = deque(maxlen=50_000)
 
         # Previous window cost for spike detection
@@ -100,6 +105,65 @@ class FleetObserver:
         # Correlation ID -> list of spans
         self._correlation_spans: dict[str, list[Any]] = {}
 
+        # Subscribe to fleet.loop.run_completed for outcome tracking (Req 5.2)
+        self._event_bus.subscribe(
+            "fleet.loop.run_completed", self._on_run_completed, agent="observer"
+        )
+
+        # Reconcile quality scores from Event_Log on startup (Req 14.1, 14.2, 14.3)
+        self.reconcile()
+
+    # ------------------------------------------------------------------
+    # EventBus handler (Requirement 5.3)
+    # ------------------------------------------------------------------
+
+    def _on_run_completed(self, event: FleetEvent) -> None:
+        """Handle fleet.loop.run_completed events."""
+        payload = event.payload
+        is_error = payload.get("is_error", False)
+        agent_name = payload.get("agent_name")
+        quality_score = payload.get("quality_score")
+
+        self.record_outcome(is_error)
+        if agent_name and quality_score is not None:
+            self.record_quality_score(agent_name, quality_score)
+
+    # ------------------------------------------------------------------
+    # Startup reconciliation (Requirement 14.1, 14.2, 14.3)
+    # ------------------------------------------------------------------
+
+    def reconcile(self) -> None:
+        """Reconcile quality scores from Event_Log after startup.
+
+        Queries agent_sessions index for all registered agents and replays
+        any run_end records not yet reflected in _quality_scores.
+        Idempotent — calling multiple times just re-reads the same data.
+        No-op when Store is not configured.
+        """
+        if self._store is None:
+            return
+
+        for name in list(self._registry._agents.keys()):
+            sessions = self._store.get(f"agent_sessions:{name}")
+            if not sessions:
+                continue
+
+            # Only need the LAST run_end per agent (most recent wins)
+            last_conv_id = sessions[-1]
+            log = self._store.get(f"event_log:{last_conv_id}")
+            if not log:
+                continue
+
+            for record in reversed(log):
+                if not isinstance(record, dict):
+                    continue
+                if record.get("type") == "run_end":
+                    data = record.get("data", {})
+                    quality_score = data.get("quality_score")
+                    if quality_score is not None:
+                        self._quality_scores[name] = quality_score
+                    break
+
     # ------------------------------------------------------------------
     # Health snapshot (Requirement 14.1)
     # ------------------------------------------------------------------
@@ -107,9 +171,9 @@ class FleetObserver:
     def health_snapshot(self) -> list[AgentHealthSnapshot]:
         """Return a health snapshot for all registered agents.
 
-        Iterates over all agents in the registry, building an
-        AgentHealthSnapshot for each that includes name, current state,
-        last run status, last run timestamp, and quality score.
+        Derives last_run_status and last_run_at from the agent_sessions index
+        and Event_Log (Req 6.3). Falls back to loop attributes when Store is
+        not configured.
 
         Returns
         -------
@@ -117,25 +181,31 @@ class FleetObserver:
         """
         snapshots: list[AgentHealthSnapshot] = []
 
-        # Iterate all agents in the registry
         for name in list(self._registry._agents.keys()):
             entry = self._registry.get(name)
             if entry is None:
                 continue
 
-            # Extract last_run_status and last_run_at from the agent's loop
             last_run_status: str | None = None
             last_run_at: float | None = None
 
-            loop = entry.loop
-            if loop is not None:
-                # Try to get last run info from the loop
-                if hasattr(loop, "last_run_status"):
-                    last_run_status = getattr(loop, "last_run_status", None)
-                if hasattr(loop, "last_run_at"):
-                    last_run_at = getattr(loop, "last_run_at", None)
+            # Derive from Event_Log via agent_sessions index (Req 6.3, 12.4)
+            if self._store is not None:
+                last_run_status, last_run_at = self._query_last_run(name)
 
+            # Fallback: try loop attributes if Store didn't yield results
+            if last_run_status is None and last_run_at is None:
+                loop = entry.loop
+                if loop is not None:
+                    if hasattr(loop, "last_run_status"):
+                        last_run_status = getattr(loop, "last_run_status", None)
+                    if hasattr(loop, "last_run_at"):
+                        last_run_at = getattr(loop, "last_run_at", None)
+
+            # Derive quality from hot cache, fall back to Event_Log (Req 6.2)
             quality_score = self._quality_scores.get(name)
+            if quality_score is None and self._store is not None:
+                quality_score = self._query_last_quality(name)
 
             snapshot = AgentHealthSnapshot(
                 name=name,
@@ -152,6 +222,63 @@ class FleetObserver:
         )
 
         return snapshots
+
+    def _query_last_run(self, agent_name: str) -> tuple[str | None, float | None]:
+        """Query agent_sessions index + event_log for last run status/timestamp.
+
+        Returns (last_run_status, last_run_at) or (None, None) if unavailable.
+        """
+        if self._store is None:
+            return None, None
+
+        sessions = self._store.get(f"agent_sessions:{agent_name}")
+        if not sessions:
+            return None, None
+
+        # Last conversation_id is the most recent run
+        last_conv_id = sessions[-1]
+        log = self._store.get(f"event_log:{last_conv_id}")
+        if not log:
+            return None, None
+
+        # Scan from end for the last run_end record
+        for record in reversed(log):
+            if not isinstance(record, dict):
+                continue
+            if record.get("type") == "run_end":
+                data = record.get("data", {})
+                stopped = data.get("stopped")
+                # run_end timestamp is on the record itself
+                ts = record.get("timestamp")
+                return stopped, ts
+
+        return None, None
+
+    def _query_last_quality(self, agent_name: str) -> float | None:
+        """Derive quality score from the last run_end record in Event_Log (Req 6.2).
+
+        Returns the quality_score from the most recent run_end, or None if unavailable.
+        """
+        if self._store is None:
+            return None
+
+        sessions = self._store.get(f"agent_sessions:{agent_name}")
+        if not sessions:
+            return None
+
+        last_conv_id = sessions[-1]
+        log = self._store.get(f"event_log:{last_conv_id}")
+        if not log:
+            return None
+
+        for record in reversed(log):
+            if not isinstance(record, dict):
+                continue
+            if record.get("type") == "run_end":
+                data = record.get("data", {})
+                return data.get("quality_score")
+
+        return None
 
     # ------------------------------------------------------------------
     # Fleet quality score (Requirement 14.2)
@@ -340,6 +467,7 @@ class FleetObserver:
             "quality_score": score,
             "threshold": self._alert_config.quality_threshold,
             "alert_type": "quality_degradation",
+            "runbook_ref": "docs/runbooks/quality_degradation.md",
         }
 
         self._event_bus.publish(
@@ -380,6 +508,7 @@ class FleetObserver:
                 "threshold": self._alert_config.error_rate_threshold,
                 "window_seconds": self._alert_config.window_seconds,
                 "alert_type": "error_rate",
+                "runbook_ref": "docs/runbooks/error_rate.md",
             }
 
             self._event_bus.publish(
@@ -431,6 +560,7 @@ class FleetObserver:
                 "threshold": self._alert_config.cost_spike_threshold,
                 "window_seconds": window,
                 "alert_type": "cost_spike",
+                "runbook_ref": "docs/runbooks/cost_spike.md",
             }
 
             self._event_bus.publish(

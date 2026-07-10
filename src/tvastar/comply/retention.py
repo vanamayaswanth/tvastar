@@ -18,11 +18,11 @@ __all__ = ["FRAMEWORK_RETENTION", "RetentionManager"]
 
 # Minimum retention periods by framework (in days)
 FRAMEWORK_RETENTION: dict[str, int] = {
-    "SOX": 7 * 365,    # 7 years
+    "SOX": 7 * 365,  # 7 years
     "HIPAA": 6 * 365,  # 6 years
-    "GDPR": 5 * 365,   # 5 years
-    "GLBA": 5 * 365,   # 5 years
-    "DORA": 5 * 365,   # 5 years
+    "GDPR": 5 * 365,  # 5 years
+    "GLBA": 5 * 365,  # 5 years
+    "DORA": 5 * 365,  # 5 years
 }
 
 # ponytail: default for frameworks not in the map (EU_AI_Act, etc.)

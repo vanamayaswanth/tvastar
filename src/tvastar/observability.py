@@ -19,9 +19,22 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
+
+if TYPE_CHECKING:
+    from tvastar.logging import StructuredLogger
 
 _span_stack: contextvars.ContextVar[list[str]] = contextvars.ContextVar("_span_stack", default=[])
+
+
+def _get_logger() -> "StructuredLogger":
+    """Lazy import to avoid circular dependency with tvastar.logging."""
+    from tvastar.logging import StructuredLogger
+
+    # ponytail: module-level cache would import at load time; lazy singleton is safe.
+    if not hasattr(_get_logger, "_instance"):
+        _get_logger._instance = StructuredLogger(name="tvastar.observability")  # type: ignore[attr-defined]
+    return _get_logger._instance  # type: ignore[attr-defined]
 
 
 @dataclass
@@ -163,7 +176,7 @@ class Tracer:
             try:
                 ex.export(span)
             except Exception as e:  # never let tracing break a run
-                print(f"[trace-error] exporter failed: {e}", file=sys.stderr)
+                _get_logger().emit("ERROR", f"exporter failed: {e}", exporter=type(ex).__name__)
 
 
 #: a process-wide default; replace via Tracer(...) per harness as needed.

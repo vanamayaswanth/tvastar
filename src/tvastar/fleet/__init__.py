@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from tvastar.errors import PolicyError  # needed for BudgetExhaustedError base
+
 
 # ---------------------------------------------------------------------------
 # Exception hierarchy
@@ -64,7 +66,7 @@ class RateLimitError(FleetError):
         super().__init__(f"Rate limit exceeded for {scope!r}: retry after {reset_after:.1f}s")
 
 
-class BudgetExhaustedError(FleetError):
+class BudgetExhaustedError(PolicyError, FleetError):
     """Raised when fleet or agent budget is exhausted."""
 
 
@@ -131,6 +133,21 @@ class FleetBudgetConfig:
     throttle_threshold: float = 0.9
     exempt_agents: list[str] = field(default_factory=list)
     reporting_periods: list[str] = field(default_factory=lambda: ["hourly", "daily"])
+
+    def __post_init__(self) -> None:
+        if self.max_fleet_usd <= 0:
+            raise ValueError(f"max_fleet_usd must be > 0, got {self.max_fleet_usd}")
+        if not (0.0 <= self.warn_threshold <= 1.0):
+            raise ValueError(f"warn_threshold must be in [0.0, 1.0], got {self.warn_threshold}")
+        if not (0.0 <= self.throttle_threshold <= 1.0):
+            raise ValueError(
+                f"throttle_threshold must be in [0.0, 1.0], got {self.throttle_threshold}"
+            )
+        if self.warn_threshold >= self.throttle_threshold:
+            raise ValueError(
+                f"warn_threshold ({self.warn_threshold}) must be strictly less "
+                f"than throttle_threshold ({self.throttle_threshold})"
+            )
 
 
 @dataclass
@@ -420,24 +437,6 @@ class Fleet:
     # Convenience methods
     # ------------------------------------------------------------------
 
-    def _wire_loop_to_observer(self, name: str, loop: Any) -> None:
-        """Auto-record loop outcomes in the observer for health tracking."""
-        if loop is None or not hasattr(loop, "on_event"):
-            return
-
-        def _on_loop_event(event):
-            from tvastar.loop import LoopState
-
-            if event.state == LoopState.PASS:
-                self._observer.record_outcome(is_error=False)
-                # Update quality score
-                self._observer.record_quality_score(name, 100.0)
-            elif event.state in (LoopState.FAIL, LoopState.HANDOFF):
-                self._observer.record_outcome(is_error=True)
-                self._observer.record_quality_score(name, 0.0)
-
-        loop.on_event(_on_loop_event)
-
     def register(
         self,
         loop: Any,
@@ -476,7 +475,6 @@ class Fleet:
             owner=owner,
             dependencies=dependencies,
         )
-        self._wire_loop_to_observer(name, loop)
         return entry
 
     async def submit(self, task: str, **kwargs: Any) -> Any:

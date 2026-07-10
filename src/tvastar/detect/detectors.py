@@ -73,7 +73,10 @@ def thrash_loop(ctx: RunContext, *, threshold: int = 3) -> list[Finding]:
 
     counts: dict[tuple, int] = {}
     for call in ctx.tool_calls:
-        key = (call.name, hashlib.md5(json.dumps(call.input, sort_keys=True, default=str).encode()).hexdigest())
+        key = (
+            call.name,
+            hashlib.md5(json.dumps(call.input, sort_keys=True, default=str).encode()).hexdigest(),
+        )
         counts[key] = counts.get(key, 0) + 1
     out = []
     for (name, _args), n in counts.items():

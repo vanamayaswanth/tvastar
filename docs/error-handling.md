@@ -78,6 +78,35 @@ The fallback chain (`fallback_models`) follows specific rules:
 
 ---
 
+## Error Classification — Permanent vs Transient Failures
+
+The Loop engine uses an `ErrorClassifier` to distinguish permanent failures from transient ones:
+
+| Classification | Behavior | Examples |
+|---|---|---|
+| `AUTH_ERROR` | Skip retry, immediate HANDOFF | Expired API key, revoked credentials |
+| `CONTENT_POLICY` | Skip retry (or try fallback model once) | Content safety filter triggered |
+| `MODEL_ERROR` with `retry_after_seconds` | Use provider's Retry-After instead of exponential backoff | Rate limiting |
+| `None` (unrecognized) | Default behavior (MODEL_ERROR + exponential backoff) | Unknown exceptions |
+
+**Classifier failure handling:** If the configured `error_classifier` itself raises, the Loop catches silently and returns None — classifier bugs never break a run.
+
+---
+
+## ConversationWriter Degraded Mode
+
+When the Store backend fails during `append()`:
+
+1. `last_error` is set to a `DurableError` (includes session_id and operation)
+2. A `"session.degraded"` event is emitted **once** per None→Error transition
+3. Subsequent failures while already degraded do NOT emit duplicate events
+4. When the Store recovers (next successful write), `"session.recovered"` is emitted
+5. The writer continues operating in-memory — records are still returned to callers
+
+This is best-effort durability. With `InMemoryStore`, events are not durable across restarts. With `FileStore`/`SQLiteStore`, events survive crashes up to the last successful `Store.set()`.
+
+---
+
 ## Guidelines for Contributors
 
 When adding a new operation or extension point:

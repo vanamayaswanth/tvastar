@@ -45,22 +45,14 @@ class CostTracker:
         # ponytail: simple list storage, no persistence needed for MVP
         self._records: List[_TokenRecord] = []
 
-    def record_compliance_tokens(
-        self, loop_name: str, run_id: str, tokens: int
-    ) -> None:
+    def record_compliance_tokens(self, loop_name: str, run_id: str, tokens: int) -> None:
         """Record tokens consumed by a compliance check."""
-        self._records.append(
-            _TokenRecord(loop_name, run_id, tokens, "compliance", time.time())
-        )
+        self._records.append(_TokenRecord(loop_name, run_id, tokens, "compliance", time.time()))
         self._check_threshold(loop_name)
 
-    def record_business_tokens(
-        self, loop_name: str, run_id: str, tokens: int
-    ) -> None:
+    def record_business_tokens(self, loop_name: str, run_id: str, tokens: int) -> None:
         """Record tokens consumed by business logic."""
-        self._records.append(
-            _TokenRecord(loop_name, run_id, tokens, "business", time.time())
-        )
+        self._records.append(_TokenRecord(loop_name, run_id, tokens, "business", time.time()))
 
     def overhead_ratio(self, loop_name: str) -> float:
         """compliance_tokens / (compliance_tokens + business_tokens) for a loop.

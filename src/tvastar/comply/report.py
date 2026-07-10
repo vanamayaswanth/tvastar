@@ -25,7 +25,6 @@ Usage::
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -157,9 +156,9 @@ class ReportGenerator:
         return f"""
 <h2>PII Protection Proof</h2>
 <table class="proof">
-  <tr><td>Vault Active</td><td><strong>{proof['vault_active']}</strong></td></tr>
-  <tr><td>Token Count</td><td>{proof['token_count']}</td></tr>
-  <tr><td>Content Hash</td><td><code>{esc(proof['content_hash'])}</code></td></tr>
-  <tr><td>Leak Count</td><td>{proof['leak_count']}</td></tr>
+  <tr><td>Vault Active</td><td><strong>{proof["vault_active"]}</strong></td></tr>
+  <tr><td>Token Count</td><td>{proof["token_count"]}</td></tr>
+  <tr><td>Content Hash</td><td><code>{esc(proof["content_hash"])}</code></td></tr>
+  <tr><td>Leak Count</td><td>{proof["leak_count"]}</td></tr>
   <tr><td>Leaked Types</td><td>{leaked}</td></tr>
 </table>"""

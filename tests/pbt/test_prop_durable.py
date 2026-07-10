@@ -9,12 +9,16 @@ harness.resume(session_id) produces a session with messages equivalent to M.
 
 from __future__ import annotations
 
+import pytest
 import hypothesis.strategies as st
 from hypothesis import given, settings
 
-from tvastar.durable import Checkpointer
-from tvastar.memory.store import InMemoryStore
-from tvastar.types import (
+# Suppress the DeprecationWarning from Checkpointer (testing legacy code intentionally)
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+
+from tvastar.durable import Checkpointer  # noqa: E402
+from tvastar.memory.store import InMemoryStore  # noqa: E402
+from tvastar.types import (  # noqa: E402
     Message,
     TextBlock,
     ToolResultBlock,

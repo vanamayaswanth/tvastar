@@ -20,10 +20,13 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
+    import pathlib
+
     from ..agent import AgentSpec
     from ..memory.store import Store
     from ..model.base import Model
     from ..observability import Tracer
+    from .classifiers import ClassificationResult, ErrorClassifier
     from .handoff import HandoffPolicy
 
 
@@ -52,6 +55,8 @@ class FailureKind(str, Enum):
     LOGIC_ERROR = "logic_error"  # agent ran but goal not met (result.ok False)
     DETECTION = "detection"  # silent-failure detector fired
     UNKNOWN = "unknown"
+    AUTH_ERROR = "auth_error"  # permanent: invalid credentials (Req 2.1)
+    CONTENT_POLICY = "content_policy"  # permanent: content policy rejection (Req 2.2)
 
 
 # ---------------------------------------------------------------------------
@@ -68,23 +73,122 @@ class LoopEvent:
     data: dict = field(default_factory=dict)
 
 
-@dataclass
 class LoopRun:
-    run_id: str
-    loop_name: str
-    state: LoopState
-    iteration: int
-    started_at: float
-    ended_at: float | None = None
-    # Store only text + steps + stopped, not full message history (memory safety)
-    result_text: str | None = None
-    result_steps: int | None = None
-    result_stopped: str | None = None
-    findings: list = field(default_factory=list)
-    failure_kind: FailureKind | None = None
-    retry_after: float | None = None  # unix timestamp: don't retry before this
-    error: str | None = None
-    context: dict = field(default_factory=dict)
+    """A single scheduled agent execution record.
+
+    Derived fields (result_text, result_steps, result_stopped, findings) are
+    lazily projected from the Event_Log via conversation_id, or eagerly cached
+    when the backing Store is InMemoryStore.
+    """
+
+    __slots__ = (
+        "run_id",
+        "loop_name",
+        "state",
+        "iteration",
+        "started_at",
+        "ended_at",
+        "conversation_id",
+        "failure_kind",
+        "retry_after",
+        "error",
+        "context",
+        "_store",
+        "_cached_projection",
+    )
+
+    def __init__(
+        self,
+        run_id: str,
+        loop_name: str,
+        state: LoopState,
+        iteration: int,
+        started_at: float,
+        ended_at: float | None = None,
+        conversation_id: str | None = None,
+        failure_kind: "FailureKind | None" = None,
+        retry_after: float | None = None,
+        error: str | None = None,
+        context: dict | None = None,
+        # Legacy kwargs — accepted for backward compat, seed the cache
+        result_text: str | None = None,
+        result_steps: int | None = None,
+        result_stopped: str | None = None,
+        findings: list | None = None,
+        # Private — not part of serialization
+        _store: "Any | None" = None,
+    ) -> None:
+        self.run_id = run_id
+        self.loop_name = loop_name
+        self.state = state
+        self.iteration = iteration
+        self.started_at = started_at
+        self.ended_at = ended_at
+        self.conversation_id = conversation_id
+        self.failure_kind = failure_kind
+        self.retry_after = retry_after
+        self.error = error
+        self.context = context if context is not None else {}
+        self._store = _store
+        # Seed cache from legacy kwargs if any were provided
+        if (
+            result_text is not None
+            or result_steps is not None
+            or result_stopped is not None
+            or findings is not None
+        ):
+            self._cached_projection = {
+                "text": result_text,
+                "steps": result_steps,
+                "stopped": result_stopped,
+                "findings": findings if findings is not None else [],
+            }
+        else:
+            self._cached_projection = None
+
+    # ------------------------------------------------------------------
+    # Derived properties — lazily projected from Event_Log (Req 3.2–3.5)
+    # ------------------------------------------------------------------
+
+    @property
+    def result_text(self) -> str | None:
+        return self._project().get("text")
+
+    @result_text.setter
+    def result_text(self, value: str | None) -> None:
+        self._ensure_cache()
+        self._cached_projection["text"] = value  # type: ignore[index]
+
+    @property
+    def result_steps(self) -> int | None:
+        return self._project().get("steps")
+
+    @result_steps.setter
+    def result_steps(self, value: int | None) -> None:
+        self._ensure_cache()
+        self._cached_projection["steps"] = value  # type: ignore[index]
+
+    @property
+    def result_stopped(self) -> str | None:
+        return self._project().get("stopped")
+
+    @result_stopped.setter
+    def result_stopped(self, value: str | None) -> None:
+        self._ensure_cache()
+        self._cached_projection["stopped"] = value  # type: ignore[index]
+
+    @property
+    def findings(self) -> list:
+        return self._project().get("findings", [])
+
+    @findings.setter
+    def findings(self, value: list) -> None:
+        self._ensure_cache()
+        self._cached_projection["findings"] = value  # type: ignore[index]
+
+    # ------------------------------------------------------------------
+    # Preserved properties (Req 3.6)
+    # ------------------------------------------------------------------
 
     @property
     def ok(self) -> bool:
@@ -95,6 +199,53 @@ class LoopRun:
         if self.ended_at is None:
             return None
         return self.ended_at - self.started_at
+
+    # ------------------------------------------------------------------
+    # Internal: projection logic
+    # ------------------------------------------------------------------
+
+    def _ensure_cache(self) -> None:
+        """Ensure _cached_projection dict exists for setter writes."""
+        if self._cached_projection is None:
+            self._cached_projection = {"text": None, "steps": None, "stopped": None, "findings": []}
+
+    def _project(self) -> dict:
+        """Lazily project fields from Event_Log, caching after first access (Req 10.2)."""
+        if self._cached_projection is not None:
+            return self._cached_projection
+        if self.conversation_id is None or self._store is None:
+            return {}
+        log = self._store.get(f"event_log:{self.conversation_id}")
+        if not log:
+            return {}
+        from ..conversation.projection import project_fields_from_log
+
+        projection = project_fields_from_log(log)
+        self._cached_projection = projection
+        return projection
+
+    def eagerly_project(self) -> None:
+        """Force projection now and cache. Called for InMemoryStore backends (Req 3.9)."""
+        if self._cached_projection is not None:
+            return  # already cached (e.g. via setters)
+        if self.conversation_id is None or self._store is None:
+            return
+        log = self._store.get(f"event_log:{self.conversation_id}")
+        if not log:
+            return
+        from ..conversation.projection import project_fields_from_log
+
+        self._cached_projection = project_fields_from_log(log)
+
+    # ------------------------------------------------------------------
+    # Repr for debugging
+    # ------------------------------------------------------------------
+
+    def __repr__(self) -> str:
+        return (
+            f"LoopRun(run_id={self.run_id!r}, loop_name={self.loop_name!r}, "
+            f"state={self.state!r}, iteration={self.iteration})"
+        )
 
 
 @dataclass
@@ -134,6 +285,10 @@ class LoopConfig:
     allow_concurrent: bool = False  # ponytail: immutable after __post_init__
     adaptive_scheduling: bool = False  # Phase 3 — immutable after __post_init__
     metadata: dict = field(default_factory=dict)
+    error_classifier: "ErrorClassifier | None" = None  # NEW: pluggable error classification
+    fallback_model: "Model | None" = None  # NEW: content policy fallback (Req 2.5)
+    fallback_dir: str | None = None  # NEW: override handoff fallback directory (Req 4.2)
+    fallback_retention_days: int = 7  # NEW: fallback file cleanup (Req 4.6)
 
     # ponytail: fields sealed after construction to prevent runtime mutation
     _SEALED_FIELDS: tuple = field(
@@ -149,9 +304,15 @@ class LoopConfig:
         if not self.goal or not self.goal.strip():
             raise ValueError("LoopConfig.goal must not be empty")
         if self.max_iterations < 1:
-            raise ValueError("LoopConfig.max_iterations must be >= 1")
+            raise ValueError(f"max_iterations must be >= 1, got {self.max_iterations}")
         if self.retry_backoff_base < 0:
-            raise ValueError("LoopConfig.retry_backoff_base must be >= 0")
+            raise ValueError(f"retry_backoff_base must be >= 0, got {self.retry_backoff_base}")
+        if self.cancel_after is not None and self.cancel_after <= 0:
+            raise ValueError(f"cancel_after must be > 0 when set, got {self.cancel_after}")
+        if self.circuit_breaker_limit < 1:
+            raise ValueError(
+                f"circuit_breaker_limit must be >= 1, got {self.circuit_breaker_limit}"
+            )
         # Validate trigger_on format
         if self.trigger_on is not None:
             if not self.trigger_on.startswith("event:"):
@@ -231,6 +392,7 @@ class Loop:
         self._lock = asyncio.Lock()
         self._bg_tasks: set = set()  # keeps fire-and-forget tasks alive until done
         self._cumulative_usd: float = 0.0  # accumulated cost across all runs
+        self._event_bus: Any = None  # set via subscribe_trigger for publishing run_completed
 
         # Crash recovery: detect orphaned RUNNING runs from a previous process
         self._recover()
@@ -299,7 +461,9 @@ class Loop:
 
         When LoopConfig.trigger_on starts with "event:", subscribes to that
         topic on the given EventBus. Each event fires a trigger().
+        Also stores the EventBus reference for publishing run_completed events.
         """
+        self._event_bus = event_bus
         if not self._config.trigger_on or not self._config.trigger_on.startswith("event:"):
             return
         topic = self._config.trigger_on[len("event:") :]
@@ -370,6 +534,7 @@ class Loop:
             async with self._lock:
                 self._set(run, LoopState.FAIL)
                 await self._handle_fail(run)
+            self._publish_run_completed(run, quality_score=None)
         finally:
             run.ended_at = time.time()
             self._checkpoint(run)
@@ -426,6 +591,15 @@ class Loop:
     # Internal: run lifecycle
     # ------------------------------------------------------------------
 
+    def _classify(self, exc: Exception) -> "ClassificationResult | None":
+        """Invoke configured error_classifier. Never fatal — returns None on failure."""
+        if self._config.error_classifier is None:
+            return None
+        try:
+            return self._config.error_classifier(exc)
+        except Exception:
+            return None  # ponytail: classifier failure is never fatal
+
     async def _run_iteration(self, run: LoopRun, context: dict) -> None:
         from contextlib import nullcontext
 
@@ -443,34 +617,51 @@ class Loop:
 
         prompt = self._build_prompt(context)
 
+        # Generate a stable session_id so we can reference the event log later.
+        session_id = f"sess_{uuid.uuid4().hex[:12]}"
+
         try:
             if self._config.cancel_after:
                 result = await asyncio.wait_for(
-                    self._harness.run(prompt),
+                    self._harness.run(prompt, session_id=session_id),
                     timeout=self._config.cancel_after,
                 )
             else:
-                result = await self._harness.run(prompt)
+                result = await self._harness.run(prompt, session_id=session_id)
         except asyncio.TimeoutError:
             run.error = f"Run timed out after {self._config.cancel_after}s"
             run.failure_kind = FailureKind.TIMEOUT
             async with self._lock:
                 self._set(run, LoopState.FAIL)
                 await self._handle_fail(run)
+            self._publish_run_completed(run, quality_score=None)
             return
         except Exception as exc:
             run.error = str(exc)
-            run.failure_kind = FailureKind.MODEL_ERROR
+            classification = self._classify(exc)
+            run.failure_kind = (
+                classification.failure_kind if classification else FailureKind.MODEL_ERROR
+            )
+            # Propagate Retry-After to LoopRun for _handle_fail to use
+            if classification and classification.retry_after_seconds:
+                run.retry_after = time.time() + classification.retry_after_seconds
             async with self._lock:
                 self._set(run, LoopState.FAIL)
                 await self._handle_fail(run)
+            self._publish_run_completed(run, quality_score=None)
             return
 
-        # Store metadata only — not full message history
-        run.result_text = result.text
-        run.result_steps = result.steps
-        run.result_stopped = result.stopped
-        run.findings = list(result.findings)
+        # Reference the session's event log — not full message history
+        run.conversation_id = result.conversation_id
+        run._store = self._store
+        # InMemoryStore is non-durable; eagerly cache projection (Req 3.9)
+        from ..memory.store import InMemoryStore
+
+        if isinstance(self._store, InMemoryStore):
+            run.eagerly_project()
+
+        # Update agent_sessions index (Req 12.2)
+        self._append_agent_session(result.conversation_id)
 
         # cumulative budget: suspend the loop when total spend across runs exceeds cap
         if self._config.budget is not None and hasattr(result, "cost"):
@@ -478,6 +669,7 @@ class Loop:
             if self._cumulative_usd >= self._config.budget.max_usd:
                 async with self._lock:
                     self._set(run, LoopState.SUSPENDED)
+                self._publish_run_completed(run, quality_score=result.quality.score)
                 return
 
         async with self._lock:
@@ -492,17 +684,59 @@ class Loop:
                 self._iteration = 0
                 self._consecutive_failures = 0
                 self._store.set(_CIRCUIT_BREAKER_KEY.format(name=self.name), "0")
+                self._publish_run_completed(run, quality_score=result.quality.score)
                 return
 
             run.failure_kind = FailureKind.DETECTION if has_findings else FailureKind.LOGIC_ERROR
             self._set(run, LoopState.FAIL)
             await self._handle_fail(run)
+            self._publish_run_completed(run, quality_score=result.quality.score)
 
     async def _handle_fail(self, run: LoopRun) -> None:
         """Called under self._lock after a FAIL state is set."""
+        # Permanent failures skip retry entirely (Req 2.3, 2.4, 2.5, 2.6)
+        if run.failure_kind in (FailureKind.AUTH_ERROR, FailureKind.CONTENT_POLICY):
+            # CONTENT_POLICY with fallback_model: attempt one run with fallback
+            if (
+                run.failure_kind == FailureKind.CONTENT_POLICY
+                and self._config.fallback_model is not None
+                and not run.context.get("_fallback_attempted")
+            ):
+                run.context["_fallback_attempted"] = True
+                # Schedule a single retry with the fallback model
+                t = asyncio.create_task(self._run_with_fallback_model(run))
+                self._bg_tasks.add(t)
+                t.add_done_callback(self._bg_tasks.discard)
+                return
+
+            self._iteration = 0
+            self._consecutive_failures += 1
+            self._store.set(
+                _CIRCUIT_BREAKER_KEY.format(name=self.name),
+                str(self._consecutive_failures),
+            )
+            self._set(run, LoopState.HANDOFF)
+            t = asyncio.create_task(self._fire_handoff(run))
+            self._bg_tasks.add(t)
+            t.add_done_callback(self._bg_tasks.discard)
+            return
+
         if self._iteration < self._config.max_iterations:
-            # Exponential backoff: base * 2^(iteration-1)
-            backoff = self._config.retry_backoff_base * (2 ** (self._iteration - 1))
+            # Prefer Retry-After from classification over exponential backoff
+            if run.retry_after is not None and run.retry_after > time.time():
+                backoff = run.retry_after - time.time()
+            else:
+                backoff = self._config.retry_backoff_base * (2 ** (self._iteration - 1))
+            # Cap at cancel_after if set
+            if self._config.cancel_after and backoff > self._config.cancel_after:
+                import sys
+
+                print(
+                    f"[reliability] Retry-After {backoff:.0f}s exceeds cancel_after "
+                    f"{self._config.cancel_after:.0f}s, capping",
+                    file=sys.stderr,
+                )
+                backoff = self._config.cancel_after
             run.retry_after = time.time() + backoff
             self._set(run, LoopState.RETRY)
             # Schedule the retry after backoff — tracked for clean shutdown
@@ -522,6 +756,78 @@ class Loop:
             self._bg_tasks.add(t)
             t.add_done_callback(self._bg_tasks.discard)
 
+    async def _run_with_fallback_model(self, run: LoopRun) -> None:
+        """Attempt one run with the configured fallback model (Req 2.5, 2.6).
+
+        If the fallback also fails with CONTENT_POLICY, transition to HANDOFF.
+        """
+        import dataclasses
+        from ..harness import Harness
+
+        fallback_spec = dataclasses.replace(self._base_spec, model=self._config.fallback_model)
+        fallback_harness = Harness(fallback_spec, store=self._store, tracer=self._tracer)
+
+        prompt = self._build_prompt(run.context)
+        session_id = f"sess_{uuid.uuid4().hex[:12]}"
+
+        try:
+            if self._config.cancel_after:
+                result = await asyncio.wait_for(
+                    fallback_harness.run(prompt, session_id=session_id),
+                    timeout=self._config.cancel_after,
+                )
+            else:
+                result = await fallback_harness.run(prompt, session_id=session_id)
+        except Exception as exc:
+            classification = self._classify(exc)
+            failure_kind = (
+                classification.failure_kind if classification else FailureKind.MODEL_ERROR
+            )
+            # Any failure on fallback → HANDOFF (no further retry)
+            async with self._lock:
+                run.error = str(exc)
+                run.failure_kind = failure_kind
+                self._iteration = 0
+                self._consecutive_failures += 1
+                self._store.set(
+                    _CIRCUIT_BREAKER_KEY.format(name=self.name),
+                    str(self._consecutive_failures),
+                )
+                self._set(run, LoopState.HANDOFF)
+                t = asyncio.create_task(self._fire_handoff(run))
+                self._bg_tasks.add(t)
+                t.add_done_callback(self._bg_tasks.discard)
+            return
+
+        # Fallback succeeded — check result quality
+        has_findings = any(f.severity in ("ERROR", "WARNING") for f in result.findings)
+        failed = (not result.ok) or bool(result.warnings) or has_findings
+
+        if not failed:
+            # Fallback produced a good result
+            async with self._lock:
+                run.conversation_id = result.conversation_id
+                run._store = self._store
+                self._set(run, LoopState.PASS)
+                self._iteration = 0
+                self._consecutive_failures = 0
+                self._store.set(_CIRCUIT_BREAKER_KEY.format(name=self.name), "0")
+            self._publish_run_completed(run, quality_score=result.quality.score)
+        else:
+            # Fallback also failed — HANDOFF
+            async with self._lock:
+                run.failure_kind = FailureKind.CONTENT_POLICY
+                self._iteration = 0
+                self._consecutive_failures += 1
+                self._store.set(
+                    _CIRCUIT_BREAKER_KEY.format(name=self.name),
+                    str(self._consecutive_failures),
+                )
+                self._set(run, LoopState.HANDOFF)
+                t = asyncio.create_task(self._fire_handoff(run))
+                self._bg_tasks.add(t)
+                t.add_done_callback(self._bg_tasks.discard)
+
     async def _delayed_retry(self, run: LoopRun, delay: float) -> None:
         """Wait backoff, then fire the next iteration if still in RETRY state."""
         await asyncio.sleep(delay)
@@ -533,6 +839,59 @@ class Loop:
             await self.trigger(context=run.context)
         except Exception:
             pass
+
+    def _fallback_dir(self) -> "pathlib.Path":
+        """Return the directory for handoff fallback files."""
+        from pathlib import Path
+
+        if self._config.fallback_dir:
+            return Path(self._config.fallback_dir)
+        # Default: alongside the store data
+        store_root = getattr(self._store, "root", None)
+        if store_root:
+            return Path(store_root) / "handoff_fallback"
+        return Path("handoff_fallback")
+
+    def _write_handoff_fallback(self, run: LoopRun, delivery_errors: list[str]) -> None:
+        """Synchronous write of handoff fallback JSON. Best-effort."""
+        import json
+        from datetime import datetime, timezone
+
+        fallback_dir = self._fallback_dir()
+        try:
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "loop_name": run.loop_name,
+                "run_id": run.run_id,
+                "failure_kind": run.failure_kind.value if run.failure_kind else None,
+                "error": run.error,
+                "delivery_errors": delivery_errors,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            path = fallback_dir / f"{run.run_id}.json"
+            path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception as e:
+            import sys
+
+            print(f"[reliability] fallback file write failed: {e}", file=sys.stderr)
+            run.context["fallback_write_error"] = str(e)
+
+    def _cleanup_old_fallback_files(self) -> None:
+        """Delete fallback files older than retention period. Best-effort."""
+        import sys
+        import time as _time
+
+        fallback_dir = self._fallback_dir()
+        if not fallback_dir.exists():
+            return
+        retention_seconds = self._config.fallback_retention_days * 86400
+        cutoff = _time.time() - retention_seconds
+        try:
+            for f in fallback_dir.glob("*.json"):
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+        except Exception as e:
+            print(f"[reliability] fallback file cleanup failed: {e}", file=sys.stderr)
 
     async def _fire_handoff(self, run: LoopRun) -> None:
         """Persist handoff intent, then call policy. Never silently drop."""
@@ -548,13 +907,16 @@ class Loop:
         else:
             handoff = self._config.handoff
 
+        delivery_errors: list[str] = []
         for attempt in range(3):
             try:
                 await handoff.escalate(run, self._history)
                 self._store.delete(f"loop:{self.name}:pending_handoff")
                 break
             except Exception as exc:
+                delivery_errors.append(f"Attempt {attempt + 1}: {exc}")
                 if attempt == 2:
+                    self._write_handoff_fallback(run, delivery_errors)
                     async with self._lock:
                         self._set(run, LoopState.HANDOFF_FAILED, {"error": str(exc)})
                     self._checkpoint(run)
@@ -612,7 +974,16 @@ class Loop:
     # ------------------------------------------------------------------
 
     def _recover(self) -> None:
-        """On startup, detect orphaned RUNNING runs and mark them INTERRUPTED."""
+        """On startup, recover last run from checkpoint.
+
+        Handles:
+        - Orphaned RUNNING/VERIFYING/TRIGGERED → mark INTERRUPTED
+        - v2 format (has conversation_id) → lazy derivation from Store
+        - v1 legacy format (has result fields, no conversation_id) → seed cache directly (REQ-15)
+        """
+        # Best-effort cleanup of old fallback files (Req 4.6, 4.7)
+        self._cleanup_old_fallback_files()
+
         try:
             raw = self._store.get(_STATE_KEY.format(name=self.name))
             if raw is None:
@@ -622,6 +993,7 @@ class Loop:
             data = json.loads(raw)
             if data.get("state") in (LoopState.RUNNING, LoopState.VERIFYING, LoopState.TRIGGERED):
                 # Orphaned run — was in-flight when process died
+                conversation_id = data.get("conversation_id")
                 run = LoopRun(
                     run_id=data.get("run_id", "unknown"),
                     loop_name=self.name,
@@ -629,11 +1001,37 @@ class Loop:
                     iteration=data.get("iteration", 1),
                     started_at=data.get("started_at", time.time()),
                     ended_at=time.time(),
+                    conversation_id=conversation_id,
                     error="Process interrupted mid-run (crash recovery)",
                     failure_kind=FailureKind.UNKNOWN,
+                    _store=self._store,
+                )
+                # If conversation_id present but Event_Log unavailable, mark failed (Req 4.3)
+                if conversation_id and not self._store.get(f"event_log:{conversation_id}"):
+                    run.state = LoopState.FAIL
+                    run.error = f"event_log_unavailable: {conversation_id}"
+                self._history.append(run)
+                self._emit(run, run.state)
+            elif not data.get("conversation_id") and any(
+                k in data for k in ("result_text", "result_steps", "result_stopped", "findings")
+            ):
+                # v1 legacy checkpoint — no conversation_id, has direct fields (REQ-15 AC1)
+                run = LoopRun(
+                    run_id=data.get("run_id", "unknown"),
+                    loop_name=self.name,
+                    state=data.get("state", LoopState.PASS),
+                    iteration=data.get("iteration", 1),
+                    started_at=data.get("started_at", time.time()),
+                    ended_at=data.get("ended_at"),
+                    failure_kind=data.get("failure_kind"),
+                    error=data.get("error"),
+                    context=data.get("context", {}),
+                    result_text=data.get("result_text"),
+                    result_steps=data.get("result_steps"),
+                    result_stopped=data.get("result_stopped"),
+                    findings=data.get("findings", []),
                 )
                 self._history.append(run)
-                self._emit(run, LoopState.INTERRUPTED)
         except Exception:
             pass  # don't crash on recovery failure
 
@@ -814,6 +1212,31 @@ class Loop:
             except Exception:
                 pass
 
+    def _append_agent_session(self, conversation_id: str) -> None:
+        """Append conversation_id to the agent_sessions index for this loop's agent."""
+        key = f"agent_sessions:{self.name}"
+        sessions = self._store.get(key) or []
+        sessions.append(conversation_id)
+        self._store.set(key, sessions)
+
+    def _publish_run_completed(self, run: LoopRun, quality_score: float | None = None) -> None:
+        """Publish fleet.loop.run_completed event if EventBus is configured (Req 5.1, 5.6)."""
+        if self._event_bus is None:
+            return
+        try:
+            self._event_bus.publish(
+                "fleet.loop.run_completed",
+                {
+                    "conversation_id": run.conversation_id,
+                    "agent_name": self.name,
+                    "is_error": run.state != LoopState.PASS,
+                    "quality_score": quality_score,
+                },
+                source_agent=self.name,
+            )
+        except Exception:
+            pass  # best-effort — never fail the run for event publishing
+
     def _checkpoint(self, run: LoopRun) -> None:
         """Persist run state after every transition — survive crashes."""
         try:
@@ -829,6 +1252,7 @@ class Loop:
                         "started_at": run.started_at,
                         "failure_kind": run.failure_kind,
                         "error": run.error,
+                        "conversation_id": run.conversation_id,
                     }
                 ),
             )

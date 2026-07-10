@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from .approval import ApprovalDenied, ApprovalTimeout
 from .compaction import compact_session
+from .conversation.records import RecordType
+from .conversation.writer import ConversationWriter
 from .cost import BudgetExceeded, Cost
 from .errors import ToolError, ToolNotFound
 from .memory.store import Memory
@@ -168,6 +170,7 @@ class RunResult:
     data: Optional[Any] = None  # populated when result= schema is used
     cost: Optional[Cost] = None  # token cost for this run (model-priced)
     receipt: Optional[Any] = None  # ExecutionReceipt when assurance is configured
+    conversation_id: Optional[str] = None  # session id for Event_Log lookup
 
     def __str__(self) -> str:
         return self.text
@@ -206,6 +209,17 @@ class Session:
         default_factory=list
     )  # [{tool, approved_by, approved_at, message}]
     last_checkpoint_error: Optional[Exception] = None
+    _writer: Optional[ConversationWriter] = None
+    degraded_tracker: Optional[Any] = None  # DegradedStateTracker for fail-fast (REQ-4 AC2)
+
+    def __post_init__(self) -> None:
+        # Freeze session identity after dataclass init completes.
+        object.__setattr__(self, "_id_frozen", True)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "id" and getattr(self, "_id_frozen", False):
+            raise AttributeError("Session.id is immutable after creation")
+        object.__setattr__(self, name, value)
 
     # ---- lifecycle ----------------------------------------------------------
 
@@ -223,12 +237,52 @@ class Session:
         self.sandbox = self.spec.sandbox_factory()
         await self.sandbox.start()
         self._started = True
+        # Create ConversationWriter if harness is in durable mode
+        if self.harness._durable and self._writer is None:
+            self._writer = ConversationWriter(
+                self.harness.store,
+                self.id,
+                compaction_threshold=self.harness._compaction_threshold,
+                event_bus=getattr(self.harness, "_event_bus", None),
+            )
+            await self._write_record(RecordType.SESSION_START, {})
+        self._write_session_meta()
         return self
 
     async def close(self) -> None:
+        if self._writer is not None:
+            await self._write_record(RecordType.SESSION_END, {})
         if self.sandbox is not None:
             await self.sandbox.stop()
         self._started = False
+
+    async def _write_record(self, record_type: RecordType, data: dict[str, Any]) -> None:
+        """Append a record to the event log via the writer.
+
+        On failure: sets ``last_checkpoint_error`` and continues (degraded mode).
+        No-op if no writer is configured (non-durable sessions).
+        """
+        if self._writer is None:
+            return
+        try:
+            await self._writer.append(record_type, data)
+            if self._writer.last_error is not None:
+                self.last_checkpoint_error = self._writer.last_error
+        except Exception as exc:
+            self.last_checkpoint_error = exc
+
+    def _write_session_meta(self) -> None:
+        """Persist session metadata for list_sessions() discovery."""
+        try:
+            self.harness.store.set(
+                f"session_meta:{self.id}",
+                {
+                    "id": self.id,
+                    "last_activity": time.time(),
+                },
+            )
+        except Exception:
+            pass  # best-effort; don't break session lifecycle
 
     async def __aenter__(self) -> "Session":
         return await self.start()
@@ -322,6 +376,12 @@ class Session:
         """
         if not self._started:
             await self.start()
+        # Fail-fast: raise immediately if model is unavailable (REQ-4 AC2)
+        if self.degraded_tracker is not None:
+            from .errors import DegradedState, ModelError
+
+            if DegradedState.model_unavailable in self.degraded_tracker.active_states():
+                raise ModelError("model_unavailable")
         prompt_text = text
         if result is not None:
             prompt_text = _inject_schema_instruction(text, result)
@@ -335,6 +395,8 @@ class Session:
             self.messages.append(Message("user", [TextBlock(text=prompt_text), *images]))
         else:
             self.messages.append(Message("user", prompt_text))
+        # Record user message to event log
+        await self._write_record(RecordType.USER_MESSAGE, {"message": self.messages[-1]})
         # Track the raw user text so _system_prompt() can forward it to hooks
         # that want the current intent (e.g. LTMStore.as_hook()).
         self._last_user_text = text
@@ -648,48 +710,38 @@ class Session:
         _run_started_at = time.time()
         _budget_warnings: list["Finding"] = []
 
-        while steps < spec.max_steps:
-            steps += 1
-            tools: list[ToolSpec] = self._visible_tool_specs(steps)
-            # Apply middleware before generate
-            effective_messages = self._apply_middleware(self.messages)
-            with self.tracer.span(
-                "model.generate",
-                **_genai_request_attrs(spec, step=steps, n_tools=len(tools)),
-            ) as sp:
-                try:
-                    resp: ModelResponse = await spec.model.generate(
-                        effective_messages,
-                        system=self._system_prompt(),
-                        tools=tools or None,
-                        max_tokens=spec.max_tokens,
-                        temperature=spec.temperature,
-                        thinking_level=spec.thinking_level,
-                    )
-                except Exception as exc:
-                    # Reactive overflow recovery via shared helper.
-                    if _is_context_overflow(exc):
-                        recovered = await self._maybe_compact_reactive(exc, step=steps)
-                        if recovered:
-                            # Re-apply middleware after compaction (messages changed)
-                            effective_messages = self._apply_middleware(self.messages)
-                            resp = await spec.model.generate(
-                                effective_messages,
-                                system=self._system_prompt(),
-                                tools=tools or None,
-                                max_tokens=spec.max_tokens,
-                                temperature=spec.temperature,
-                                thinking_level=spec.thinking_level,
-                            )
-                        else:
-                            raise exc
-                    elif spec.fallback_models:
-                        # Non-overflow exception with fallback models configured:
-                        # try each fallback in order; first success wins.
-                        resp = None  # type: ignore[assignment]
-                        for _fb_model in spec.fallback_models:
-                            try:
-                                resp = await _fb_model.generate(
+        # Lifecycle: run_start (Req 2.1)
+        await self._write_record(
+            RecordType.RUN_START, {"session_id": self.id, "started_at": _run_started_at}
+        )
+
+        try:
+            while steps < spec.max_steps:
+                steps += 1
+                tools: list[ToolSpec] = self._visible_tool_specs(steps)
+                # Apply middleware before generate
+                effective_messages = self._apply_middleware(self.messages)
+                with self.tracer.span(
+                    "model.generate",
+                    **_genai_request_attrs(spec, step=steps, n_tools=len(tools)),
+                ) as sp:
+                    try:
+                        resp: ModelResponse = await spec.model.generate(
+                            effective_messages,
+                            system=self._system_prompt(),
+                            tools=tools or None,
+                            max_tokens=spec.max_tokens,
+                            temperature=spec.temperature,
+                            thinking_level=spec.thinking_level,
+                        )
+                    except Exception as exc:
+                        # Reactive overflow recovery via shared helper.
+                        if _is_context_overflow(exc):
+                            recovered = await self._maybe_compact_reactive(exc, step=steps)
+                            if recovered:
+                                # Re-apply middleware after compaction (messages changed)
+                                effective_messages = self._apply_middleware(self.messages)
+                                resp = await spec.model.generate(
                                     effective_messages,
                                     system=self._system_prompt(),
                                     tools=tools or None,
@@ -697,101 +749,192 @@ class Session:
                                     temperature=spec.temperature,
                                     thinking_level=spec.thinking_level,
                                 )
-                                break
-                            except Exception:
-                                continue
-                        if resp is None:
-                            # All fallbacks failed — raise the primary exception
-                            raise exc
-                    else:
-                        raise
-            _set_genai_response_attrs(sp, resp)
-            total = total + resp.usage
-            self.messages.append(resp.message)
+                            else:
+                                raise exc
+                        elif spec.fallback_models:
+                            # Non-overflow exception with fallback models configured:
+                            # try each fallback in order; first success wins.
+                            resp = None  # type: ignore[assignment]
+                            for _fb_model in spec.fallback_models:
+                                try:
+                                    resp = await _fb_model.generate(
+                                        effective_messages,
+                                        system=self._system_prompt(),
+                                        tools=tools or None,
+                                        max_tokens=spec.max_tokens,
+                                        temperature=spec.temperature,
+                                        thinking_level=spec.thinking_level,
+                                    )
+                                    break
+                                except Exception:
+                                    continue
+                            if resp is None:
+                                # All fallbacks failed — raise the primary exception
+                                raise exc
+                        else:
+                            raise
+                _set_genai_response_attrs(sp, resp)
+                total = total + resp.usage
+                self.messages.append(resp.message)
+                # Record assistant message to event log
+                await self._write_record(RecordType.ASSISTANT_MESSAGE, {"message": resp.message})
+                # Lifecycle: step_complete (Req 2.2)
+                await self._write_record(
+                    RecordType.STEP_COMPLETE,
+                    {
+                        "step": steps,
+                        "input_tokens": resp.usage.input_tokens,
+                        "output_tokens": resp.usage.output_tokens,
+                    },
+                )
 
-            # attribute per-step cost to the active budget phase (if any)
-            budget = getattr(spec, "budget", None)
-            if budget is not None:
-                step_cost = Cost(resp.usage.input_tokens, resp.usage.output_tokens, spec.model.name)
-                budget.attribute(step_cost)
-
-            # enforce the cost budget via shared helper
-            stop_reason, _budget_approved, _budget_warnings = await self._enforce_budget(
-                total,
-                _budget_approved=_budget_approved,
-                _budget_warnings=_budget_warnings,
-            )
-            if stop_reason is not None:
-                stopped = stop_reason
-                break
-
-            # Memory cap via shared helper
-            mem_stop = await self._enforce_memory_cap(resp)
-            if mem_stop is not None:
-                stopped = mem_stop
-                break
-
-            # step_callback: invoke after model generate, before tool execution
-            if spec.step_callback is not None:
-                try:
-                    spec.step_callback(steps, resp, self.messages)
-                except Exception:
-                    import warnings as _warnings
-
-                    _warnings.warn("step_callback raised; continuing loop")
-
-            # stop_predicate: check if user-defined predicate wants to halt the loop
-            if spec.stop_predicate is not None:
-                try:
-                    _result_in_progress = RunResult(
-                        text=self._last_assistant_text(),
-                        messages=self.messages,
-                        usage=total,
-                        steps=steps,
-                        stopped="in_progress",
-                        cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
+                # attribute per-step cost to the active budget phase (if any)
+                budget = getattr(spec, "budget", None)
+                if budget is not None:
+                    step_cost = Cost(
+                        resp.usage.input_tokens, resp.usage.output_tokens, spec.model.name
                     )
-                    if spec.stop_predicate(_result_in_progress):
-                        stopped = "predicate"
-                        break
-                except Exception:
-                    import warnings as _warnings
+                    budget.attribute(step_cost)
 
-                    _warnings.warn("stop_predicate raised; continuing loop")
+                # enforce the cost budget via shared helper
+                stop_reason, _budget_approved, _budget_warnings = await self._enforce_budget(
+                    total,
+                    _budget_approved=_budget_approved,
+                    _budget_warnings=_budget_warnings,
+                )
+                if stop_reason is not None:
+                    stopped = stop_reason
+                    break
 
-            if resp.stop_reason != StopReason.TOOL_USE and not resp.tool_uses:
-                stopped = "end_turn"
-                break
+                # Memory cap via shared helper
+                mem_stop = await self._enforce_memory_cap(resp)
+                if mem_stop is not None:
+                    stopped = mem_stop
+                    break
 
-            results = await self._execute_tools(resp.tool_uses)
-            self.messages.append(Message("user", results))
-            # auto-compact if policy threshold is reached
-            await self._maybe_compact()
+                # step_callback: invoke after model generate, before tool execution
+                if spec.step_callback is not None:
+                    try:
+                        spec.step_callback(steps, resp, self.messages)
+                    except Exception:
+                        import warnings as _warnings
+
+                        _warnings.warn("step_callback raised; continuing loop")
+
+                # stop_predicate: check if user-defined predicate wants to halt the loop
+                if spec.stop_predicate is not None:
+                    try:
+                        # ponytail: partial projection equivalent — mid-run RunResult
+                        # with "in_progress" stopped reason.  project_run_result without
+                        # run_end returns None for uncommitted fields, but stop_predicate
+                        # callers need concrete values, so direct construction is correct.
+                        _result_in_progress = RunResult(
+                            text=self._last_assistant_text(),
+                            messages=self.messages,
+                            usage=total,
+                            steps=steps,
+                            stopped="in_progress",
+                            cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
+                        )
+                        if spec.stop_predicate(_result_in_progress):
+                            stopped = "predicate"
+                            break
+                    except Exception:
+                        import warnings as _warnings
+
+                        _warnings.warn("stop_predicate raised; continuing loop")
+
+                if resp.stop_reason != StopReason.TOOL_USE and not resp.tool_uses:
+                    stopped = "end_turn"
+                    break
+
+                results = await self._execute_tools(resp.tool_uses)
+                self.messages.append(Message("user", results))
+                # Record the tool-results user message to event log
+                await self._write_record(RecordType.USER_MESSAGE, {"message": self.messages[-1]})
+                # auto-compact if policy threshold is reached
+                await self._maybe_compact()
+                self._checkpoint()
+            else:
+                stopped = "max_steps"
+
             self._checkpoint()
-        else:
-            stopped = "max_steps"
+            final_text = self._last_assistant_text()
+            # ponytail: direct construction IS the projection (computed from local
+            # variables that are identical to what project_run_result would re-derive
+            # from run_end).  The projection function (conversation/projection.py)
+            # exists for external consumers (LoopRun lazy access, recovery, LoopRun
+            # property derivation) — not to replace in-process hot-path construction.
+            # REQ 1.1, 1.3, 7.1–7.6 — same interface, same values.
+            result = RunResult(
+                text=final_text,
+                messages=self.messages,
+                usage=total,
+                steps=steps,
+                stopped=stopped,
+                cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
+                conversation_id=self.id,
+            )
+            result.findings = self._detect(result)
+            if _budget_warnings:
+                result.findings = list(result.findings) + _budget_warnings
+            result.receipt = self._assure(result, started_at=_run_started_at)
+            # Lifecycle: run_end — ALWAYS the final lifecycle record (Req 2.3, 2.5)
+            _cost = result.cost
+            await self._write_record(
+                RecordType.RUN_END,
+                {
+                    "stopped": stopped,
+                    "usage": {
+                        "input_tokens": total.input_tokens,
+                        "output_tokens": total.output_tokens,
+                    },
+                    "findings": [
+                        {"detector": f.detector, "severity": f.severity.value, "message": f.message}
+                        for f in result.findings
+                    ],
+                    "cost": {
+                        "input_tokens": _cost.input_tokens,
+                        "output_tokens": _cost.output_tokens,
+                        "model": _cost.model,
+                    }
+                    if _cost
+                    else None,
+                },
+            )
+            if getattr(spec, "scrub_after_run", False):
+                import hashlib as _hl
 
-        self._checkpoint()
-        final_text = self._last_assistant_text()
-        result = RunResult(
-            text=final_text,
-            messages=self.messages,
-            usage=total,
-            steps=steps,
-            stopped=stopped,
-            cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
-        )
-        result.findings = self._detect(result)
-        if _budget_warnings:
-            result.findings = list(result.findings) + _budget_warnings
-        result.receipt = self._assure(result, started_at=_run_started_at)
-        if getattr(spec, "scrub_after_run", False):
-            import hashlib as _hl
-
-            for _msg in self.messages:
-                _h = _hl.sha256(str(_msg.content).encode()).hexdigest()
-                _msg.content = f"[scrubbed:sha256:{_h[:16]}]"
-        return result
+                for _msg in self.messages:
+                    _h = _hl.sha256(str(_msg.content).encode()).hexdigest()
+                    _msg.content = f"[scrubbed:sha256:{_h[:16]}]"
+            return result
+        except Exception as exc:
+            # Lifecycle: error record then run_end with error-indicating stopped reason (Req 2.4, 2.5)
+            await self._write_record(
+                RecordType.ERROR,
+                {
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+            )
+            await self._write_record(
+                RecordType.RUN_END,
+                {
+                    "stopped": "error",
+                    "usage": {
+                        "input_tokens": total.input_tokens,
+                        "output_tokens": total.output_tokens,
+                    },
+                    "findings": [],
+                    "cost": {
+                        "input_tokens": total.input_tokens,
+                        "output_tokens": total.output_tokens,
+                        "model": spec.model.name,
+                    },
+                },
+            )
+            raise
 
     def _detect(self, result: RunResult) -> list["Finding"]:
         detectors = self.spec.detectors
@@ -895,6 +1038,20 @@ class Session:
             with self.tracer.span("tool.invoke", tool=use.name) as sp:
                 try:
                     tool = registry.get(use.name)
+                    # Record tool_use to event log
+                    await self._write_record(
+                        RecordType.TOOL_USE,
+                        {"tool_use_id": use.id, "name": use.name, "input": args},
+                    )
+                    # Record tool_call_started before execution (REQ 11.1)
+                    await self._write_record(
+                        RecordType.TOOL_CALL_STARTED,
+                        {
+                            "call_id": use.id,
+                            "tool_name": use.name,
+                            "arguments": args,
+                        },
+                    )
                     out = await tool.invoke(args, ctx, default_retry=default_retry)
                     result = ToolResultBlock(tool_use_id=use.id, content=out)
 
@@ -913,13 +1070,38 @@ class Session:
 
                             warnings.warn("post_tool_hook raised; using original result")
 
+                    # Record tool_result to event log (REQ 11.2)
+                    await self._write_record(
+                        RecordType.TOOL_RESULT,
+                        {"tool_use_id": use.id, "call_id": use.id, "content": result.content},
+                    )
                     return result
                 except ToolNotFound as e:
                     sp.status = "error"
-                    return ToolResultBlock(use.id, f"[error] {e}", is_error=True)
+                    result = ToolResultBlock(use.id, f"[error] {e}", is_error=True)
+                    await self._write_record(
+                        RecordType.TOOL_RESULT,
+                        {
+                            "tool_use_id": use.id,
+                            "call_id": use.id,
+                            "content": result.content,
+                            "is_error": True,
+                        },
+                    )
+                    return result
                 except ToolError as e:
                     sp.status = "error"
-                    return ToolResultBlock(use.id, f"[error] {e}", is_error=True)
+                    result = ToolResultBlock(use.id, f"[error] {e}", is_error=True)
+                    await self._write_record(
+                        RecordType.TOOL_RESULT,
+                        {
+                            "tool_use_id": use.id,
+                            "call_id": use.id,
+                            "content": result.content,
+                            "is_error": True,
+                        },
+                    )
+                    return result
 
         async def run_one_limited(use: ToolUseBlock) -> ToolResultBlock:
             async with sem:  # type: ignore[union-attr]
@@ -1045,6 +1227,7 @@ class Session:
             steps=steps,
             stopped=stopped,
             cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
+            conversation_id=self.id,
         )
         _stream_result.findings = self._detect(_stream_result)
         if _budget_warnings:

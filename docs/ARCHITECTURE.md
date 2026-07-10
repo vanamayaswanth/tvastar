@@ -131,3 +131,20 @@ Should VirtualSandbox be documented as secure?
 - The Store abstraction (FileStore, InMemoryStore) enables both local and distributed deployments.
 - Backoff formula is deterministic: `base * 2^(iteration-1)` — tested via Property 18.
 - Circuit breaker: `consecutive_failures >= limit` → SUSPENDED. Requires manual `loop.reset()`.
+
+---
+
+## ADR-008: ErrorClassifier as Callable, Not Class Hierarchy
+
+**Date:** 2025-07 (reliability-hardening spec)
+
+**Context:** The Loop needs to classify exceptions from model providers as permanent (auth, content policy) or transient (rate limit, timeout). Different providers have different SDK exception types. The classification strategy must be pluggable without requiring core Loop changes.
+
+**Decision:** ErrorClassifier is defined as a plain `Callable[[Exception], ClassificationResult | None]` type alias — not an abstract class, protocol class, or registration mechanism. Operators compose multiple classifiers via `compose_classifiers()` which returns the first non-None result.
+
+**Consequences:**
+- Any function with the right signature is a classifier — zero boilerplate.
+- Composition is explicit: `compose_classifiers(anthropic_classifier, openai_classifier)`.
+- LoopConfig accepts exactly one classifier; composition happens at the call site.
+- Classifier failure (raises) is caught and treated as None — never breaks the loop.
+- Trade-off: no automatic discovery or registration. Operators must explicitly compose.

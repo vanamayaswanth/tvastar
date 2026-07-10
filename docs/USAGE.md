@@ -94,7 +94,7 @@ review = await sess.task("Review the auth module for security issues", router=ro
 | How profile is selected | Hard-coded at call site | Semantic similarity to prompt |
 | When to use | Profile is always known at write time | Profile selection is runtime data |
 | Accuracy | 100% — you chose | Depends on description quality |
-| Deps | None | `pip install tvastar[router]` for embeddings; difflib fallback otherwise |
+| Deps | None | Zero deps (word-overlap); optional `scoring_fn` for custom logic |
 
 ### `AgentPruner` — drop bad specialists
 
@@ -106,6 +106,34 @@ pruner = AgentPruner(threshold=60.0, min_runs=3)
 pruner.update("security-reviewer", result)          # record quality score
 router  = AgentRouter(pruner.active(all_profiles))  # excludes underperformers
 ```
+
+### Durable Sessions — Crash Recovery
+
+Sessions are event-sourced by default. Every state transition is recorded to the configured Store.
+
+```python
+from tvastar import Harness, create_agent
+from tvastar.memory.store import FileStore
+
+agent = create_agent("my-agent", model=model, instructions="help")
+harness = Harness(agent, store=FileStore("/data/sessions"))
+
+# Run a session
+result = await harness.run("Fix the failing tests")
+
+# Later (even after restart) — resume from where you left off
+session = harness.resume("sess_abc123")
+if session:
+    result = await session.prompt("What did you change?")
+
+# List all sessions
+sessions = harness.list_sessions(limit=20)
+
+# Clean up
+harness.delete_session("sess_abc123")
+```
+
+**Compaction:** Long sessions auto-compact after 500 records (configurable via `compaction_threshold`). Set to 0 to disable.
 
 ---
 

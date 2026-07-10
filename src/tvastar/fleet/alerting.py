@@ -105,13 +105,18 @@ class WebhookAlertHandler:
 
 
 class LogAlertHandler:
-    """Logs fleet alerts to stderr (useful for development/debugging)."""
+    """Logs fleet alerts via StructuredLogger (useful for development/debugging)."""
 
     def __call__(self, event: Any) -> None:
-        import sys
+        from tvastar.logging import StructuredLogger
+
+        if not hasattr(self, "_logger"):
+            self._logger = StructuredLogger(name="tvastar.fleet.alerting")
 
         payload = (
             event.payload if isinstance(event.payload, dict) else {"message": str(event.payload)}
         )
         alert_type = payload.get("alert_type", event.topic)
-        print(f"[FLEET ALERT] {alert_type}: {payload}", file=sys.stderr)
+        self._logger.emit(
+            "WARNING", f"Fleet alert: {alert_type}", alert_type=alert_type, payload=payload
+        )

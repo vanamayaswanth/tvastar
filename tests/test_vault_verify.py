@@ -79,9 +79,7 @@ def test_leaked_api_key():
 
 def test_multiple_leaks():
     """Prompt with multiple PII types → all detected."""
-    receipt = _FakeReceipt(
-        prompt="SSN 123-45-6789, email foo@bar.com, IP 10.0.0.1"
-    )
+    receipt = _FakeReceipt(prompt="SSN 123-45-6789, email foo@bar.com, IP 10.0.0.1")
     result = verify_pii_protection(receipt, vault_configured=True)
     assert result.leak_count == 3
     assert "SSN" in result.leaked_types

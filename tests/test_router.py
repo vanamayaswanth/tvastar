@@ -47,7 +47,7 @@ class TestAgentRouterDifflib:
 
     def test_repr_shows_backend(self):
         r = AgentRouter(_profiles())
-        assert "difflib" in repr(r)
+        assert "word-overlap" in repr(r)
 
     def test_single_profile_always_matches_above_threshold(self):
         profiles = [AgentProfile(name="solo", description="Do everything")]

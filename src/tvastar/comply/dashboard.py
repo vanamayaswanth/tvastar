@@ -82,9 +82,7 @@ class ComplianceDashboard:
             total = compliant + non_compliant + stale
             pct = (compliant / total) * 100 if total > 0 else 0.0
 
-            overhead: Optional[Dict[str, float]] = (
-                dict(self._overhead) if self._overhead else None
-            )
+            overhead: Optional[Dict[str, float]] = dict(self._overhead) if self._overhead else None
 
         return FleetSummary(
             total=total,
