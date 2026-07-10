@@ -1,21 +1,23 @@
 """Durable execution — persist and restore a session so progress survives
 crashes and process restarts.
 
-We checkpoint the full message transcript (and optional virtual-fs snapshot)
-to a Store after each turn. On resume, the session is rehydrated from the last
-checkpoint and continues where it left off — "durable execution": preserve
-progress through failures.
+**Superseded:** The `Checkpointer` class in this module is deprecated.
+Use `tvastar.conversation.ConversationWriter` and `tvastar.conversation.reduce()`
+for event-sourced session durability instead.
 
-Serialization is plain JSON of our dataclasses — debuggable and portable.
+The utility functions `message_to_dict` and `message_from_dict` remain the
+canonical serialization helpers and are used by the new conversation module.
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, Optional
 
 from .errors import DurableError
 from .memory.store import Store
 from .types import (
+    ImageBlock,
     Message,
     TextBlock,
     ToolResultBlock,
@@ -39,6 +41,15 @@ def message_to_dict(m: Message) -> dict[str, Any]:
                     "tool_use_id": b.tool_use_id,
                     "content": b.content,
                     "is_error": b.is_error,
+                }
+            )
+        elif isinstance(b, ImageBlock):
+            blocks.append(
+                {
+                    "type": "image",
+                    "data": b.data,
+                    "media_type": b.media_type,
+                    "source_type": b.source_type,
                 }
             )
     return {
@@ -66,6 +77,14 @@ def message_from_dict(d: dict[str, Any]) -> Message:
                     is_error=b.get("is_error", False),
                 )
             )
+        elif t == "image":
+            blocks.append(
+                ImageBlock(
+                    data=b["data"],
+                    media_type=b.get("media_type", "image/jpeg"),
+                    source_type=b.get("source_type", "base64"),
+                )
+            )
     return Message(
         role=d["role"],
         content=blocks,
@@ -76,9 +95,21 @@ def message_from_dict(d: dict[str, Any]) -> Message:
 
 
 class Checkpointer:
-    """Reads/writes session checkpoints to a Store."""
+    """Reads/writes session checkpoints to a Store.
+
+    .. deprecated::
+        Use `tvastar.conversation.ConversationWriter` and
+        `tvastar.conversation.reduce()` instead.
+    """
 
     def __init__(self, store: Store):
+        warnings.warn(
+            "Checkpointer is deprecated and will be removed in a future release. "
+            "Use tvastar.conversation.ConversationWriter and "
+            "tvastar.conversation.reduce() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.store = store
 
     def save(

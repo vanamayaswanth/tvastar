@@ -22,8 +22,10 @@ Usage (remote HTTP server)::
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
+from ..errors import SecurityViolation, ToolError
+from ..logging import StructuredLogger
 from ..tools.base import Tool
 from .transport import (
     MCPError,
@@ -32,6 +34,9 @@ from .transport import (
     Transport,
 )
 
+if TYPE_CHECKING:
+    from ..sandbox.base import SecurityPolicy
+
 #: protocol version Tvastar advertises; servers negotiate down if needed.
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -39,12 +44,22 @@ PROTOCOL_VERSION = "2025-06-18"
 class MCPClient:
     """A connected MCP session exposing its tools as Tvastar Tools."""
 
-    def __init__(self, transport: Transport, *, name: str = "mcp"):
+    def __init__(
+        self,
+        transport: Transport,
+        *,
+        name: str = "mcp",
+        policy: "SecurityPolicy | None" = None,
+        logger: StructuredLogger | None = None,
+    ):
         self.transport = transport
         self.name = name
         self.server_info: dict[str, Any] = {}
         self._tools: list[Tool] = []
+        self._tool_names_at_connect: list[str] = []  # names before disconnect
         self._connected = False
+        self._policy = policy
+        self._logger = logger or StructuredLogger(name=f"mcp.{name}")
 
     # ---- factories ------------------------------------------------------
 
@@ -83,10 +98,28 @@ class MCPClient:
     async def _load_tools(self) -> None:
         result = await self.transport.request("tools/list")
         self._tools = [self._wrap(t) for t in (result or {}).get("tools", [])]
+        self._tool_names_at_connect = [t.name for t in self._tools]
 
     async def close(self) -> None:
+        """Close connection and mark tools as unavailable (REQ-4 AC3)."""
         await self.transport.close()
+        self._tools = []  # mark tools unavailable on disconnect
         self._connected = False
+
+    async def handle_disconnect(self) -> None:
+        """Handle an unexpected server disconnect.
+
+        Marks all tools as unavailable and reports via ToolError without
+        crashing the session. Callers should catch ToolError and continue.
+        """
+        tool_names = self._tool_names_at_connect
+        self._tools = []
+        self._connected = False
+        try:
+            await self.transport.close()
+        except Exception:
+            pass  # best-effort cleanup
+        raise ToolError(f"MCP server '{self.name}' disconnected; unavailable tools: {tool_names}")
 
     async def __aenter__(self) -> "MCPClient":
         return await self.connect()
@@ -104,8 +137,30 @@ class MCPClient:
         return [t.name for t in self._tools]
 
     async def call_tool(self, name: str, arguments: dict) -> str:
-        """Invoke an MCP tool directly and return its text result."""
-        result = await self.transport.request("tools/call", {"name": name, "arguments": arguments})
+        """Invoke an MCP tool directly and return its text result.
+
+        Raises SecurityViolation if blocked by policy (REQ-7).
+        Raises ToolError if the server is disconnected (REQ-4 AC3).
+        """
+        if self._policy is not None:
+            self._check_mcp_policy(name)
+        if not self._connected:
+            raise ToolError(
+                f"MCP server '{self.name}' is disconnected; "
+                f"unavailable tools: {self._tool_names_at_connect}"
+            )
+        try:
+            result = await self.transport.request(
+                "tools/call", {"name": name, "arguments": arguments}
+            )
+        except (OSError, MCPError) as exc:
+            # Transport failure → treat as disconnect
+            self._tools = []
+            self._connected = False
+            raise ToolError(
+                f"MCP server '{self.name}' disconnected during call to '{name}'; "
+                f"unavailable tools: {self._tool_names_at_connect}"
+            ) from exc
         return _render_tool_result(result or {})
 
     def _wrap(self, spec: dict) -> Tool:
@@ -124,6 +179,34 @@ class MCPClient:
             fn=_invoke,
             input_schema=schema,
             wants_ctx=False,
+        )
+
+    # ---- MCP policy enforcement (REQ-7) --------------------------------
+
+    def _check_mcp_policy(self, tool_name: str) -> None:
+        """Evaluate tool name against MCP-specific policy fields."""
+        policy = self._policy
+        if policy is None:
+            return
+        if tool_name in policy.denied_mcp_tools:
+            self._audit_blocked(tool_name, "denylist_hit")
+            raise SecurityViolation(f"MCP tool '{tool_name}' blocked by denied_mcp_tools policy")
+        if policy.allowed_mcp_tools and tool_name not in policy.allowed_mcp_tools:
+            self._audit_blocked(tool_name, "allowlist_miss")
+            raise SecurityViolation(f"MCP tool '{tool_name}' not in allowed_mcp_tools allowlist")
+
+    def _audit_blocked(self, tool_name: str, denied_reason: str) -> None:
+        """Emit structured audit log for a blocked MCP tool invocation."""
+        server_name = self.server_info.get("name", "unknown")
+        self._logger.emit(
+            "WARNING",
+            f"MCP tool invocation blocked: {tool_name}",
+            tool_name=tool_name,
+            server_name=server_name,
+            denied_reason=denied_reason,
+            policy_rule="denied_mcp_tools"
+            if denied_reason == "denylist_hit"
+            else "allowed_mcp_tools",
         )
 
 

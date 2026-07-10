@@ -9,8 +9,9 @@ and defaults to a non-streamed shim.
 from __future__ import annotations
 
 import abc
+import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from ..types import Message, ModelResponse, StreamEvent, TextBlock, ToolSpec
@@ -65,6 +66,47 @@ class ModelRetryPolicy:
     backoff_max: float = 60.0
     jitter: float = 0.25
     retryable: Optional[Callable[[Exception], bool]] = None
+
+    # Circuit breaker configuration
+    circuit_breaker_threshold: int = 5
+    circuit_breaker_cooldown: float = 30.0
+
+    # Runtime state (not constructor params)
+    _consecutive_failures: int = field(default=0, init=False, repr=False)
+    _circuit_opened_at: float | None = field(default=None, init=False, repr=False)
+    _circuit_state: str = field(default="closed", init=False, repr=False)
+
+    @property
+    def circuit_state(self) -> str:
+        """Current circuit breaker state: 'closed', 'open', or 'half_open'."""
+        if self._circuit_state == "open" and self._circuit_opened_at is not None:
+            elapsed = time.time() - self._circuit_opened_at
+            if elapsed >= self.circuit_breaker_cooldown:
+                self._circuit_state = "half_open"
+        return self._circuit_state
+
+    def should_allow_request(self) -> bool:
+        """Return True if a request should be allowed through the circuit breaker."""
+        state = self.circuit_state
+        if state == "closed":
+            return True
+        if state == "half_open":
+            return True  # allow one probe
+        return False  # open — fail fast
+
+    def _record_success(self) -> None:
+        """Record a successful request, closing the circuit if it was half-open."""
+        self._consecutive_failures = 0
+        if self._circuit_state in ("half_open", "open"):
+            self._circuit_state = "closed"
+            self._circuit_opened_at = None
+
+    def _record_failure(self) -> None:
+        """Record a failed request, opening the circuit if threshold is reached."""
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self.circuit_breaker_threshold:
+            self._circuit_state = "open"
+            self._circuit_opened_at = time.time()
 
 
 class Model(abc.ABC):

@@ -71,9 +71,12 @@ def _load_config(path: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             try:
                 import yaml  # type: ignore[import-untyped]
+
                 return yaml.safe_load(text) or {}
             except ImportError:
-                sys.stderr.write(f"Error: cannot parse {path} (unknown format, PyYAML not installed)\n")
+                sys.stderr.write(
+                    f"Error: cannot parse {path} (unknown format, PyYAML not installed)\n"
+                )
                 raise SystemExit(1)
             except Exception as exc:
                 sys.stderr.write(f"Error: cannot parse {path}: {exc}\n")
@@ -185,17 +188,21 @@ def _cmd_audit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     # The full Loop resolution happens in task 12.2 (config loader).
     # For now, attempt to load the loop from config trust_log path.
     try:
-        from ..assurance.log import TrustLog
+        from ..assurance.log import TrustLog  # noqa: F401
     except ImportError:
-        TrustLog = None  # type: ignore[assignment, misc]
+        pass  # TrustLog not available
 
-    trust_log_path = loop_cfg.get("trust_log")
-    framework = args.framework or loop_cfg.get("frameworks", [None])[0] if loop_cfg.get("frameworks") else args.framework
+    trust_log_path = loop_cfg.get("trust_log")  # noqa: F841 — used in task 12.2
+    framework = (
+        args.framework or loop_cfg.get("frameworks", [None])[0]
+        if loop_cfg.get("frameworks")
+        else args.framework
+    )
 
     # Attempt to create a Loop object from config
     loop_obj: Any = None
     try:
-        from tvastar.loop import Loop
+        from tvastar.loop import Loop  # noqa: F401 — used in task 12.2
 
         # ponytail: Loop construction from config is task 12.2 scope.
         # Here we try basic construction if possible.
@@ -239,6 +246,7 @@ def _cmd_report(args: argparse.Namespace, config: dict[str, Any]) -> int:
 
     try:
         from ..assurance.log import TrustLog
+
         log = TrustLog(trust_log_path)
     except ImportError:
         sys.stderr.write("Error: cannot import TrustLog from tvastar.assurance\n")
@@ -273,7 +281,9 @@ def _cmd_watch(args: argparse.Namespace, config: dict[str, Any]) -> int:
 
     loops_config = config.get("loops", [])
     if not loops_config:
-        sys.stderr.write("Error: no loops registered for monitoring. Add loops to your config file.\n")
+        sys.stderr.write(
+            "Error: no loops registered for monitoring. Add loops to your config file.\n"
+        )
         return 1
 
     # ponytail: Loop construction from config is task 12.2 scope.
@@ -339,9 +349,7 @@ def _cmd_compliance_cost(args: argparse.Namespace, config: dict[str, Any]) -> in
     reports = tracker.report(window_hours=args.window_hours)
 
     if args.output_format == "json":
-        output = json.dumps(
-            [asdict(r) for r in reports], default=_json_fallback
-        )
+        output = json.dumps([asdict(r) for r in reports], default=_json_fallback)
         sys.stdout.write(output + "\n")
     else:
         _print_cost_text(reports, args.window_hours)
@@ -372,7 +380,7 @@ def _print_audit_text(result: Any) -> None:
 
 def _print_dashboard_text(summary: Any) -> None:
     """Print FleetSummary in human-readable text format."""
-    sys.stdout.write(f"Fleet Compliance Summary\n")
+    sys.stdout.write("Fleet Compliance Summary\n")
     sys.stdout.write(f"  Total:          {summary.total}\n")
     sys.stdout.write(f"  Compliant:      {summary.compliant}\n")
     sys.stdout.write(f"  Non-compliant:  {summary.non_compliant}\n")
@@ -382,8 +390,7 @@ def _print_dashboard_text(summary: Any) -> None:
         sys.stdout.write("  Loops:\n")
         for loop in summary.per_loop:
             sys.stdout.write(
-                f"    {loop.loop_name}: {loop.status} "
-                f"(consecutive: {loop.consecutive_compliant})\n"
+                f"    {loop.loop_name}: {loop.status} (consecutive: {loop.consecutive_compliant})\n"
             )
 
 

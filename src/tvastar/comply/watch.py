@@ -84,6 +84,7 @@ class WatchDaemon:
         # Lazy import to avoid circular; use provided or create default
         if alert_engine is None:
             from .alert import AlertEngine
+
             self._alert_engine: AlertEngine = AlertEngine()
         else:
             self._alert_engine = alert_engine
@@ -118,9 +119,7 @@ class WatchDaemon:
         loop_names = [_get_loop_name(lp) for lp in self._loops]
         sink_count = len(self._alert_engine._sinks)
         sys.stderr.write(
-            f"[WatchDaemon] interval={self._interval}s "
-            f"loops={loop_names} "
-            f"sinks={sink_count}\n"
+            f"[WatchDaemon] interval={self._interval}s loops={loop_names} sinks={sink_count}\n"
         )
         sys.stderr.flush()
 
@@ -132,14 +131,16 @@ class WatchDaemon:
                 await self._check_one_loop(loop)
             except Exception as exc:
                 loop_name = _get_loop_name(loop)
-                self._alert_engine.emit(ComplianceAlert(
-                    severity="WARNING",
-                    alert_type="INTERNAL_ERROR",
-                    loop_name=loop_name,
-                    run_id="",
-                    timestamp=time.time(),
-                    description=f"Check cycle error: {exc}",
-                ))
+                self._alert_engine.emit(
+                    ComplianceAlert(
+                        severity="WARNING",
+                        alert_type="INTERNAL_ERROR",
+                        loop_name=loop_name,
+                        run_id="",
+                        timestamp=time.time(),
+                        description=f"Check cycle error: {exc}",
+                    )
+                )
 
         # Retention expiry check (once per cycle, not per loop)
         self._check_retention_expiry()
@@ -222,9 +223,7 @@ class WatchDaemon:
             loop_name=_get_loop_name(loop),
             run_id=first_corrupted_run_id,
             timestamp=time.time(),
-            description=(
-                f"TrustLog chain integrity broken at {first_corrupted_run_id}"
-            ),
+            description=(f"TrustLog chain integrity broken at {first_corrupted_run_id}"),
         )
 
     def _check_pii_leaks(self, loop: Any) -> List["ComplianceAlert"]:
@@ -243,17 +242,19 @@ class WatchDaemon:
         for receipt in trust_log:
             verification = verify_pii_protection(receipt, vault_configured=True)
             if verification.leak_count > 0:
-                alerts.append(ComplianceAlert(
-                    severity="CRITICAL",
-                    alert_type="PII_LEAK",
-                    loop_name=loop_name,
-                    run_id=receipt.run_id,
-                    timestamp=time.time(),
-                    description=(
-                        f"PII leak detected in run {receipt.run_id}: "
-                        f"leaked types {verification.leaked_types}"
-                    ),
-                ))
+                alerts.append(
+                    ComplianceAlert(
+                        severity="CRITICAL",
+                        alert_type="PII_LEAK",
+                        loop_name=loop_name,
+                        run_id=receipt.run_id,
+                        timestamp=time.time(),
+                        description=(
+                            f"PII leak detected in run {receipt.run_id}: "
+                            f"leaked types {verification.leaked_types}"
+                        ),
+                    )
+                )
         return alerts
 
     def _check_retention_expiry(self) -> None:
@@ -262,14 +263,16 @@ class WatchDaemon:
             return
         count = self._retention_manager.check_approaching_expiry()
         if count > 0:
-            self._alert_engine.emit(ComplianceAlert(
-                severity="WARNING",
-                alert_type="RETENTION_EXPIRY",
-                loop_name="fleet",
-                run_id="",
-                timestamp=time.time(),
-                description=(
-                    f"{count} receipt(s) approaching retention expiry "
-                    f"(within 30 days of max_age_days)"
-                ),
-            ))
+            self._alert_engine.emit(
+                ComplianceAlert(
+                    severity="WARNING",
+                    alert_type="RETENTION_EXPIRY",
+                    loop_name="fleet",
+                    run_id="",
+                    timestamp=time.time(),
+                    description=(
+                        f"{count} receipt(s) approaching retention expiry "
+                        f"(within 30 days of max_age_days)"
+                    ),
+                )
+            )

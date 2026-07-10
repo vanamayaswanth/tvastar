@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
-from .compaction import CompactionPolicy
+from .compaction_policy import CompactionPolicy
 from .model.base import Model
 from .sandbox.base import Sandbox
 from .sandbox.virtual import VirtualSandbox

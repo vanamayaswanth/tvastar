@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.23.0. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.24.0. Every public symbol, field, and signature.
 
 ---
 
@@ -112,7 +112,8 @@ class Harness:
         *,
         store: Store | None = None,       # default: InMemoryStore
         tracer: Tracer | None = None,     # default: NULL_TRACER
-        durable: bool = True,             # checkpoint after each turn
+        durable: bool = True,             # enable event-sourced session logging
+        compaction_threshold: int = 500,  # event log compaction threshold (0=never)
     )
 
     # Properties
@@ -154,7 +155,13 @@ class Harness:
     ) -> Session
 
     def resume(self, session_id: str) -> Session | None
-    def list_sessions(self) -> list[str]
+    # Resume a session from its persisted event log. Returns None if not found or corrupted.
+
+    def list_sessions(self, filter: str | None = None, limit: int = 100) -> list[SessionInfo]
+    # List sessions with optional ID filter and pagination limit.
+
+    def delete_session(self, session_id: str) -> bool
+    # Permanently remove a session's event log. Returns False if not found.
 
     # Application-level file access
     @property
@@ -573,7 +580,7 @@ def define_agent_profile(
 
 ## `AgentRouter` (`tvastar/router.py`)
 
-Routes a task prompt to the best-matching `AgentProfile`. Uses semantic-router (embedding-based) when installed (`pip install tvastar[router]`), falls back to difflib word-overlap with zero deps.
+Routes a task prompt to the best-matching `AgentProfile`. Uses word-set overlap scoring with zero dependencies. Optionally accepts a custom `scoring_fn` for domain-specific routing logic.
 
 ```python
 class AgentRouter:
@@ -583,12 +590,11 @@ class AgentRouter:
         *,
         threshold: float = 0.3,   # minimum match score to accept a route
         scoring_fn: Callable[[str, AgentProfile], float] | None = None,  # v0.20.0
-        encoder = None,           # optional semantic-router encoder instance
     )
 
     def route(self, text: str) -> str | None
     # When scoring_fn is provided, calls it for each profile and picks the highest scorer.
-    # Otherwise uses semantic-router (if installed) or difflib word-overlap.
+    # Otherwise uses word-set overlap scoring.
     # Returns None if no match exceeds threshold.
 ```
 
@@ -1556,6 +1562,10 @@ class LoopConfig:
     meta_model: Model | None = None  # one-shot instruction rewriter after FAIL
     optimizer: Callable | None = None  # Callable[[str, list[LoopRun]], str]; takes precedence over meta_model
     metadata: dict = field(default_factory=dict)
+    error_classifier: ErrorClassifier | None = None  # pluggable error classification
+    fallback_model: Model | None = None              # content policy fallback
+    fallback_dir: str | None = None                  # override handoff fallback directory
+    fallback_retention_days: int = 7                 # fallback file cleanup age
 
     def __post_init__(self) -> None
     # Validates: name non-empty, goal non-empty, max_iterations >= 1,
@@ -1642,6 +1652,93 @@ def next_run_time(expr: str, after: datetime) -> datetime
 # Supports @yearly @annually @monthly @weekly @daily @midnight @hourly aliases.
 # Supports full 5-field cron: MIN HOUR DOM MON DOW (with ranges, steps, comma lists).
 # Raises ValueError for @manual or malformed expressions.
+```
+
+---
+
+## Error Classification (`tvastar/loop/classifiers.py`)
+
+Pluggable error classification for the Loop engine. Classifiers are plain callables — no class hierarchy.
+
+```python
+@dataclass(frozen=True, slots=True)
+class ClassificationResult:
+    failure_kind: FailureKind
+    retry_after_seconds: float | None = None
+
+ErrorClassifier = Callable[[Exception], ClassificationResult | None]
+
+def compose_classifiers(*classifiers: ErrorClassifier) -> ErrorClassifier
+# Returns first non-None result from the chain.
+
+def anthropic_classifier(exc: Exception) -> ClassificationResult | None
+# Classifies Anthropic SDK exceptions. Raises ImportError if SDK not installed.
+
+def openai_classifier(exc: Exception) -> ClassificationResult | None
+# Classifies OpenAI SDK exceptions. Raises ImportError if SDK not installed.
+```
+
+**Usage:**
+```python
+from tvastar.loop.classifiers import compose_classifiers, anthropic_classifier, openai_classifier
+
+config = LoopConfig(
+    name="my-loop",
+    goal="Process tasks",
+    error_classifier=compose_classifiers(anthropic_classifier, openai_classifier),
+)
+```
+
+---
+
+## ConversationWriter (`tvastar/conversation/writer.py`)
+
+Append-only event log writer with write-through persistence and degraded-mode alerting.
+
+```python
+class ConversationWriter:
+    def __init__(self, store: Store, session_id: str, *, compaction_threshold: int = 500, event_bus: Any = None)
+    
+    async def append(self, record_type: RecordType, data: dict) -> Record
+    # Serialized via asyncio.Lock. On Store failure, sets last_error and continues.
+    
+    def load_seq(self) -> int
+    # Recover sequence counter from existing log length.
+    
+    last_error: DurableError | None  # set when Store write fails
+```
+
+**Degraded-mode alerting:** When `event_bus` is provided, emits `"session.degraded"` on first Store failure and `"session.recovered"` when Store recovers. Falls back to stderr JSON when no EventBus or when publish raises.
+
+---
+
+## Event Log Records (`tvastar/conversation/records.py`)
+
+```python
+class RecordType(str, Enum):
+    SESSION_START = "session_start"
+    USER_MESSAGE = "user_message"
+    ASSISTANT_MESSAGE = "assistant_message"
+    TOOL_USE = "tool_use"
+    TOOL_RESULT = "tool_result"
+    ERROR = "error"
+    SESSION_END = "session_end"
+
+@dataclass
+class Record:
+    type: RecordType
+    seq: int          # monotonically increasing
+    timestamp: float  # seconds since epoch
+    data: dict
+```
+
+## Reducer (`tvastar/conversation/reducer.py`)
+
+```python
+def reduce(records: list[dict]) -> list[Message]
+# Pure function. Derives session messages by folding the event log.
+# Handles compacted snapshots (session_start with "snapshot" key).
+# Skips unknown record types (forward compatibility).
 ```
 
 ---
@@ -2202,7 +2299,13 @@ class CompactionPolicy:
 class Session:
     # ... existing fields ...
     last_checkpoint_error: Exception | None = None   # v0.20.0: queryable checkpoint failure
+    degraded_tracker: Any | None = None              # DegradedStateTracker for fail-fast
 ```
+
+When `degraded_tracker` is set and `DegradedState.model_unavailable` is active,
+`prompt()` raises `ModelError` immediately without calling the model.
+
+The Session ID is immutable after creation. Calling `harness.session(name=X)` twice returns the same object.
 
 ---
 

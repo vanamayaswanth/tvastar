@@ -240,7 +240,7 @@ class FleetRegistry:
 
         # Cap version history (Bug 3 fix)
         if len(self._versions[name]) > self._max_versions:
-            self._versions[name] = self._versions[name][-self._max_versions:]
+            self._versions[name] = self._versions[name][-self._max_versions :]
             # Rebuild index from trimmed list
             self._version_index[name] = {v.version: v for v in self._versions[name]}
 
@@ -511,9 +511,13 @@ class FleetRegistry:
             raise RegistrationError(f"Agent {name!r} not found in registry")
 
         versions = self._versions.get(name, [])
-        # O(1) dict-index lookup (Bug 4 fix)
+        # O(1) dict-index lookup (Bug 4 fix), fallback to linear scan
         agent_index = self._version_index.get(name, {})
         target = agent_index.get(version)
+
+        if target is None:
+            # Fallback: linear scan for versions added outside register()
+            target = next((v for v in versions if v.version == version), None)
 
         if target is None:
             raise RegistrationError(f"Version {version!r} not found in history for agent {name!r}")

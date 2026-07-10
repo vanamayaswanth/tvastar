@@ -4,7 +4,55 @@ All notable changes to Tvastar are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.24.0] — 2025-07-17
+
+### Added — Reliability Hardening
+
+- **`ErrorClassifier`** protocol — pluggable error classification for Loop. Plain `Callable[[Exception], ClassificationResult | None]` type alias.
+- **`FailureKind.AUTH_ERROR`**, **`FailureKind.CONTENT_POLICY`** — permanent failure detection; skip retry → immediate HANDOFF.
+- **`anthropic_classifier`**, **`openai_classifier`** — built-in provider classifiers (lazy-import SDK exceptions).
+- **`compose_classifiers(*classifiers)`** — returns first non-None result from classifier chain.
+- **`LoopConfig.error_classifier`** — pluggable classifier field.
+- **`LoopConfig.fallback_model`** — content policy fallback (tried once before HANDOFF on `CONTENT_POLICY`).
+- **`LoopConfig.fallback_dir`** / **`LoopConfig.fallback_retention_days`** — handoff fallback file directory and cleanup age.
+- **Retry-After support** — classifiers can return `retry_after_seconds` from rate-limit headers; Loop uses it instead of exponential backoff.
+- **Handoff fallback file** — on delivery exhaustion, Loop writes context to a JSON file for later recovery.
+- **Fallback file cleanup** — Loop startup prunes fallback files older than `fallback_retention_days`.
+- **ConversationWriter degraded/recovered events** — emits `"session.degraded"` and `"session.recovered"` via EventBus on Store failure/recovery.
+- **`docs/slo.md`**, **`docs/failure-modes.md`** — operational documentation.
+- **`docs/runbooks/`** — 5 new runbooks (auth-error, content-policy, rate-limit, circuit-breaker, handoff-exhaustion).
+
+### Added — Durable Sessions
+
+- **Event-sourced sessions** — `ConversationWriter` with `asyncio.Lock` serialization for append-only event logging.
+- **Event log compaction** — configurable threshold (default 500 records); long sessions auto-compact.
+- **`Harness.resume(session_id)`** — crash recovery from persisted event log.
+- **`Harness.list_sessions(filter, limit)`** — list sessions with optional ID filter and pagination.
+- **`Harness.delete_session(session_id)`** — permanently remove a session's event log.
+- **`Harness(compaction_threshold=500)`** — configurable compaction threshold (0=never).
+- **`ImageBlock` serialization** — `message_to_dict` / `message_from_dict` now handle image content blocks.
+- **Reducer handles compacted snapshots** — `session_start` records with `"snapshot"` key are replayed correctly.
+
+### Added — System Hardening
+
+- **`DegradedState`** enum — `model_unavailable`, `mcp_disconnected`, `store_unavailable`, `budget_exhausted`.
+- **`DegradedStateTracker`** — tracks active degraded states with rate-limited logging.
+- **`Session.degraded_tracker`** — fail-fast on `model_unavailable` (raises `ModelError` immediately without calling the model).
+- **Exception hierarchy** — `PolicyError`, `SecurityViolation` dual-inheritance shim for backward compatibility.
+- **`GovernanceError`** — raised for fleet governance violations.
+- **MCP security** — `allowed_mcp_tools` / `denied_mcp_tools` fields on `SecurityPolicy`.
+- **Circuit breaker on `ModelRetryPolicy`** — consecutive failures trigger circuit-open state.
+- **`StructuredLogger`** — single-line JSON logging for production observability.
+- **Dataclass validation** — `__post_init__` validators for `FleetBudgetConfig`, `SecurityPolicy`, `LoopConfig`.
+- **`docs/threat-model.md`** — comprehensive threat model.
+- **`docs/adr/`** — 4 new ADRs (exception-hierarchy, degraded-state, mcp-security, structured-logging).
+- **`docs/migration/exception-hierarchy.md`** — migration guide for new exception types.
+
+### Fixed
+
+- **AgentRouter** now uses word-overlap scoring (removed unused difflib/semantic-router references).
+- **AgentRouter zero-score edge case** — single profile at `threshold=0.0` correctly routes instead of returning None.
+- **`FleetRegistry.rollback()`** — uses linear-scan fallback when `_version_index` misses the target version.
 
 ## [0.23.0] — 2025-07-16
 

@@ -126,6 +126,17 @@ async def main():
 asyncio.run(main())
 ```
 
+### Sessions Survive Crashes
+
+With a persistent Store, sessions are automatically event-sourced. If the process crashes, resume from the last committed event:
+
+```python
+from tvastar.memory.store import FileStore
+
+harness = Harness(agent, store=FileStore("./data"))
+session = harness.resume("my-session")  # picks up where it left off
+```
+
 ---
 
 ## Step 5 — Get typed output

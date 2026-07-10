@@ -6,6 +6,19 @@
 Build agents that run once or loops that run forever,
 with the same reliable harness underneath.
 
+Layers
+------
+**Core API** (stable, minimal surface for most users)::
+
+    create_agent, Harness, Session, Tool, tool, Model,
+    Message, RunResult, default_toolset
+
+**Extended** (everything else in ``__all__``): workflows, loops, eval,
+fleet, observability, sandbox, cost, approval, outbound, etc.
+
+Both layers are importable directly from ``tvastar``.
+The ``CORE_API`` tuple enumerates the core symbols programmatically.
+
 Quick start::
 
     import asyncio
@@ -54,7 +67,8 @@ from .boundary import (
     scan_messages_for_injection,
     wrap_untrusted,
 )
-from .compaction import CompactionPolicy, compact_messages, compact_session, should_compact
+from .compaction import compact_messages, compact_session, should_compact
+from .compaction_policy import CompactionPolicy
 from .compressor import ToolOutputCompressor
 from .cost import (
     COST_TABLE,
@@ -206,6 +220,18 @@ from .workflow import (
 )
 from .wrap import WrappedResult, wrap
 
+CORE_API: tuple[str, ...] = (
+    "create_agent",
+    "Harness",
+    "Session",
+    "Tool",
+    "tool",
+    "Model",
+    "Message",
+    "RunResult",
+    "default_toolset",
+)
+
 # Fleet engineering layer — lazy-imported to avoid loading fleet submodules on
 # plain `import tvastar`.  Symbols are resolved on first attribute access.
 _FLEET_SYMBOLS = {
@@ -243,9 +269,10 @@ def __getattr__(name: str):
     raise AttributeError(f"module 'tvastar' has no attribute {name!r}")
 
 
-__version__ = "0.23.0"
+__version__ = "0.24.0"
 
 __all__ = [
+    "CORE_API",
     "create_agent",
     "AgentSpec",
     "Harness",

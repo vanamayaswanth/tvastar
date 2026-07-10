@@ -70,9 +70,7 @@ def audit_compliance(
                 framework=resolved_framework,
                 checks=[],
                 pii_verification=None,
-                remediation=[
-                    f"Invalid loop: expected a Loop instance, got {type(loop).__name__}"
-                ],
+                remediation=[f"Invalid loop: expected a Loop instance, got {type(loop).__name__}"],
             )
 
         loop_name = _get_loop_name(loop)

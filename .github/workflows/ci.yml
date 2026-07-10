@@ -28,6 +28,22 @@ jobs:
       - name: Install (all extras + dev)
         run: uv pip install --system -e ".[all,dev]"
 
+      - name: Check ADR presence
+        run: |
+          count=$(find docs/adr -maxdepth 1 -name '[0-9][0-9][0-9][0-9]-*.md' | wc -l)
+          echo "Found $count ADR file(s)"
+          [ "$count" -ge 4 ] || { echo "::error::Expected ≥4 ADR files, found $count"; exit 1; }
+
+      - name: Validate runbook references
+        run: |
+          grep -oP '"docs/runbooks/[^"]+\.md"' src/tvastar/fleet/observer.py | tr -d '"' | while read ref; do
+            [ -f "$ref" ] || { echo "::error::runbook_ref '$ref' does not exist"; exit 1; }
+          done
+          echo "All runbook references valid"
+
+      - name: Check CORE_API ⊆ __all__
+        run: python -c "import tvastar; missing = set(tvastar.CORE_API) - set(tvastar.__all__); assert not missing, f'CORE_API symbols missing from __all__: {missing}'"
+
       - name: Lint
         run: ruff check src/tvastar/ examples/ tests/
 
@@ -36,3 +52,32 @@ jobs:
 
       - name: Tests
         run: pytest -q
+
+      - name: Quality Gate
+        env:
+          TVASTAR_QUALITY_THRESHOLD: ${{ vars.TVASTAR_QUALITY_THRESHOLD || '70' }}
+        run: python scripts/quality_gate.py
+
+  type-check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install (all extras + dev)
+        run: uv pip install --system -e ".[all,dev]"
+
+      - name: Type check (mypy ratchet)
+        run: python scripts/check_mypy_ratchet.py
+        timeout-minutes: 5

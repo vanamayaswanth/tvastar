@@ -10,6 +10,7 @@ All logic uses only the Python standard library (zero third-party deps).
 
 from __future__ import annotations
 
+import asyncio
 import random
 import time
 from dataclasses import dataclass, field
@@ -60,7 +61,7 @@ class CanaryDeployment:
     stable_quality_scores: list[float] = field(default_factory=list)
     canary_quality_scores: list[float] = field(default_factory=list)
     started_at: float = field(default_factory=time.time)
-    min_quality_threshold: float = 50.0
+    min_quality_threshold: float = 70.0
     evaluation_period: float = 3600.0  # seconds
 
 
@@ -124,14 +125,18 @@ class DeployManager:
         The FleetRegistry instance this manager operates on.
     """
 
-    def __init__(self, registry: Any) -> None:
+    def __init__(self, registry: Any, event_bus: Any | None = None) -> None:
         self._registry = registry
+        self._event_bus = event_bus
 
         # Active canary deployments: agent_name -> CanaryDeployment
         self._canaries: dict[str, CanaryDeployment] = {}
 
         # Active A/B tests: agent_name -> ABTest
         self._ab_tests: dict[str, ABTest] = {}
+
+        # Agents halted after rollback exhaustion
+        self._halted_agents: set[str] = set()
 
     # ------------------------------------------------------------------
     # Canary deployment methods
@@ -144,7 +149,7 @@ class DeployManager:
         traffic_pct: float,
         config: dict[str, Any],
         *,
-        min_quality: float = 50.0,
+        min_quality: float = 70.0,
         eval_period: float = 3600.0,
     ) -> CanaryDeployment:
         """Start a canary deployment for an agent.
@@ -179,6 +184,9 @@ class DeployManager:
         """
         if not (0.0 <= traffic_pct <= 1.0):
             raise ValueError(f"traffic_pct must be between 0.0 and 1.0, got {traffic_pct}")
+
+        if agent_name in self._halted_agents:
+            raise ValueError(f"Agent {agent_name!r} is halted due to rollback exhaustion")
 
         entry = self._registry.get(agent_name)
         if entry is None:
@@ -373,6 +381,53 @@ class DeployManager:
 
         # Remove the canary tracking — traffic reverts to stable
         del self._canaries[agent_name]
+
+    async def evaluate_and_rollback(self, agent_name: str) -> bool:
+        """Auto-rollback if quality regression detected. Returns True if rolled back.
+
+        Wires should_rollback_canary() → rollback_canary() with retry logic.
+        On exhaustion: emits alert via EventBus and halts further deployments.
+
+        Parameters
+        ----------
+        agent_name:
+            Agent with an active canary deployment to evaluate.
+
+        Returns
+        -------
+        bool:
+            True if rollback succeeded, False if no rollback needed or retries exhausted.
+        """
+        if not self.should_rollback_canary(agent_name):
+            return False
+
+        deployment = self._canaries.get(agent_name)
+        if deployment is None:
+            return False
+
+        last_error: Exception | None = None
+
+        for attempt in range(3):
+            try:
+                self.rollback_canary(agent_name)
+                return True
+            except Exception as e:
+                last_error = e
+                await asyncio.sleep(min(1.0 * (2**attempt), 4.0))  # 1s, 2s, 4s
+
+        # All retries exhausted — alert and halt
+        if self._event_bus and last_error:
+            alert = {
+                "agent_name": agent_name,
+                "failed_version": deployment.canary_version,
+                "rollback_target_version": deployment.stable_version,
+                "error_message": str(last_error),
+            }
+            self._event_bus.publish("fleet.alert.rollback_failed", alert, source_agent=agent_name)
+
+        # Halt further deployments for this agent
+        self._halted_agents.add(agent_name)
+        return False
 
     def route_to_canary(self, agent_name: str) -> bool:
         """Decide whether a request should be routed to the canary.

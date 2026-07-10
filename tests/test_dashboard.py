@@ -68,7 +68,7 @@ def test_consecutive_compliant_increments():
         db.update("x", _make_result("x", "COMPLIANT"))
 
     s = db.query()
-    loop = [l for l in s.per_loop if l.loop_name == "x"][0]
+    loop = [entry for entry in s.per_loop if entry.loop_name == "x"][0]
     assert loop.consecutive_compliant == 5
 
 
@@ -79,7 +79,7 @@ def test_consecutive_compliant_resets_on_non_compliant():
     db.update("x", _make_result("x", "NON_COMPLIANT"))
 
     s = db.query()
-    loop = [l for l in s.per_loop if l.loop_name == "x"][0]
+    loop = [entry for entry in s.per_loop if entry.loop_name == "x"][0]
     assert loop.consecutive_compliant == 0
 
 

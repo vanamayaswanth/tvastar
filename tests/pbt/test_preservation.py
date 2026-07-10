@@ -28,7 +28,6 @@ from tvastar.types import Message, ToolUseBlock, ToolResultBlock
 from tvastar.compaction import CompactionEngine, ProgressiveCompactionPolicy
 from tvastar.compressor import ToolOutputCompressor
 from tvastar.fleet.registry import FleetRegistry
-from tvastar.router import AgentRouter
 from tvastar.profiles import AgentProfile
 from tvastar.detect.detectors import thrash_loop
 from tvastar.detect.base import RunContext, _EmptyToolRegistry
@@ -65,8 +64,7 @@ def test_preservation_dedup_keeps_unique_tool_results(n_tools: int):
         for i in range(n_tools)
     ]
     tool_results = [
-        ToolResultBlock(tool_use_id=f"call_{i:04d}", content=f"result {i}")
-        for i in range(n_tools)
+        ToolResultBlock(tool_use_id=f"call_{i:04d}", content=f"result {i}") for i in range(n_tools)
     ]
 
     messages = [
@@ -236,11 +234,29 @@ def test_preservation_rollback_restores_config(num_versions: int, rollback_idx: 
 @settings(max_examples=30, deadline=None)
 @given(
     task_words=st.lists(
-        st.sampled_from([
-            "review", "code", "test", "write", "fix", "deploy", "debug",
-            "check", "auth", "database", "api", "frontend", "backend",
-            "security", "build", "run", "style", "refactor", "optimize",
-        ]),
+        st.sampled_from(
+            [
+                "review",
+                "code",
+                "test",
+                "write",
+                "fix",
+                "deploy",
+                "debug",
+                "check",
+                "auth",
+                "database",
+                "api",
+                "frontend",
+                "backend",
+                "security",
+                "build",
+                "run",
+                "style",
+                "refactor",
+                "optimize",
+            ]
+        ),
         min_size=2,
         max_size=6,
     ),
@@ -263,7 +279,9 @@ def test_preservation_routing_winner_unchanged(task_words: list[str]):
         AgentProfile(name="code-reviewer", description="Reviews code for bugs and style issues"),
         AgentProfile(name="test-writer", description="Writes unit tests and integration tests"),
         AgentProfile(name="deployer", description="Deploys code to production and staging"),
-        AgentProfile(name="security-auditor", description="Audits code for security vulnerabilities"),
+        AgentProfile(
+            name="security-auditor", description="Audits code for security vulnerabilities"
+        ),
         AgentProfile(name="db-admin", description="Manages database schema and queries"),
     ]
 
@@ -336,8 +354,7 @@ def test_preservation_word_count_equivalence(text: str):
     finditer_count = sum(1 for _ in re.finditer(r"\S+", text))
 
     assert findall_count == finditer_count, (
-        f"Word count mismatch for text {text!r}: "
-        f"findall={findall_count}, finditer={finditer_count}"
+        f"Word count mismatch for text {text!r}: findall={findall_count}, finditer={finditer_count}"
     )
 
 
@@ -370,8 +387,7 @@ def test_preservation_thrash_loop_correct_count(n_calls: int, tool_name: str, ar
         for i in range(n_calls)
     ]
     tool_results = [
-        ToolResultBlock(tool_use_id=f"call_{i:04d}", content="ok")
-        for i in range(n_calls)
+        ToolResultBlock(tool_use_id=f"call_{i:04d}", content="ok") for i in range(n_calls)
     ]
 
     messages = [
@@ -389,9 +405,7 @@ def test_preservation_thrash_loop_correct_count(n_calls: int, tool_name: str, ar
     findings = thrash_loop(ctx, threshold=3)
 
     # Should detect the thrash pattern
-    assert len(findings) >= 1, (
-        f"thrash_loop failed to detect {n_calls} identical {tool_name} calls"
-    )
+    assert len(findings) >= 1, f"thrash_loop failed to detect {n_calls} identical {tool_name} calls"
 
     # Verify the count is correct
     thrash_finding = findings[0]

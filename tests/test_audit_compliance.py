@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from tvastar.agent import AgentSpec
 from tvastar.assurance.log import TrustLog
@@ -108,7 +107,6 @@ class TestAuditComplianceFramework:
         assert result.checks == []
 
     def test_custom_registry(self):
-        from tvastar.comply.frameworks import RegulatoryFramework
 
         registry = FrameworkRegistry()
         # The default already has EU_AI_Act, verify it works through custom registry

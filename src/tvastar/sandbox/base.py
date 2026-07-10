@@ -154,6 +154,18 @@ class SecurityPolicy:
     allowed_commands: set[str] = field(default_factory=set)
     #: substrings that, if present anywhere in the command, block it
     denied_substrings: set[str] = field(default_factory=lambda: {"rm -rf /", ":(){:|:&};:"})
+    #: MCP tool allow/deny lists (REQ-7)
+    allowed_mcp_tools: set[str] = field(default_factory=set)
+    denied_mcp_tools: set[str] = field(default_factory=set)
+
+    def __post_init__(self) -> None:
+        for entry in self.denied_substrings:
+            if not entry:
+                raise ValueError(
+                    f"denied_substrings entries must be non-empty strings, got {entry!r}"
+                )
+        if self.timeout_seconds <= 0:
+            raise ValueError(f"timeout_seconds must be > 0, got {self.timeout_seconds}")
 
     def check(self, cmd: str) -> None:
         """Raise SecurityViolation if the command is disallowed."""
