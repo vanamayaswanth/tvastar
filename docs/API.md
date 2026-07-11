@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.24.0. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.25.0. Every public symbol, field, and signature.
 
 ---
 
@@ -975,6 +975,83 @@ class CredentialFilter:
     ])    # case-insensitive glob patterns
 
     def filter_env(self, env: dict[str, str]) -> dict[str, str]
+```
+
+### Durable Compute Lifecycle (`tvastar/sandbox/lifecycle.py`, `durable_docker.py`)
+
+```python
+class LifecycleState(Enum):
+    created = "created"
+    running = "running"
+    hibernated = "hibernated"
+    stopped = "stopped"
+
+@dataclass
+class ScalingBounds:
+    """Per-sandbox runtime scaling limits. Separate from ResourcePolicy."""
+    min_memory_mb: int
+    max_memory_mb: int
+    min_cpu_count: int
+    max_cpu_count: int
+    # __post_init__ validates: min <= max, non-negative
+
+@dataclass
+class CheckpointInfo:
+    """Metadata for a named checkpoint."""
+    checkpoint_id: str       # Format: "{container_id}:{name}" for Docker
+    name: str
+    container_id: str
+    timestamp: float         # Unix epoch
+```
+
+```python
+class LifecycleMixin:
+    """Opt-in mixin — add to Sandbox implementations for durable lifecycle."""
+
+    state: str               # property returning LifecycleState.value
+
+    async def hibernate(self) -> None
+    async def wake(self) -> None
+    async def scale(self, memory_mb: int, cpu_count: int) -> None
+    async def checkpoint(self, name: str) -> str       # returns checkpoint_id
+    async def fork(self, name: str) -> Sandbox         # returns new sandbox instance
+    async def delete_checkpoint(self, checkpoint_id: str) -> None
+    async def list_checkpoints(self) -> list[CheckpointInfo]
+
+    # Exec guard: rejects exec() in hibernated/stopped states
+    # Tracks in-flight calls; drains before hibernate
+    async def exec(self, cmd, *, env=None, cwd=None, timeout=None) -> ExecResult
+```
+
+```python
+class DurableDockerSandbox(LifecycleMixin, Sandbox):
+    """Docker sandbox without --rm. Supports hibernate, wake, checkpoint, fork.
+    Fork is filesystem-only (docker commit). Use CubeSandboxAdapter for full-state fork.
+    """
+    def __init__(
+        self,
+        image: str = "python:3.12-slim",
+        *,
+        policy: SecurityPolicy | None = None,
+        workdir: str = "/workspace",
+        fs: FileSystem | None = None,
+        durable: bool = True,
+        container_id_path: str | None = None,   # persist CID for reconnection
+        scaling_bounds: ScalingBounds | None = None,
+        event_bus: EventBus | None = None,
+    )
+
+    async def start(self) -> None      # docker run -d (no --rm), persists CID
+    async def stop(self) -> None       # docker stop (container persists)
+    async def destroy(self) -> None    # docker rm -f (explicit removal)
+
+async def sandbox_from_checkpoint(
+    checkpoint_id: str,
+    backend: str,                      # "docker" or "cube"
+    **kwargs,
+) -> Sandbox
+# Factory: create a sandbox from a previously saved checkpoint.
+# Raises ValueError on unsupported backend.
 ```
 
 ---

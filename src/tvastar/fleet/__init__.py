@@ -394,6 +394,12 @@ class Fleet:
             for topic in _alert_topics:
                 self._bus.subscribe(topic, handler)
 
+        # Sandbox lifecycle tracking (for state query methods)
+        self._sandbox_states: dict[str, str] = {}  # sandbox_id -> state value
+        self._sandbox_resources: dict[str, dict[str, int]] = {}  # sandbox_id -> {"memory_mb": ..., "cpu_count": ...}
+        self._bus.subscribe("sandbox.lifecycle", self._handle_lifecycle_event)
+        self._bus.subscribe("sandbox.scale", self._handle_scale_event)
+
     # ------------------------------------------------------------------
     # Properties — expose sub-components
     # ------------------------------------------------------------------
@@ -434,8 +440,59 @@ class Fleet:
         return self._observer
 
     # ------------------------------------------------------------------
+    # Sandbox lifecycle event handlers
+    # ------------------------------------------------------------------
+
+    def _handle_lifecycle_event(self, event) -> None:
+        """Track sandbox state transitions from lifecycle events."""
+        payload = event.payload
+        sandbox_id = str(payload.get("sandbox_id", ""))
+        new_state = payload.get("new_state", "")
+        if sandbox_id and new_state:
+            self._sandbox_states[sandbox_id] = new_state
+            # Remove resource tracking for stopped sandboxes
+            if new_state == "stopped":
+                self._sandbox_resources.pop(sandbox_id, None)
+
+    def _handle_scale_event(self, event) -> None:
+        """Track sandbox resource allocations from scale events."""
+        payload = event.payload
+        sandbox_id = str(payload.get("sandbox_id", ""))
+        if sandbox_id:
+            self._sandbox_resources[sandbox_id] = {
+                "memory_mb": payload.get("memory_mb", 0),
+                "cpu_count": payload.get("cpu_count", 0),
+            }
+
+    # ------------------------------------------------------------------
     # Convenience methods
     # ------------------------------------------------------------------
+
+    def sandbox_state_counts(self) -> dict[str, int]:
+        """Query count of sandboxes in each lifecycle state.
+
+        Returns a dict with keys 'running', 'hibernated', 'stopped' and
+        integer counts. States with zero sandboxes are included.
+        """
+        counts = {"running": 0, "hibernated": 0, "stopped": 0}
+        for state in self._sandbox_states.values():
+            if state in counts:
+                counts[state] += 1
+        return counts
+
+    def sandbox_resource_totals(self) -> dict[str, int]:
+        """Query total resource allocation of running sandboxes.
+
+        Returns aggregate memory_mb and cpu_count across all sandboxes
+        currently in 'running' state that have reported their resources.
+        """
+        total_memory = 0
+        total_cpu = 0
+        for sandbox_id, resources in self._sandbox_resources.items():
+            if self._sandbox_states.get(sandbox_id) == "running":
+                total_memory += resources.get("memory_mb", 0)
+                total_cpu += resources.get("cpu_count", 0)
+        return {"memory_mb": total_memory, "cpu_count": total_cpu}
 
     def register(
         self,

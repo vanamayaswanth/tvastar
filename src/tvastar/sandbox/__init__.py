@@ -22,12 +22,27 @@ __all__ = [
     "default_local_shell",
     "DockerSandbox",
     "RemoteSandbox",
+    "DurableDockerSandbox",
+    "LifecycleMixin",
+    "LifecycleState",
+    "ScalingBounds",
+    "CheckpointInfo",
+    "sandbox_from_checkpoint",
+    "CubeSandboxAdapter",
 ]
 
 
 def __getattr__(name: str):
-    if name in ("DockerSandbox", "RemoteSandbox"):
+    if name in ("DockerSandbox", "RemoteSandbox", "CubeSandboxAdapter"):
         from . import providers
 
         return getattr(providers, name)
+    if name in ("DurableDockerSandbox",):
+        from .durable_docker import DurableDockerSandbox
+
+        return DurableDockerSandbox
+    if name in ("LifecycleMixin", "LifecycleState", "ScalingBounds", "CheckpointInfo", "sandbox_from_checkpoint"):
+        from . import lifecycle
+
+        return getattr(lifecycle, name)
     raise AttributeError(f"module 'tvastar.sandbox' has no attribute {name!r}")

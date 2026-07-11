@@ -148,3 +148,22 @@ Should VirtualSandbox be documented as secure?
 - LoopConfig accepts exactly one classifier; composition happens at the call site.
 - Classifier failure (raises) is caught and treated as None — never breaks the loop.
 - Trade-off: no automatic discovery or registration. Operators must explicitly compose.
+
+
+---
+
+## ADR-009: Opt-In LifecycleMixin, Not ABC Modification
+
+**Date:** 2026-07 (durable compute lifecycle spec)
+
+**Context:** The Sandbox ABC defines a minimal interface (`exec`, `fs`, `start`, `stop`). Adding hibernate/wake/scale/checkpoint/fork directly to the ABC would force all 5 existing implementations (Virtual, Local, Docker, Remote, Cube) to implement methods they cannot support. This violates interface segregation and breaks backward compatibility.
+
+**Decision:** Lifecycle primitives are delivered via an opt-in `LifecycleMixin` class. Concrete backends that support durability (`DurableDockerSandbox`, `CubeSandboxAdapter`) inherit from both the mixin and `Sandbox`. The ABC remains untouched. Non-durable backends raise `NotImplementedError` with actionable messages.
+
+**Consequences:**
+- Existing code using `VirtualSandbox`, `LocalSandbox`, or `DockerSandbox` is completely unaffected.
+- The mixin uses cooperative multiple inheritance (`super().__init__(*args, **kwargs)`) — MRO is `DurableDockerSandbox → LifecycleMixin → Sandbox → ABC`.
+- `ScalingBounds` is a separate dataclass from `ResourcePolicy` (per-sandbox lifetime limits vs per-command execution limits).
+- Fork semantics intentionally diverge by backend: Docker = filesystem-only (`docker commit`), Cube = full process state (server-side). Documented, not unified.
+- State transitions serialized via `asyncio.Lock` — simple, zero-dependency, sufficient for single-instance ownership.
+- Trade-off: mixin-based design means `isinstance(sandbox, LifecycleMixin)` is the runtime check for lifecycle support, not a method on the ABC.

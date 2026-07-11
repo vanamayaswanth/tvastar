@@ -22,6 +22,7 @@ from ..errors import SandboxError
 from ..filesystem.base import FileSystem
 from ..filesystem.virtual import VirtualFileSystem
 from .base import ExecResult, Sandbox, SecurityPolicy, _truncate
+from .lifecycle import CheckpointInfo, LifecycleMixin, ScalingBounds
 
 
 class DockerSandbox(Sandbox):
@@ -103,6 +104,9 @@ class DockerSandbox(Sandbox):
             return ExecResult(124, "", "timed out", timed_out=True)
         return ExecResult(rc, _truncate(out, limit), _truncate(err, limit))
 
+    async def fork(self, name: str):
+        raise NotImplementedError("DockerSandbox uses --rm and cannot fork — use DurableDockerSandbox")
+
 
 class RemoteClient(Protocol):
     """Minimal contract an external provider client must satisfy."""
@@ -169,7 +173,7 @@ class RemoteSandbox(Sandbox):
         return ExecResult(rc, _truncate(out, limit), _truncate(err, limit))
 
 
-class CubeSandboxAdapter(Sandbox):
+class CubeSandboxAdapter(LifecycleMixin, Sandbox):
     """Drop-in Sandbox implementation backed by self-hosted CubeSandbox.
 
     Uses stdlib urllib.request — zero additional dependencies.
@@ -183,6 +187,8 @@ class CubeSandboxAdapter(Sandbox):
         *,
         policy: Optional[SecurityPolicy] = None,
         fs: Optional[FileSystem] = None,
+        scaling_bounds: Optional[ScalingBounds] = None,
+        event_bus=None,
     ):
         import os
 
@@ -192,6 +198,7 @@ class CubeSandboxAdapter(Sandbox):
         self._url = url.rstrip("/")
         self.policy = policy or SecurityPolicy()
         self.fs = fs or VirtualFileSystem()
+        super().__init__(scaling_bounds=scaling_bounds, event_bus=event_bus)
         self._session_id: Optional[str] = None
 
     async def start(self) -> None:
@@ -268,6 +275,79 @@ class CubeSandboxAdapter(Sandbox):
             raise SandboxError(f"CubeSandbox HTTP error: {exc}") from exc
         except TimeoutError as exc:
             raise SandboxError("connection timeout") from exc
+
+    def _http_get(self, path: str) -> list | dict:
+        """Synchronous HTTP GET using stdlib urllib.request."""
+        import json
+        from urllib.error import URLError
+        from urllib.request import Request, urlopen
+
+        url = self._url + path
+        req = Request(url, headers={"Accept": "application/json"})
+        try:
+            with urlopen(req, timeout=self._TIMEOUT) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except URLError as exc:
+            if "timed out" in str(exc).lower() or "timeout" in str(exc).lower():
+                raise SandboxError("connection timeout") from exc
+            raise SandboxError(f"CubeSandbox HTTP error: {exc}") from exc
+        except TimeoutError as exc:
+            raise SandboxError("connection timeout") from exc
+
+    def _http_request(self, method: str, path: str) -> dict:
+        """Synchronous HTTP request (GET/DELETE/etc.) using stdlib urllib.request."""
+        import json
+        from urllib.error import URLError
+        from urllib.request import Request, urlopen
+
+        url = self._url + path
+        req = Request(url, method=method, headers={"Accept": "application/json"})
+        try:
+            with urlopen(req, timeout=self._TIMEOUT) as resp:
+                body = resp.read().decode("utf-8")
+                return json.loads(body) if body else {}
+        except URLError as exc:
+            if "timed out" in str(exc).lower() or "timeout" in str(exc).lower():
+                raise SandboxError("connection timeout") from exc
+            raise SandboxError(f"CubeSandbox HTTP error: {exc}") from exc
+        except TimeoutError as exc:
+            raise SandboxError("connection timeout") from exc
+
+    # --- Lifecycle backend hooks ---
+
+    async def _do_hibernate(self) -> None:
+        await asyncio.to_thread(self._http_post, f"/sessions/{self._session_id}/hibernate", {})
+
+    async def _do_wake(self) -> None:
+        await asyncio.to_thread(self._http_post, f"/sessions/{self._session_id}/wake", {})
+
+    async def _do_scale(self, memory_mb: int, cpu_count: int) -> None:
+        await asyncio.to_thread(self._http_post, f"/sessions/{self._session_id}/scale", {"memory_mb": memory_mb, "cpu_count": cpu_count})
+
+    async def _do_checkpoint(self, name: str) -> str:
+        resp = await asyncio.to_thread(self._http_post, f"/sessions/{self._session_id}/checkpoint", {"name": name})
+        return resp["checkpoint_id"]
+
+    async def _do_fork(self, name: str) -> "Sandbox":
+        resp = await asyncio.to_thread(self._http_post, f"/sessions/{self._session_id}/fork", {"name": name})
+        new_adapter = CubeSandboxAdapter(policy=self.policy, fs=self.fs)
+        new_adapter._session_id = resp["session_id"]
+        return new_adapter
+
+    async def _do_delete_checkpoint(self, checkpoint_id: str) -> None:
+        await asyncio.to_thread(self._http_request, "DELETE", f"/sessions/{self._session_id}/checkpoints/{checkpoint_id}")
+
+    async def _do_list_checkpoints(self) -> list[CheckpointInfo]:
+        resp = await asyncio.to_thread(self._http_get, f"/sessions/{self._session_id}/checkpoints")
+        return [
+            CheckpointInfo(
+                checkpoint_id=c["checkpoint_id"],
+                name=c["name"],
+                container_id=c.get("container_id", self._session_id),
+                timestamp=c["timestamp"],
+            )
+            for c in resp
+        ]
 
 
 async def _run(args: list[str], timeout: Optional[float] = None) -> tuple[int, str, str]:

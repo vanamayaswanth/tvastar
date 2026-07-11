@@ -4,6 +4,54 @@ All notable changes to Tvastar are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.25.0] — 2026-07-12
+
+### Added — Durable Compute Lifecycle
+
+Extends the Sandbox abstraction with durable compute lifecycle primitives — hibernate, wake, scale, checkpoint, and fork — enabling platform developers to build cost-efficient, long-lived agent environments that survive restarts and support elastic resource management. Zero new external dependencies.
+
+#### Core
+
+- **`LifecycleMixin`** — opt-in mixin adding state machine (`created → running → hibernated → stopped`), `asyncio.Lock`-guarded transitions, in-flight exec drain, audit logging, and FleetEventBus emission. Does NOT modify the Sandbox ABC.
+- **`LifecycleState`** enum — `created`, `running`, `hibernated`, `stopped`.
+- **`ScalingBounds`** dataclass — `min_memory_mb`, `max_memory_mb`, `min_cpu_count`, `max_cpu_count` with `__post_init__` validation. Separate from `ResourcePolicy`.
+- **`CheckpointInfo`** dataclass — `checkpoint_id`, `name`, `container_id`, `timestamp`.
+- **`sandbox_from_checkpoint(checkpoint_id, backend, **kwargs)`** — standalone async factory function for creating sandboxes from saved checkpoints.
+
+#### DurableDockerSandbox
+
+- **`DurableDockerSandbox`** — new sandbox class (`LifecycleMixin + Sandbox`). Runs containers without `--rm` for persistent state across stop/start cycles.
+- **Hibernate / Wake** — via Docker CRIU (`docker checkpoint create` / `docker start --checkpoint`). Linux-only.
+- **Named Checkpoints** — `docker checkpoint create --leave-running`, `{container_id}:{name}` ID format, in-memory metadata tracking.
+- **Fork** — `docker commit` for filesystem-only fork (process state NOT preserved). Tagged as `forge-fork:{name}`.
+- **Live Scaling** — `docker update --memory --cpus` with SecurityPolicy bounds validation.
+- **Container ID Persistence** — persists to file for reconnection after process restart.
+- **Exec Guard** — rejects `exec()` in `hibernated`/`stopped` states; tracks in-flight calls for drain-before-hibernate.
+
+#### CubeSandboxAdapter Extension
+
+- **`CubeSandboxAdapter`** now inherits `LifecycleMixin` — gains all lifecycle methods via HTTP endpoints (`/sessions/{id}/hibernate`, `/wake`, `/scale`, `/checkpoint`, `/fork`).
+- **Full-state fork** — delegated to CubeSandbox server (unlike Docker's filesystem-only fork).
+- **`_http_get()`, `_http_request()`** helpers for GET/DELETE operations.
+- All HTTP wrapped in `asyncio.to_thread()` to avoid blocking the event loop.
+
+#### Fleet Integration
+
+- **`Fleet.sandbox_state_counts()`** — query count of sandboxes per lifecycle state (`running`, `hibernated`, `stopped`).
+- **`Fleet.sandbox_resource_totals()`** — query aggregate `memory_mb` and `cpu_count` of running sandboxes.
+- Fleet subscribes to `"sandbox.lifecycle"` and `"sandbox.scale"` EventBus topics automatically.
+
+#### Unsupported Backend Errors
+
+- **`VirtualSandbox`** and **`LocalSandbox`** raise `NotImplementedError` for all lifecycle methods with actionable messages.
+- **`DockerSandbox`** raises `NotImplementedError` for `fork()` only (uses `--rm`, cannot fork).
+
+### Changed
+
+- `__version__` bumped to `0.25.0`.
+- `CubeSandboxAdapter` inheritance changed from `Sandbox` to `LifecycleMixin, Sandbox`.
+- `tvastar.sandbox` exports: added `DurableDockerSandbox`, `LifecycleMixin`, `LifecycleState`, `ScalingBounds`, `CheckpointInfo`, `sandbox_from_checkpoint`, `CubeSandboxAdapter` (lazy-loaded).
+
 ## [0.24.0] — 2025-07-17
 
 ### Added — Reliability Hardening

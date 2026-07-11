@@ -209,3 +209,51 @@ assert entry.version == "1.0.0"
 ```
 
 **Rollback** restores the agent's version identifier and config_overrides from the target version's snapshot. The agent continues accepting tasks at the rolled-back configuration.
+
+
+---
+
+## Sandbox Lifecycle Observability
+
+Fleet automatically tracks sandbox lifecycle transitions and resource allocations through EventBus subscriptions.
+
+### Querying Sandbox States
+
+```python
+counts = fleet.sandbox_state_counts()
+# {"running": 3, "hibernated": 1, "stopped": 0}
+```
+
+Returns the count of sandboxes in each lifecycle state across the fleet. States are tracked via `"sandbox.lifecycle"` events published by `LifecycleMixin._emit_transition()`.
+
+### Querying Resource Allocation
+
+```python
+totals = fleet.sandbox_resource_totals()
+# {"memory_mb": 8192, "cpu_count": 16}
+```
+
+Returns aggregate memory and CPU of running sandboxes. Only sandboxes in `"running"` state are counted. Resources are tracked via `"sandbox.scale"` events.
+
+### Event Wiring
+
+The `LifecycleMixin` publishes to the EventBus on every state transition:
+
+```python
+bus.publish(
+    topic="sandbox.lifecycle",
+    payload={
+        "sandbox_id": "...",
+        "prev_state": "running",
+        "new_state": "hibernated",
+    },
+    source_agent="lifecycle_mixin",
+)
+```
+
+Subscribe to these events for custom monitoring:
+
+```python
+fleet.bus.subscribe("sandbox.lifecycle", my_handler)
+fleet.bus.subscribe("sandbox.scale", my_scale_handler)
+```
