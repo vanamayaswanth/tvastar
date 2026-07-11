@@ -105,7 +105,9 @@ class DockerSandbox(Sandbox):
         return ExecResult(rc, _truncate(out, limit), _truncate(err, limit))
 
     async def fork(self, name: str):
-        raise NotImplementedError("DockerSandbox uses --rm and cannot fork — use DurableDockerSandbox")
+        raise NotImplementedError(
+            "DockerSandbox uses --rm and cannot fork — use DurableDockerSandbox"
+        )
 
 
 class RemoteClient(Protocol):
@@ -322,20 +324,32 @@ class CubeSandboxAdapter(LifecycleMixin, Sandbox):
         await asyncio.to_thread(self._http_post, f"/sessions/{self._session_id}/wake", {})
 
     async def _do_scale(self, memory_mb: int, cpu_count: int) -> None:
-        await asyncio.to_thread(self._http_post, f"/sessions/{self._session_id}/scale", {"memory_mb": memory_mb, "cpu_count": cpu_count})
+        await asyncio.to_thread(
+            self._http_post,
+            f"/sessions/{self._session_id}/scale",
+            {"memory_mb": memory_mb, "cpu_count": cpu_count},
+        )
 
     async def _do_checkpoint(self, name: str) -> str:
-        resp = await asyncio.to_thread(self._http_post, f"/sessions/{self._session_id}/checkpoint", {"name": name})
+        resp = await asyncio.to_thread(
+            self._http_post, f"/sessions/{self._session_id}/checkpoint", {"name": name}
+        )
         return resp["checkpoint_id"]
 
     async def _do_fork(self, name: str) -> "Sandbox":
-        resp = await asyncio.to_thread(self._http_post, f"/sessions/{self._session_id}/fork", {"name": name})
+        resp = await asyncio.to_thread(
+            self._http_post, f"/sessions/{self._session_id}/fork", {"name": name}
+        )
         new_adapter = CubeSandboxAdapter(policy=self.policy, fs=self.fs)
         new_adapter._session_id = resp["session_id"]
         return new_adapter
 
     async def _do_delete_checkpoint(self, checkpoint_id: str) -> None:
-        await asyncio.to_thread(self._http_request, "DELETE", f"/sessions/{self._session_id}/checkpoints/{checkpoint_id}")
+        await asyncio.to_thread(
+            self._http_request,
+            "DELETE",
+            f"/sessions/{self._session_id}/checkpoints/{checkpoint_id}",
+        )
 
     async def _do_list_checkpoints(self) -> list[CheckpointInfo]:
         resp = await asyncio.to_thread(self._http_get, f"/sessions/{self._session_id}/checkpoints")

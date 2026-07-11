@@ -9,7 +9,6 @@ Validates: Requirements 12.1–12.4
 from __future__ import annotations
 
 from tvastar.fleet import Fleet, FleetConfig
-from tvastar.fleet.bus import FleetEvent
 
 
 def _make_fleet() -> Fleet:

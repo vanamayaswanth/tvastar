@@ -41,7 +41,13 @@ def __getattr__(name: str):
         from .durable_docker import DurableDockerSandbox
 
         return DurableDockerSandbox
-    if name in ("LifecycleMixin", "LifecycleState", "ScalingBounds", "CheckpointInfo", "sandbox_from_checkpoint"):
+    if name in (
+        "LifecycleMixin",
+        "LifecycleState",
+        "ScalingBounds",
+        "CheckpointInfo",
+        "sandbox_from_checkpoint",
+    ):
         from . import lifecycle
 
         return getattr(lifecycle, name)

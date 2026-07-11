@@ -396,7 +396,9 @@ class Fleet:
 
         # Sandbox lifecycle tracking (for state query methods)
         self._sandbox_states: dict[str, str] = {}  # sandbox_id -> state value
-        self._sandbox_resources: dict[str, dict[str, int]] = {}  # sandbox_id -> {"memory_mb": ..., "cpu_count": ...}
+        self._sandbox_resources: dict[
+            str, dict[str, int]
+        ] = {}  # sandbox_id -> {"memory_mb": ..., "cpu_count": ...}
         self._bus.subscribe("sandbox.lifecycle", self._handle_lifecycle_event)
         self._bus.subscribe("sandbox.scale", self._handle_scale_event)
 
