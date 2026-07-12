@@ -113,6 +113,45 @@ def phases(
     return policy
 
 
+def health_policy(
+    *,
+    degraded_after: int = 2,
+    exclusion_after: int = 5,
+    cooldown_seconds: float = 60.0,
+) -> ToolPolicy:
+    """Return a ToolPolicy that excludes tools after repeated failures.
+
+    Call ``policy.report_outcome(tool_name, success)`` after each tool execution
+    to update the health state.
+    """
+    import time as _time
+
+    _failures: dict[str, int] = {}  # tool_name → consecutive failure count
+    _excluded_at: dict[str, float] = {}  # tool_name → time when excluded
+
+    def _policy(ctx: MaskContext) -> list[str]:
+        now = _time.time()
+        # Re-admit tools whose cooldown has elapsed
+        readmit = [t for t, ts in _excluded_at.items() if now - ts >= cooldown_seconds]
+        for t in readmit:
+            del _excluded_at[t]
+        # Exclude tools over the threshold
+        return [n for n in ctx.available if n not in _excluded_at]
+
+    def report_outcome(tool_name: str, success: bool) -> None:
+        if success:
+            _failures.pop(tool_name, None)
+            _excluded_at.pop(tool_name, None)
+        else:
+            _failures[tool_name] = _failures.get(tool_name, 0) + 1
+            if _failures[tool_name] >= exclusion_after:
+                _excluded_at[tool_name] = _time.time()
+
+    _policy.report_outcome = report_outcome  # type: ignore[attr-defined]
+    _policy.__name__ = "health_policy"
+    return _policy
+
+
 def apply_policy(policy: Optional[ToolPolicy], ctx: MaskContext) -> Optional[set[str]]:
     """Resolve a policy to a set of allowed names, or ``None`` for "all".
 

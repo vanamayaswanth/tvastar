@@ -96,6 +96,7 @@ class LoopRun:
         "retry_after",
         "error",
         "context",
+        "error_state",
         "_store",
         "_cached_projection",
     )
@@ -113,6 +114,7 @@ class LoopRun:
         retry_after: float | None = None,
         error: str | None = None,
         context: dict | None = None,
+        error_state: str | None = None,
         # Legacy kwargs — accepted for backward compat, seed the cache
         result_text: str | None = None,
         result_steps: int | None = None,
@@ -132,6 +134,7 @@ class LoopRun:
         self.retry_after = retry_after
         self.error = error
         self.context = context if context is not None else {}
+        self.error_state = error_state
         self._store = _store
         # Seed cache from legacy kwargs if any were provided
         if (
@@ -288,6 +291,9 @@ class LoopConfig:
     allow_concurrent: bool = False  # ponytail: immutable after __post_init__
     adaptive_scheduling: bool = False  # Phase 3 — immutable after __post_init__
     metadata: dict = field(default_factory=dict)
+    quality_trend_window: int = 10
+    quality_critical_threshold: float = 50.0
+    quality_degrading_threshold: float = 70.0
     error_classifier: "ErrorClassifier | None" = None  # NEW: pluggable error classification
     fallback_model: "Model | None" = None  # NEW: content policy fallback (Req 2.5)
     fallback_dir: str | None = None  # NEW: override handoff fallback directory (Req 4.2)
@@ -397,6 +403,7 @@ class Loop:
         self._bg_tasks: set = set()  # keeps fire-and-forget tasks alive until done
         self._cumulative_usd: float = 0.0  # accumulated cost across all runs
         self._event_bus: Any = None  # set via subscribe_trigger for publishing run_completed
+        self._quality_window: list[float] = []  # sliding window for quality trend (Req 2)
 
         # Crash recovery: detect orphaned RUNNING runs from a previous process
         self._recover()
@@ -685,6 +692,7 @@ class Loop:
 
             if not failed:
                 self._set(run, LoopState.PASS)
+                run.error_state = "resolved"
                 self._iteration = 0
                 self._consecutive_failures = 0
                 self._store.set(_CIRCUIT_BREAKER_KEY.format(name=self.name), "0")
@@ -698,8 +706,10 @@ class Loop:
 
     async def _handle_fail(self, run: LoopRun) -> None:
         """Called under self._lock after a FAIL state is set."""
+        run.error_state = "classified"
         # Permanent failures skip retry entirely (Req 2.3, 2.4, 2.5, 2.6)
         if run.failure_kind in (FailureKind.AUTH_ERROR, FailureKind.CONTENT_POLICY):
+            run.error_state = "permanent"
             # CONTENT_POLICY with fallback_model: attempt one run with fallback
             if (
                 run.failure_kind == FailureKind.CONTENT_POLICY
@@ -726,6 +736,7 @@ class Loop:
             return
 
         if self._iteration < self._config.max_iterations:
+            run.error_state = "retrying"
             # Prefer Retry-After from classification over exponential backoff
             if run.retry_after is not None and run.retry_after > time.time():
                 backoff = run.retry_after - time.time()
@@ -749,6 +760,7 @@ class Loop:
             t.add_done_callback(self._bg_tasks.discard)
         else:
             # Retries exhausted — escalate or handoff
+            run.error_state = "escalated"
             if self._config.escalation_policy is not None:
                 # Escalation pathway: write to SignalBus and wait for directive
                 t = asyncio.create_task(self._escalate(run))
@@ -1304,6 +1316,33 @@ class Loop:
 
     def _publish_run_completed(self, run: LoopRun, quality_score: float | None = None) -> None:
         """Publish fleet.loop.run_completed event if EventBus is configured (Req 5.1, 5.6)."""
+        # Quality trend tracking (Req 2)
+        if quality_score is not None:
+            self._quality_window.append(quality_score)
+            if len(self._quality_window) > self._config.quality_trend_window:
+                self._quality_window = self._quality_window[-self._config.quality_trend_window:]
+            if len(self._quality_window) >= 3 and self._event_bus is not None:
+                from statistics import mean
+                avg = mean(self._quality_window)
+                if avg < self._config.quality_critical_threshold:
+                    try:
+                        self._event_bus.publish(
+                            "quality.critical",
+                            {"average": avg, "window": list(self._quality_window)},
+                            source_agent=self.name,
+                        )
+                    except Exception:
+                        pass
+                elif avg < self._config.quality_degrading_threshold:
+                    try:
+                        self._event_bus.publish(
+                            "quality.degrading",
+                            {"average": avg, "window": list(self._quality_window)},
+                            source_agent=self.name,
+                        )
+                    except Exception:
+                        pass
+
         if self._event_bus is None:
             return
         try:
