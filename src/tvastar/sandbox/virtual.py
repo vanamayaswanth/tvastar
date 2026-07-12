@@ -333,25 +333,39 @@ class VirtualSandbox(Sandbox):
         return ExecResult(0, "\n".join(self.fs.glob("**/*")))
 
     async def hibernate(self) -> None:
-        raise NotImplementedError("VirtualSandbox does not support hibernate — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "VirtualSandbox does not support hibernate — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def wake(self) -> None:
-        raise NotImplementedError("VirtualSandbox does not support wake — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "VirtualSandbox does not support wake — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def scale(self, memory_mb: int, cpu_count: int) -> None:
-        raise NotImplementedError("VirtualSandbox does not support scale — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "VirtualSandbox does not support scale — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def checkpoint(self, name: str) -> str:
-        raise NotImplementedError("VirtualSandbox does not support checkpoint — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "VirtualSandbox does not support checkpoint — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def fork(self, name: str):
-        raise NotImplementedError("VirtualSandbox does not support fork — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "VirtualSandbox does not support fork — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def delete_checkpoint(self, checkpoint_id: str) -> None:
-        raise NotImplementedError("VirtualSandbox does not support delete_checkpoint — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "VirtualSandbox does not support delete_checkpoint — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def list_checkpoints(self):
-        raise NotImplementedError("VirtualSandbox does not support list_checkpoints — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "VirtualSandbox does not support list_checkpoints — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
 
 def _split_chain(cmd: str) -> list[tuple[str, str]]:

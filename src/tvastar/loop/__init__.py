@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     import pathlib
 
     from ..agent import AgentSpec
+    from ..fleet.swarm import EscalationPolicy
     from ..memory.store import Store
     from ..model.base import Model
     from ..observability import Tracer
@@ -47,6 +48,8 @@ class LoopState(str, Enum):
     HANDOFF_FAILED = "handoff_failed"  # handoff itself threw
     INTERRUPTED = "interrupted"  # crash recovery: was RUNNING on startup
     SUSPENDED = "suspended"  # circuit breaker: too many consecutive failures
+    ESCALATING = "escalating"  # waiting for directive from Coordinator (swarm)
+    DEGRADED = "degraded"  # proceeding with reduced scope (swarm)
 
 
 class FailureKind(str, Enum):
@@ -289,6 +292,7 @@ class LoopConfig:
     fallback_model: "Model | None" = None  # NEW: content policy fallback (Req 2.5)
     fallback_dir: str | None = None  # NEW: override handoff fallback directory (Req 4.2)
     fallback_retention_days: int = 7  # NEW: fallback file cleanup (Req 4.6)
+    escalation_policy: "EscalationPolicy | None" = None  # Swarm: escalate instead of HANDOFF
 
     # ponytail: fields sealed after construction to prevent runtime mutation
     _SEALED_FIELDS: tuple = field(
@@ -744,17 +748,79 @@ class Loop:
             self._bg_tasks.add(t)
             t.add_done_callback(self._bg_tasks.discard)
         else:
-            self._iteration = 0
-            self._consecutive_failures += 1
-            self._store.set(
-                _CIRCUIT_BREAKER_KEY.format(name=self.name),
-                str(self._consecutive_failures),
+            # Retries exhausted — escalate or handoff
+            if self._config.escalation_policy is not None:
+                # Escalation pathway: write to SignalBus and wait for directive
+                t = asyncio.create_task(self._escalate(run))
+                self._bg_tasks.add(t)
+                t.add_done_callback(self._bg_tasks.discard)
+            else:
+                self._iteration = 0
+                self._consecutive_failures += 1
+                self._store.set(
+                    _CIRCUIT_BREAKER_KEY.format(name=self.name),
+                    str(self._consecutive_failures),
+                )
+                self._set(run, LoopState.HANDOFF)
+                # Track handoff task for clean shutdown
+                t = asyncio.create_task(self._fire_handoff(run))
+                self._bg_tasks.add(t)
+                t.add_done_callback(self._bg_tasks.discard)
+
+    async def _escalate(self, run: LoopRun) -> None:
+        """Escalation pathway: write escalation to SignalBus, wait for directive.
+
+        Called (outside the lock) when retries exhausted and escalation_policy is set.
+        On directive received: apply it, reset iteration, transition to RUNNING.
+        On timeout: transition to DEGRADED.
+        """
+        from ..fleet.models import Escalation
+
+        policy = self._config.escalation_policy
+        assert policy is not None  # guaranteed by caller
+        ns = policy.namespace or self.name
+        signal_bus = policy.signal_bus
+
+        # Write escalation to SignalBus
+        escalation = Escalation(
+            reason="retries_exhausted",
+            error_type=run.failure_kind.value if run.failure_kind else "unknown",
+            attempts=self._config.max_iterations,
+            last_error=run.error,
+        )
+        async with self._lock:
+            self._set(run, LoopState.ESCALATING)
+        await signal_bus.write(ns, "escalation", escalation)
+        await signal_bus.write(ns, "status", LoopState.ESCALATING.value)
+
+        # Watch for directive with timeout
+        try:
+            directive = await asyncio.wait_for(
+                self._wait_for_directive(signal_bus, ns),
+                timeout=policy.escalation_timeout,
             )
-            self._set(run, LoopState.HANDOFF)
-            # Track handoff task for clean shutdown
-            t = asyncio.create_task(self._fire_handoff(run))
-            self._bg_tasks.add(t)
-            t.add_done_callback(self._bg_tasks.discard)
+            # Directive received — apply it (reset iteration, transition to RUNNING)
+            import logging as _logging
+
+            _logging.getLogger(__name__).info(
+                "Loop %r received directive: %s", self.name, directive
+            )
+            async with self._lock:
+                self._iteration = 0
+                self._set(run, LoopState.RUNNING)
+            await signal_bus.write(ns, "status", LoopState.RUNNING.value)
+        except asyncio.TimeoutError:
+            # No directive — degrade
+            async with self._lock:
+                self._set(run, LoopState.DEGRADED)
+            await signal_bus.write(ns, "status", LoopState.DEGRADED.value)
+
+    async def _wait_for_directive(self, signal_bus: Any, namespace: str) -> Any:
+        """Watch SignalBus for a directive entry in our namespace."""
+        async for entry in signal_bus.watch(namespace):
+            if entry.key == "directive":
+                return entry.value
+        return None  # pragma: no cover — watch is infinite
 
     async def _run_with_fallback_model(self, run: LoopRun) -> None:
         """Attempt one run with the configured fallback model (Req 2.5, 2.6).
@@ -1197,6 +1263,23 @@ class Loop:
         run.state = state
         self._state = state
         self._emit(run, state, data or {})
+        # Write state to SignalBus for observability (Req 2.7) — non-terminal only
+        if (
+            self._config.escalation_policy is not None
+            and state not in (LoopState.PASS, LoopState.HANDOFF)
+        ):
+            policy = self._config.escalation_policy
+            ns = policy.namespace or self.name
+            # Best-effort, fire-and-forget — never block state machine
+            try:
+                import asyncio as _aio
+
+                loop = _aio.get_running_loop()
+                t = loop.create_task(policy.signal_bus.write(ns, "status", state.value))
+                self._bg_tasks.add(t)
+                t.add_done_callback(self._bg_tasks.discard)
+            except RuntimeError:
+                pass  # no running loop — skip (e.g. during sync tests)
 
     def _emit(self, run: LoopRun, state: LoopState, data: dict | None = None) -> None:
         event = LoopEvent(

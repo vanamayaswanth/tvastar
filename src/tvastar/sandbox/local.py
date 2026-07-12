@@ -158,25 +158,39 @@ class LocalSandbox(Sandbox):
             target.write_bytes(data)
 
     async def hibernate(self) -> None:
-        raise NotImplementedError("LocalSandbox does not support hibernate — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "LocalSandbox does not support hibernate — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def wake(self) -> None:
-        raise NotImplementedError("LocalSandbox does not support wake — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "LocalSandbox does not support wake — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def scale(self, memory_mb: int, cpu_count: int) -> None:
-        raise NotImplementedError("LocalSandbox does not support scale — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "LocalSandbox does not support scale — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def checkpoint(self, name: str) -> str:
-        raise NotImplementedError("LocalSandbox does not support checkpoint — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "LocalSandbox does not support checkpoint — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def fork(self, name: str):
-        raise NotImplementedError("LocalSandbox does not support fork — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "LocalSandbox does not support fork — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def delete_checkpoint(self, checkpoint_id: str) -> None:
-        raise NotImplementedError("LocalSandbox does not support delete_checkpoint — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "LocalSandbox does not support delete_checkpoint — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
     async def list_checkpoints(self):
-        raise NotImplementedError("LocalSandbox does not support list_checkpoints — use DurableDockerSandbox or CubeSandboxAdapter")
+        raise NotImplementedError(
+            "LocalSandbox does not support list_checkpoints — use DurableDockerSandbox or CubeSandboxAdapter"
+        )
 
 
 def default_local_shell() -> Optional[str]:

@@ -66,7 +66,18 @@ class DurableDockerSandbox(LifecycleMixin, Sandbox):
             self._lifecycle_state = LifecycleState.running
             return
         net = "bridge" if self.policy.network else "none"
-        args = ["docker", "run", "-d", "--network", net, "-w", self.workdir, self.image, "sleep", "infinity"]
+        args = [
+            "docker",
+            "run",
+            "-d",
+            "--network",
+            net,
+            "-w",
+            self.workdir,
+            self.image,
+            "sleep",
+            "infinity",
+        ]
         if not self._durable:
             args.insert(3, "--rm")
         proc = await asyncio.create_subprocess_exec(
@@ -88,8 +99,11 @@ class DurableDockerSandbox(LifecycleMixin, Sandbox):
         if not self._cid:
             return
         proc = await asyncio.create_subprocess_exec(
-            "docker", "stop", self._cid,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "docker",
+            "stop",
+            self._cid,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         await proc.communicate()
         prev = self._lifecycle_state
@@ -101,8 +115,12 @@ class DurableDockerSandbox(LifecycleMixin, Sandbox):
         if not self._cid:
             return
         proc = await asyncio.create_subprocess_exec(
-            "docker", "rm", "-f", self._cid,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "docker",
+            "rm",
+            "-f",
+            self._cid,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         await proc.communicate()
         self._cid = None
@@ -134,9 +152,15 @@ class DurableDockerSandbox(LifecycleMixin, Sandbox):
             for k, v in (env or {}).items():
                 env_flags += ["-e", f"{k}={v}"]
             args = [
-                "docker", "exec", *env_flags,
-                "-w", cwd or self.workdir,
-                self._cid, "sh", "-c", cmd,
+                "docker",
+                "exec",
+                *env_flags,
+                "-w",
+                cwd or self.workdir,
+                self._cid,
+                "sh",
+                "-c",
+                cmd,
             ]
             proc = await asyncio.create_subprocess_exec(
                 *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -162,8 +186,13 @@ class DurableDockerSandbox(LifecycleMixin, Sandbox):
         """docker checkpoint create <name>; docker stop."""
         checkpoint_name = f"hibernate-{self._cid[:12]}"
         proc = await asyncio.create_subprocess_exec(
-            "docker", "checkpoint", "create", self._cid, checkpoint_name,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "docker",
+            "checkpoint",
+            "create",
+            self._cid,
+            checkpoint_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         _, err = await proc.communicate()
         if proc.returncode != 0:
@@ -171,8 +200,11 @@ class DurableDockerSandbox(LifecycleMixin, Sandbox):
         self._hibernate_checkpoint = checkpoint_name
         # Stop the container to release compute resources
         proc = await asyncio.create_subprocess_exec(
-            "docker", "stop", self._cid,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "docker",
+            "stop",
+            self._cid,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         await proc.communicate()
 
@@ -182,8 +214,13 @@ class DurableDockerSandbox(LifecycleMixin, Sandbox):
         if not checkpoint_name:
             raise SandboxError("No hibernate checkpoint found")
         proc = await asyncio.create_subprocess_exec(
-            "docker", "start", "--checkpoint", checkpoint_name, self._cid,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "docker",
+            "start",
+            "--checkpoint",
+            checkpoint_name,
+            self._cid,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         _, err = await proc.communicate()
         if proc.returncode != 0:
@@ -197,28 +234,47 @@ class DurableDockerSandbox(LifecycleMixin, Sandbox):
         if any(cp.name == name for cp in self._checkpoints):
             raise SandboxError(f"Checkpoint name '{name}' already exists for this container")
         proc = await asyncio.create_subprocess_exec(
-            "docker", "checkpoint", "create", "--leave-running", self._cid, name,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "docker",
+            "checkpoint",
+            "create",
+            "--leave-running",
+            self._cid,
+            name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         _, err = await proc.communicate()
         if proc.returncode != 0:
             raise SandboxError(f"docker checkpoint create failed: {err.decode().strip()}")
         import time
+
         checkpoint_id = f"{self._cid}:{name}"
-        self._checkpoints.append(CheckpointInfo(
-            checkpoint_id=checkpoint_id, name=name, container_id=self._cid, timestamp=time.time()
-        ))
+        self._checkpoints.append(
+            CheckpointInfo(
+                checkpoint_id=checkpoint_id,
+                name=name,
+                container_id=self._cid,
+                timestamp=time.time(),
+            )
+        )
         return checkpoint_id
 
     async def _do_delete_checkpoint(self, checkpoint_id: str) -> None:
         """docker checkpoint rm."""
-        idx = next((i for i, cp in enumerate(self._checkpoints) if cp.checkpoint_id == checkpoint_id), None)
+        idx = next(
+            (i for i, cp in enumerate(self._checkpoints) if cp.checkpoint_id == checkpoint_id), None
+        )
         if idx is None:
             raise SandboxError(f"Checkpoint '{checkpoint_id}' not found")
         cp = self._checkpoints[idx]
         proc = await asyncio.create_subprocess_exec(
-            "docker", "checkpoint", "rm", self._cid, cp.name,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "docker",
+            "checkpoint",
+            "rm",
+            self._cid,
+            cp.name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         _, err = await proc.communicate()
         if proc.returncode != 0:
@@ -239,8 +295,12 @@ class DurableDockerSandbox(LifecycleMixin, Sandbox):
         """
         image_tag = f"forge-fork:{name}"
         proc = await asyncio.create_subprocess_exec(
-            "docker", "commit", self._cid, image_tag,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "docker",
+            "commit",
+            self._cid,
+            image_tag,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         _, err = await proc.communicate()
         if proc.returncode != 0:
@@ -262,8 +322,13 @@ class DurableDockerSandbox(LifecycleMixin, Sandbox):
     async def _do_scale(self, memory_mb: int, cpu_count: int) -> None:
         """docker update --memory {m}m --cpus {c}."""
         proc = await asyncio.create_subprocess_exec(
-            "docker", "update", f"--memory={memory_mb}m", f"--cpus={cpu_count}", self._cid,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "docker",
+            "update",
+            f"--memory={memory_mb}m",
+            f"--cpus={cpu_count}",
+            self._cid,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         _, err = await proc.communicate()
         if proc.returncode != 0:

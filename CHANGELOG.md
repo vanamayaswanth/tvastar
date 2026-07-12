@@ -4,6 +4,42 @@ All notable changes to Tvastar are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.26.0] — 2026-07-13
+
+### Added — Swarm Architecture (Fleet-Level Multi-Worker Coordination)
+
+Adds a reactive coordination layer for running multiple workers concurrently with decoupled shared state, rule-based escalation handling, and crash-recoverable checkpointing. Zero new runtime dependencies.
+
+#### Core
+
+- **`SignalBus`** (`tvastar.fleet.signal_bus`) — Reactive namespaced key-value store with per-namespace monotonic timestamps, last-writer-wins reads, prefix-based async watches, bounded buffers (drop-oldest on overflow), bounded consumer queues (drop + warn on full), and optional EventBus forwarding for observability. Deterministic clock injection for testing.
+- **`Coordinator`** (`tvastar.fleet.coordinator`) — Rule-based escalation matcher using AgentRouter's pattern (match input → select output). Watches SignalBus for worker escalations, matches against configurable rule table (first-match semantics), writes directives. Pure function matching — no LLM in the critical path. Default rules for rate_limit, timeout, and generic retries_exhausted.
+- **`Checkpointer`** (`tvastar.fleet.checkpointer`) — Periodic SignalBus → Store persistence. Atomic writes (temp key + swap), retry-once-on-failure, non-blocking background operation. Restores SignalBus from last checkpoint on startup.
+- **`Swarm`** (`tvastar.fleet.swarm`) — Top-level orchestrator composing SignalBus + Coordinator + Workers + Checkpointer. Publishes goals, runs workers concurrently, aggregates results into `SwarmResult`.
+- **`EscalationPolicy`** (`tvastar.fleet.swarm`) — Dataclass configuring the Loop escalation pathway. When attached to LoopConfig, Loop writes escalations to SignalBus instead of transitioning to HANDOFF.
+
+#### Loop Extension
+
+- **`LoopState.ESCALATING`** — New state: waiting for directive from Coordinator via SignalBus.
+- **`LoopState.DEGRADED`** — New state: proceeding with reduced scope after escalation timeout.
+- **`LoopConfig.escalation_policy`** — New optional field (default None). When set, Loop uses escalation pathway instead of HANDOFF on retries exhausted. When None, all existing behavior is unchanged.
+- **Loop._escalate()** — Writes escalation to SignalBus, watches for directive with configurable timeout, transitions to RUNNING on directive received or DEGRADED on timeout.
+
+#### Data Models
+
+- **`Entry`** — Frozen dataclass: namespace, key, value, timestamp.
+- **`Escalation`** — Structured escalation: reason, error_type, attempts, last_error.
+- **`Directive`** — Advisory response: action, wait_seconds, fallback.
+- **`Goal`** — Goal broadcast: goal, priority, timestamp.
+- **`EscalationRule`** — Rule matching: match_reason, match_error_type, directive.
+- **`SwarmResult`** — Aggregated result: goal, worker_results, worker_states, duration.
+- **`CheckpointerConfig`** — Configuration: interval, checkpoint_key.
+
+### Changed
+
+- `LoopState` enum extended with 2 new values (ESCALATING, DEGRADED). No behavioral change when `escalation_policy` is None.
+- `LoopConfig` dataclass extended with 1 new optional field. No behavioral change at default.
+
 ## [0.25.0] — 2026-07-12
 
 ### Added — Durable Compute Lifecycle

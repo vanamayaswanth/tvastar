@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.25.0. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.26.0. Every public symbol, field, and signature.
 
 ---
 
@@ -2625,3 +2625,106 @@ tvastar-comply compliance-cost [--window-hours 24] [--format json|text]
 ```
 
 Exit codes: 0 success, 1 operational error, 2 compliance violation.
+
+---
+
+## Swarm — Multi-Worker Coordination
+
+```python
+from tvastar.fleet.swarm import Swarm, EscalationPolicy
+from tvastar.fleet.signal_bus import SignalBus
+from tvastar.fleet.coordinator import Coordinator, DEFAULT_RULES
+from tvastar.fleet.checkpointer import Checkpointer
+from tvastar.fleet.models import (
+    Entry, Escalation, Directive, Goal,
+    EscalationRule, SwarmResult, CheckpointerConfig,
+)
+```
+
+### `Swarm`
+
+```python
+class Swarm:
+    def __init__(
+        self,
+        goal: str,
+        tasks: list[Callable[..., Awaitable[Any]]],
+        *,
+        store: Store | None = None,
+        rules: list[EscalationRule] | None = None,
+        escalation_timeout: float = 60.0,
+        checkpoint_interval: float = 30.0,
+        event_bus: EventBus | None = None,
+        clock: Callable[[], float] | None = None,
+    ) -> None: ...
+
+    async def run(self) -> SwarmResult: ...
+```
+
+### `SignalBus`
+
+```python
+class SignalBus:
+    def __init__(
+        self,
+        *,
+        max_entries_per_namespace: int = 1000,
+        max_queue_per_consumer: int = 100,
+        clock: Callable[[], float] | None = None,
+        event_bus: EventBus | None = None,
+    ) -> None: ...
+
+    async def write(self, namespace: str, key: str, value: Any) -> Entry: ...
+    def read(self, namespace: str, key: str) -> Any | None: ...
+    async def watch(self, namespace_prefix: str) -> AsyncIterator[Entry]: ...
+    async def flush(self) -> None: ...
+    def snapshot(self) -> dict: ...
+    def restore(self, snapshot: dict) -> None: ...
+```
+
+### `Coordinator`
+
+```python
+class Coordinator:
+    def __init__(
+        self,
+        signal_bus: SignalBus,
+        rules: list[EscalationRule] | None = None,
+        *,
+        escalation_response_timeout: float = 5.0,
+    ) -> None: ...
+
+    def match_rule(self, reason: str, error_type: str) -> dict: ...
+    async def publish_goal(self, goal: str, priority: int = 5) -> None: ...
+    async def watch_and_respond(self) -> None: ...
+    async def stop(self) -> None: ...
+```
+
+### `Checkpointer`
+
+```python
+class Checkpointer:
+    def __init__(
+        self,
+        signal_bus: SignalBus,
+        store: Store,
+        config: CheckpointerConfig | None = None,
+    ) -> None: ...
+
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+    async def checkpoint_now(self) -> bool: ...
+    def restore(self) -> bool: ...
+```
+
+### `EscalationPolicy`
+
+```python
+@dataclass
+class EscalationPolicy:
+    signal_bus: SignalBus
+    escalation_timeout: float = 60.0
+    namespace: str = ""
+```
+
+When attached to `LoopConfig(escalation_policy=...)`, the Loop uses the escalation pathway instead of HANDOFF.

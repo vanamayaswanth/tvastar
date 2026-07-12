@@ -59,7 +59,9 @@ class LifecycleMixin:
 
     _OPERATION_TIMEOUT: float = 60.0
 
-    def __init__(self, *args, scaling_bounds: Optional[ScalingBounds] = None, event_bus=None, **kwargs) -> None:
+    def __init__(
+        self, *args, scaling_bounds: Optional[ScalingBounds] = None, event_bus=None, **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._lifecycle_state = LifecycleState.created
         self._state_lock = asyncio.Lock()
@@ -75,21 +77,34 @@ class LifecycleMixin:
 
     def _require_state(self, required: LifecycleState, operation: str) -> None:
         if self._lifecycle_state != required:
-            self._audit(f"lifecycle:{operation}", allowed=False, violation=f"state is {self._lifecycle_state.value}, requires {required.value}")
-            raise SandboxError(f"Cannot {operation}: state is '{self._lifecycle_state.value}', requires '{required.value}'")
+            self._audit(
+                f"lifecycle:{operation}",
+                allowed=False,
+                violation=f"state is {self._lifecycle_state.value}, requires {required.value}",
+            )
+            raise SandboxError(
+                f"Cannot {operation}: state is '{self._lifecycle_state.value}', requires '{required.value}'"
+            )
 
     def _validate_scaling(self, memory_mb: int, cpu_count: int) -> None:
         if self._scaling_bounds is None:
             raise SandboxError("Scaling not configured — ScalingBounds is None")
         b = self._scaling_bounds
         if not (b.min_memory_mb <= memory_mb <= b.max_memory_mb):
-            raise SecurityViolation(f"memory_mb={memory_mb} outside bounds [{b.min_memory_mb}, {b.max_memory_mb}]")
+            raise SecurityViolation(
+                f"memory_mb={memory_mb} outside bounds [{b.min_memory_mb}, {b.max_memory_mb}]"
+            )
         if not (b.min_cpu_count <= cpu_count <= b.max_cpu_count):
-            raise SecurityViolation(f"cpu_count={cpu_count} outside bounds [{b.min_cpu_count}, {b.max_cpu_count}]")
+            raise SecurityViolation(
+                f"cpu_count={cpu_count} outside bounds [{b.min_cpu_count}, {b.max_cpu_count}]"
+            )
 
     def _audit(self, command: str, allowed: bool, violation: str | None = None) -> None:
         from .base import AuditEntry
-        entry = AuditEntry(command=command, timestamp=time.time(), allowed=allowed, violation=violation)
+
+        entry = AuditEntry(
+            command=command, timestamp=time.time(), allowed=allowed, violation=violation
+        )
         self._audit_log.append(entry)
 
     def _emit_transition(self, prev: LifecycleState, new: LifecycleState) -> None:
@@ -142,7 +157,9 @@ class LifecycleMixin:
             self._require_state(LifecycleState.running, "scale")
             self._validate_scaling(memory_mb, cpu_count)
             try:
-                await asyncio.wait_for(self._do_scale(memory_mb, cpu_count), timeout=self._OPERATION_TIMEOUT)
+                await asyncio.wait_for(
+                    self._do_scale(memory_mb, cpu_count), timeout=self._OPERATION_TIMEOUT
+                )
                 self._audit("lifecycle:scale", allowed=True)
             except asyncio.TimeoutError:
                 self._audit("lifecycle:scale", allowed=False, violation="operation timed out")
@@ -153,7 +170,9 @@ class LifecycleMixin:
         async with self._state_lock:
             self._require_state(LifecycleState.running, "checkpoint")
             try:
-                cid = await asyncio.wait_for(self._do_checkpoint(name), timeout=self._OPERATION_TIMEOUT)
+                cid = await asyncio.wait_for(
+                    self._do_checkpoint(name), timeout=self._OPERATION_TIMEOUT
+                )
                 self._audit("lifecycle:checkpoint", allowed=True)
                 return cid
             except asyncio.TimeoutError:
@@ -165,7 +184,9 @@ class LifecycleMixin:
         async with self._state_lock:
             self._require_state(LifecycleState.running, "fork")
             try:
-                result = await asyncio.wait_for(self._do_fork(name), timeout=self._OPERATION_TIMEOUT)
+                result = await asyncio.wait_for(
+                    self._do_fork(name), timeout=self._OPERATION_TIMEOUT
+                )
                 self._audit("lifecycle:fork", allowed=True)
                 return result
             except asyncio.TimeoutError:
@@ -175,10 +196,14 @@ class LifecycleMixin:
     async def delete_checkpoint(self, checkpoint_id: str) -> None:
         """Remove a previously created checkpoint."""
         try:
-            await asyncio.wait_for(self._do_delete_checkpoint(checkpoint_id), timeout=self._OPERATION_TIMEOUT)
+            await asyncio.wait_for(
+                self._do_delete_checkpoint(checkpoint_id), timeout=self._OPERATION_TIMEOUT
+            )
             self._audit("lifecycle:delete_checkpoint", allowed=True)
         except asyncio.TimeoutError:
-            self._audit("lifecycle:delete_checkpoint", allowed=False, violation="operation timed out")
+            self._audit(
+                "lifecycle:delete_checkpoint", allowed=False, violation="operation timed out"
+            )
             raise SandboxError("delete_checkpoint operation timed out")
 
     async def list_checkpoints(self) -> list[CheckpointInfo]:
@@ -207,8 +232,14 @@ class LifecycleMixin:
         while self._inflight_count > 0:
             if asyncio.get_event_loop().time() >= deadline:
                 self._draining = False
-                self._audit("lifecycle:hibernate", allowed=False, violation="aborted due to in-flight operations")
-                raise SandboxError("Hibernation aborted: in-flight exec calls did not complete within timeout")
+                self._audit(
+                    "lifecycle:hibernate",
+                    allowed=False,
+                    violation="aborted due to in-flight operations",
+                )
+                raise SandboxError(
+                    "Hibernation aborted: in-flight exec calls did not complete within timeout"
+                )
             await asyncio.sleep(0.05)
 
     # --- Backend hooks (override in concrete classes) ---
@@ -271,8 +302,13 @@ async def sandbox_from_checkpoint(
         sandbox._cid = container_id
         # Start from checkpoint
         proc = await asyncio.create_subprocess_exec(
-            "docker", "start", "--checkpoint", checkpoint_name, container_id,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "docker",
+            "start",
+            "--checkpoint",
+            checkpoint_name,
+            container_id,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         _, err = await proc.communicate()
         if proc.returncode != 0:
@@ -283,7 +319,9 @@ async def sandbox_from_checkpoint(
         from .providers import CubeSandboxAdapter
 
         adapter = CubeSandboxAdapter(**kwargs)
-        resp = await asyncio.to_thread(adapter._http_post, "/sessions/from-checkpoint", {"checkpoint_id": checkpoint_id})
+        resp = await asyncio.to_thread(
+            adapter._http_post, "/sessions/from-checkpoint", {"checkpoint_id": checkpoint_id}
+        )
         adapter._session_id = resp["session_id"]
         adapter._lifecycle_state = LifecycleState.running
         return adapter

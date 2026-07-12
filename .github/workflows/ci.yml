@@ -42,7 +42,8 @@ jobs:
           echo "All runbook references valid"
 
       - name: Check CORE_API ⊆ __all__
-        run: python -c "import tvastar; missing = set(tvastar.CORE_API) - set(tvastar.__all__); assert not missing, f'CORE_API symbols missing from __all__: {missing}'"
+        run: |
+          python -c "import tvastar; missing = set(tvastar.CORE_API) - set(tvastar.__all__); assert not missing, f'CORE_API symbols missing from __all__: {missing}'"
 
       - name: Lint
         run: ruff check src/tvastar/ examples/ tests/
