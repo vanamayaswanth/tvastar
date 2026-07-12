@@ -778,7 +778,9 @@ class Session:
                 total = total + resp.usage
                 self.tracer_event(
                     "model_responded",
-                    stop_reason=resp.stop_reason.value if hasattr(resp.stop_reason, 'value') else str(resp.stop_reason),
+                    stop_reason=resp.stop_reason.value
+                    if hasattr(resp.stop_reason, "value")
+                    else str(resp.stop_reason),
                     total_tokens=resp.usage.input_tokens + resp.usage.output_tokens,
                 )
                 self.messages.append(resp.message)
@@ -1058,12 +1060,19 @@ class Session:
                             "arguments": args,
                         },
                     )
-                    self.tracer_event("tool_invoked", tool_name=use.name, args_summary=str(args)[:200])
+                    self.tracer_event(
+                        "tool_invoked", tool_name=use.name, args_summary=str(args)[:200]
+                    )
                     _tool_start = time.time()
                     out = await tool.invoke(args, ctx, default_retry=default_retry)
                     _tool_duration_ms = (time.time() - _tool_start) * 1000
                     result = ToolResultBlock(tool_use_id=use.id, content=out)
-                    self.tracer_event("tool_returned", tool_name=use.name, duration_ms=_tool_duration_ms, success=True)
+                    self.tracer_event(
+                        "tool_returned",
+                        tool_name=use.name,
+                        duration_ms=_tool_duration_ms,
+                        success=True,
+                    )
 
                     # Post-tool hook: allow observation/modification of result
                     if self.spec.post_tool_hook:
@@ -1089,7 +1098,12 @@ class Session:
                 except ToolNotFound as e:
                     sp.status = "error"
                     _tool_duration_ms = (time.time() - _tool_start) * 1000
-                    self.tracer_event("tool_returned", tool_name=use.name, duration_ms=_tool_duration_ms, success=False)
+                    self.tracer_event(
+                        "tool_returned",
+                        tool_name=use.name,
+                        duration_ms=_tool_duration_ms,
+                        success=False,
+                    )
                     result = ToolResultBlock(use.id, f"[error] {e}", is_error=True)
                     await self._write_record(
                         RecordType.TOOL_RESULT,
@@ -1104,7 +1118,12 @@ class Session:
                 except ToolError as e:
                     sp.status = "error"
                     _tool_duration_ms = (time.time() - _tool_start) * 1000
-                    self.tracer_event("tool_returned", tool_name=use.name, duration_ms=_tool_duration_ms, success=False)
+                    self.tracer_event(
+                        "tool_returned",
+                        tool_name=use.name,
+                        duration_ms=_tool_duration_ms,
+                        success=False,
+                    )
                     result = ToolResultBlock(use.id, f"[error] {e}", is_error=True)
                     await self._write_record(
                         RecordType.TOOL_RESULT,

@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
 
 from tvastar.fleet.models import Escalation, EscalationRule, Goal
 from tvastar.fleet.signal_bus import SignalBus

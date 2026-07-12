@@ -1276,9 +1276,9 @@ class Loop:
         self._state = state
         self._emit(run, state, data or {})
         # Write state to SignalBus for observability (Req 2.7) — non-terminal only
-        if (
-            self._config.escalation_policy is not None
-            and state not in (LoopState.PASS, LoopState.HANDOFF)
+        if self._config.escalation_policy is not None and state not in (
+            LoopState.PASS,
+            LoopState.HANDOFF,
         ):
             policy = self._config.escalation_policy
             ns = policy.namespace or self.name
@@ -1320,9 +1320,10 @@ class Loop:
         if quality_score is not None:
             self._quality_window.append(quality_score)
             if len(self._quality_window) > self._config.quality_trend_window:
-                self._quality_window = self._quality_window[-self._config.quality_trend_window:]
+                self._quality_window = self._quality_window[-self._config.quality_trend_window :]
             if len(self._quality_window) >= 3 and self._event_bus is not None:
                 from statistics import mean
+
                 avg = mean(self._quality_window)
                 if avg < self._config.quality_critical_threshold:
                     try:

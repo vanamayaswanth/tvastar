@@ -254,7 +254,12 @@ class SignalBus:
 
         for ns, entries in snapshot.get("namespaces", {}).items():
             self._store[ns] = [
-                Entry(namespace=e["namespace"], key=e["key"], value=e["value"], timestamp=e["timestamp"])
+                Entry(
+                    namespace=e["namespace"],
+                    key=e["key"],
+                    value=e["value"],
+                    timestamp=e["timestamp"],
+                )
                 for e in entries
             ]
 
