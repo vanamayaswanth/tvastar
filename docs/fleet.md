@@ -257,3 +257,69 @@ Subscribe to these events for custom monitoring:
 fleet.bus.subscribe("sandbox.lifecycle", my_handler)
 fleet.bus.subscribe("sandbox.scale", my_scale_handler)
 ```
+
+
+---
+
+## Swarm — Decoupled Multi-Worker Coordination
+
+Swarm runs multiple workers concurrently with shared state coordination via SignalBus. Workers escalate to a rule-based Coordinator when stuck, and degrade gracefully when no guidance arrives.
+
+### Quick Example
+
+```python
+import asyncio
+from tvastar.fleet.swarm import Swarm
+from tvastar.memory.store import FileStore
+
+async def research():
+    # ... do research work ...
+    return "research findings"
+
+async def summarize():
+    # ... do summarization ...
+    return "executive summary"
+
+async def main():
+    swarm = Swarm(
+        goal="Research competitors and produce a strategy report",
+        tasks=[research, summarize],
+        store=FileStore("./checkpoints"),  # crash recovery
+    )
+    result = await swarm.run()
+    print(result.worker_results)  # {"worker_0": "research findings", "worker_1": "executive summary"}
+
+asyncio.run(main())
+```
+
+### Architecture
+
+```
+Swarm
+├── SignalBus (shared reactive state)
+├── Coordinator (rule-based escalation matching)
+├── Checkpointer (periodic SignalBus → Store)
+└── Workers (Loop instances with escalation_policy)
+```
+
+Workers communicate through SignalBus — they never message each other directly. The Coordinator watches for escalations and responds with deterministic directives via a configurable rule table. No LLM in the coordination path.
+
+### Custom Escalation Rules
+
+```python
+from tvastar.fleet.models import EscalationRule
+
+rules = [
+    EscalationRule(
+        match_reason="retries_exhausted",
+        match_error_type="rate_limit",
+        directive={"action": "wait_and_retry", "wait_seconds": 60},
+    ),
+    EscalationRule(
+        match_reason="retries_exhausted",
+        directive={"action": "skip_and_continue"},
+    ),
+]
+
+swarm = Swarm(goal="...", tasks=[...], rules=rules)
+```

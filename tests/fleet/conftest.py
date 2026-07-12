@@ -4,6 +4,8 @@ This conftest provides:
 - Hypothesis settings profile for fleet PBT tests
 - Custom composite strategies for fleet domain types
 - Pytest fixtures for common fleet test setups (mock Loop, FleetRegistry, Fleet)
+- Swarm-specific strategies for SignalBus property tests
+- Deterministic clock and signal bus fixtures for Swarm testing
 
 Strategies:
     agent_names       — valid agent name strings (alphanumeric + hyphens)
@@ -12,13 +14,20 @@ Strategies:
     cost_sequences    — sequences of cost events with agent/owner metadata
     dependency_graphs — random DAGs (some acyclic, some with cycles for negative testing)
     rate_limit_scenarios — request sequences with timing info
+    namespace_st      — valid SignalBus namespace strings
+    key_st            — valid SignalBus key strings
+    value_st          — valid SignalBus entry values (text | int | bool | None)
+    entry_st          — builds Entry instances with valid fields
+    escalation_rule_st — builds EscalationRule instances with sampled reasons/error types
 
 Fixtures:
-    mock_loop        — a minimal mock Loop instance
-    fleet_registry   — a FleetRegistry instance
-    minimal_fleet    — a Fleet instance with default config
+    mock_loop              — a minimal mock Loop instance
+    fleet_registry         — a FleetRegistry instance
+    minimal_fleet          — a Fleet instance with default config
+    deterministic_clock    — a callable returning incrementing floats (0.0, 1.0, 2.0, ...)
+    deterministic_signal_bus — a SignalBus instance using the deterministic clock
 
-Validates: (testing infrastructure)
+Validates: Requirements 5.3, 5.6
 """
 
 from __future__ import annotations
@@ -36,6 +45,7 @@ from tvastar.fleet import (
     FleetRegistry,
     Fleet,
 )
+from tvastar.fleet.models import Entry, EscalationRule
 
 # Re-export fleet types that test modules may need via conftest
 __all__ = [
@@ -351,3 +361,84 @@ def minimal_fleet() -> Fleet:
 def make_mock_loops(count: int, prefix: str = "agent") -> list[MagicMock]:
     """Create multiple mock Loop instances with unique names."""
     return [_make_mock_loop(name=f"{prefix}-{i}") for i in range(count)]
+
+
+# ---------------------------------------------------------------------------
+# Swarm / SignalBus Hypothesis Strategies
+# ---------------------------------------------------------------------------
+
+namespace_st = st.text(
+    alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="_-"),
+    min_size=1,
+    max_size=20,
+)
+"""Valid SignalBus namespace strings: letters, digits, underscore, hyphen."""
+
+key_st = st.text(
+    alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="_-."),
+    min_size=1,
+    max_size=30,
+)
+"""Valid SignalBus key strings: letters, digits, underscore, hyphen, dot."""
+
+value_st = st.one_of(st.text(max_size=100), st.integers(), st.booleans(), st.none())
+"""Valid SignalBus entry values: text, integers, booleans, or None."""
+
+entry_st = st.builds(
+    Entry,
+    namespace=namespace_st,
+    key=key_st,
+    value=value_st,
+    timestamp=st.floats(min_value=0, max_value=1e9),
+)
+"""Builds Entry instances with valid namespace, key, value, and timestamp."""
+
+escalation_rule_st = st.builds(
+    EscalationRule,
+    match_reason=st.one_of(
+        st.none(),
+        st.sampled_from(["retries_exhausted", "permanent_error", "unknown"]),
+    ),
+    match_error_type=st.one_of(
+        st.none(),
+        st.sampled_from(["timeout", "rate_limit", "auth", "novel"]),
+    ),
+    directive=st.fixed_dictionaries(
+        {"action": st.sampled_from(["wait_and_retry", "skip_and_continue", "proceed_autonomously"])}
+    ),
+)
+"""Builds EscalationRule instances with sampled reasons and error types."""
+
+
+# ---------------------------------------------------------------------------
+# Swarm / SignalBus Pytest Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def deterministic_clock():
+    """A callable that returns monotonically incrementing floats: 0.0, 1.0, 2.0, ...
+
+    Inject into SignalBus(clock=deterministic_clock) for deterministic timestamps in tests.
+
+    Validates: Requirements 5.3
+    """
+    counter = iter(float(i) for i in range(10_000))
+    return lambda: next(counter)
+
+
+@pytest.fixture
+def deterministic_signal_bus(deterministic_clock):
+    """A SignalBus instance using the deterministic clock for reproducible tests.
+
+    NOTE: SignalBus is implemented in src/tvastar/fleet/signal_bus.py.
+    This fixture uses a conditional import so that tests can be collected even
+    before signal_bus.py is fully implemented — it will skip gracefully.
+
+    Validates: Requirements 5.3, 5.6
+    """
+    try:
+        from tvastar.fleet.signal_bus import SignalBus
+    except ImportError:
+        pytest.skip("SignalBus not yet implemented (src/tvastar/fleet/signal_bus.py)")
+    return SignalBus(clock=deterministic_clock)
