@@ -38,7 +38,8 @@ CC-Bench-trajectories/
 results/
 
 # One-off scripts (not part of the package)
-scripts/
+# scripts/ — removed from gitignore because CI references check_mypy_ratchet.py and quality_gate.py
+scripts/__pycache__/
 
 # Hypothesis test database
 .hypothesis/
