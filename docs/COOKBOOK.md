@@ -828,6 +828,42 @@ run = await loop.trigger()
 # Only APPROVED advances to PASS
 ```
 
+### Quality-Gated Retry — Don't Waste Tokens on "Good Enough"
+
+By default, any warning triggers a retry. But a run that scores 90/100 (one minor warning like "tool called 3x with same args") is *good enough* — retrying it burns tokens without improving outcomes.
+
+The `quality_gate` threshold tells the loop: if the score is above this and the run completed normally, accept it.
+
+```python
+from tvastar.loop import Loop, LoopConfig
+
+config = LoopConfig(
+    name="cost-aware-loop",
+    goal="Fix the failing test",
+    schedule="*/15 * * * *",
+    max_iterations=3,
+    quality_gate=80,  # default — score >= 80 skips retry
+)
+loop = Loop(spec, config)
+run = await loop.trigger()
+
+# Run completes with 1 minor warning (thrash_loop) → score 90
+# Old behavior: RETRY (burns another $0.40)
+# New behavior: PASS (saves the retry, same correct outcome)
+```
+
+**When to lower the gate:**
+- `quality_gate=70` — more tolerant, fewer retries, more savings
+- Use when the task is idempotent and minor issues don't matter
+
+**When to raise the gate:**
+- `quality_gate=95` — stricter, retries more aggressively
+- Use for compliance-critical loops where any finding matters
+
+**Safety:** The gate ONLY fires when `stopped == "end_turn"` (normal completion). A crashed run, timeout, or hard error always retries regardless of score.
+
+---
+
 ### Self-Improving Loops (`meta_model` / `DSPyOptimizer`)
 
 Set `meta_model` on any `LoopConfig` and the loop rewrites its own agent instructions after each FAIL — inspired by [Hyperagents](https://github.com/facebookresearch/Hyperagents). No code execution: improvement is pure prompt evolution, persisted across restarts.

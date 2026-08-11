@@ -41,6 +41,7 @@ class LoopRegistry:
         self._loops: dict[str, Loop] = {}
         self._lock = threading.Lock()
         self._listeners: list[Callable[[LoopEvent], None]] = []
+        self._chain_counts: dict[tuple[str, str], int] = {}  # (source, target) → fire count
 
     def register(self, loop: "Loop") -> None:
         """Register a loop. Raises ValueError on duplicate name or cycle."""
@@ -103,8 +104,13 @@ class LoopRegistry:
             except Exception:
                 pass  # ponytail: listener failure must never break the loop
 
-        # Chain trigger: on PASS, fire the `then` target
-        if event.state == LoopState.PASS:
+        # Chain trigger: on terminal states, fire matching targets
+        if event.state in (
+            LoopState.PASS,
+            LoopState.FAIL,
+            LoopState.HANDOFF,
+            LoopState.HANDOFF_FAILED,
+        ):
             source = self._loops.get(event.loop_name)
             if source and source.config.then:
                 self._chain_trigger(source, event)
@@ -114,14 +120,60 @@ class LoopRegistry:
     # ------------------------------------------------------------------
 
     def _chain_trigger(self, source: "Loop", event: "LoopEvent") -> None:
-        """Trigger the chained target loop on source PASS."""
+        """Trigger chained target loop(s) based on outcome state."""
+        from . import ChainTarget, LoopEvent as _LE, LoopState
+
+        then = source.config.then
+
+        # str → legacy behavior: trigger named loop on PASS only
+        if isinstance(then, str):
+            if event.state != LoopState.PASS:
+                return
+            self._fire_target(source, event, then)
+            return
+
+        # list[ChainTarget] → route by outcome
+        state = event.state
+        for ct in then:
+            if not self._chain_target_matches(ct, state):
+                continue
+            # max_cycles guard
+            if ct.max_cycles is not None:
+                count = self._chain_counts.get((source.name, ct.target), 0)
+                if count >= ct.max_cycles:
+                    logger.warning(
+                        "Chain %s → %s skipped: max_cycles=%d reached (%d fired)",
+                        source.name,
+                        ct.target,
+                        ct.max_cycles,
+                        count,
+                    )
+                    continue
+            # Increment chain count and fire
+            key = (source.name, ct.target)
+            self._chain_counts[key] = self._chain_counts.get(key, 0) + 1
+            self._fire_target(source, event, ct.target)
+
+    @staticmethod
+    def _chain_target_matches(ct: "ChainTarget", state: "LoopState") -> bool:
+        """Check if a ChainTarget matches the given outcome state."""
+        from . import LoopState
+
+        if ct.on == "any":
+            return True
+        if ct.on == "pass" and state == LoopState.PASS:
+            return True
+        if ct.on == "fail" and state in (LoopState.FAIL, LoopState.HANDOFF, LoopState.HANDOFF_FAILED):
+            return True
+        return False
+
+    def _fire_target(self, source: "Loop", event: "LoopEvent", target_name: str) -> None:
+        """Fire a single chain target by name."""
         from . import LoopEvent as _LE, LoopState
 
-        target_name = source.config.then
         target = self.get(target_name)
 
         if target is None:
-            # Warning: target not found — emit event, skip
             warning = _LE(
                 loop_name=source.name,
                 run_id=event.run_id,
@@ -136,7 +188,6 @@ class LoopRegistry:
             return
 
         if target.state == LoopState.SUSPENDED:
-            # Warning: target suspended — emit event, skip
             warning = _LE(
                 loop_name=source.name,
                 run_id=event.run_id,
@@ -150,11 +201,10 @@ class LoopRegistry:
             self._broadcast_warning(warning)
             return
 
-        # Fire the target loop within 1s (async, fire-and-forget)
         context = {"chained_from": source.name, "source_run_id": event.run_id}
 
         async def _fire() -> None:
-            await asyncio.sleep(0)  # yield, triggers promptly (well within 1s)
+            await asyncio.sleep(0)
             try:
                 await target.trigger(context=context)
             except Exception:
@@ -180,25 +230,39 @@ class LoopRegistry:
 
     def _detect_cycle(self, new_loop: "Loop") -> None:
         """Detect chain cycles via DFS. Raises ValueError with cycle path."""
-        # Build adjacency: name → then target
-        graph: dict[str, str | None] = {}
-        for lp in self._loops.values():
-            graph[lp.name] = lp.config.then
-        graph[new_loop.name] = new_loop.config.then
+        from . import ChainTarget
 
-        # Walk the chain from new_loop following `then` links
+        # Build adjacency: name → list of target names
+        def _targets(then_val: "str | list[ChainTarget] | None") -> list[str]:
+            if then_val is None:
+                return []
+            if isinstance(then_val, str):
+                return [then_val]
+            return [ct.target for ct in then_val]
+
+        graph: dict[str, list[str]] = {}
+        for lp in self._loops.values():
+            graph[lp.name] = _targets(lp.config.then)
+        graph[new_loop.name] = _targets(new_loop.config.then)
+
+        # Walk all chains from new_loop using DFS
         visited: set[str] = set()
         path: list[str] = []
-        current: str | None = new_loop.name
 
-        while current and current in graph:
+        def _walk(current: str) -> None:
             if current in visited:
-                cycle_start = path.index(current)
-                cycle = path[cycle_start:] + [current]
-                raise ValueError(f"Loop chain cycle detected: {' → '.join(cycle)}")
+                if current in path:
+                    cycle_start = path.index(current)
+                    cycle = path[cycle_start:] + [current]
+                    raise ValueError(f"Loop chain cycle detected: {' → '.join(cycle)}")
+                return
             visited.add(current)
             path.append(current)
-            current = graph.get(current)
+            for target in graph.get(current, []):
+                _walk(target)
+            path.pop()
+
+        _walk(new_loop.name)
 
     # ------------------------------------------------------------------
     # Dunder

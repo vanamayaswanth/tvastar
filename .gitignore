@@ -12,6 +12,10 @@ dist/
 .tvastar-loops/
 *-trace.jsonl
 tvastar-trace.jsonl
+.tvastar-memory.db
+*.tvastar-memory.db
+*.tvastar-memory.db-wal
+*.tvastar-memory.db-shm
 
 .pytest_cache/
 .ruff_cache/

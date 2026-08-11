@@ -4,6 +4,26 @@ All notable changes to Tvastar are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.27.0] — 2026-07-18
+
+### Added — Quality-Gated Retry (Cost Optimization)
+
+The loop now skips retries when a run scores above a configurable quality threshold. A run with minor warnings but a high quality score is "good enough" — retrying it burns tokens without improving outcomes.
+
+#### Core
+
+- **`LoopConfig.quality_gate`** — New field (default: 80). When a run completes normally (`stopped == "end_turn"`) and quality score >= gate, the loop accepts it as PASS even if there are minor warnings. Previously, any warning triggered a retry.
+- The gate only fires on normal completion — crashes, timeouts, and hard errors always retry regardless of score.
+
+#### Positioning
+
+- Updated tagline: **"Agents that provably work — at minimum cost."**
+- Quality scoring enables cost optimization: you can't safely skip retries unless you can verify the run succeeded. This is the structural advantage competitors cannot replicate without a verification layer.
+
+### Changed
+
+- `LoopConfig` dataclass extended with 1 new field (`quality_gate`). Default behavior is unchanged — runs scoring 80+ already passed before; the change only affects runs with minor warnings that previously triggered unnecessary retries.
+
 ## [0.26.0] — 2026-07-13
 
 ### Added — Swarm Architecture (Fleet-Level Multi-Worker Coordination)

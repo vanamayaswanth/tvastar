@@ -3,6 +3,9 @@
 Detects conflicting facts via JSON comparison and resolves with
 last-writer-wins semantics. Logs all contradictions to a dedicated
 namespace-scoped log (max 1000 entries). Exact key matching only.
+
+Bi-temporal mode: when supersession is detected, logs the event but never
+overwrites — the actual temporal close-and-insert is handled by LTMStore.remember().
 """
 
 from __future__ import annotations
@@ -26,24 +29,31 @@ class ContradictionDetector:
 
     Resolution: last-writer-wins (always writes the new value).
     Exact key matching only — no semantic similarity.
+
+    When temporal=True, logs supersession events without overwriting.
+    The caller (LTMStore.remember) handles the actual temporal write.
     """
 
-    def __init__(self, store: "Store", namespace: str = "default") -> None:
+    def __init__(self, store: "Store", namespace: str = "default", *, temporal: bool = False) -> None:
         self._store = store
         self._namespace = namespace
         self._log_key = f"{CONTRADICTION_LOG_PREFIX}{namespace}"
+        self._temporal = temporal
 
     def write(self, key: str, new_value: Any, *, source_ref: str = "unknown") -> bool:
         """Write with contradiction detection.
 
         Returns True if a contradiction was detected and resolved.
-        Always writes new_value (last-writer-wins).
+        When temporal=False (default): last-writer-wins (writes new_value).
+        When temporal=True: logs supersession but does NOT overwrite —
+        the caller handles the bi-temporal close-and-insert.
         """
         old_value = self._store.get(key)
 
         # No existing value — first write, no contradiction
         if old_value is None:
-            self._store.set(key, new_value)
+            if not self._temporal:
+                self._store.set(key, new_value)
             return False
 
         # Compare by JSON serialization (sort_keys for determinism)
@@ -52,11 +62,18 @@ class ContradictionDetector:
 
         if old_json == new_json:
             # Same value — idempotent write, no contradiction
-            self._store.set(key, new_value)
+            if not self._temporal:
+                self._store.set(key, new_value)
             return False
 
-        # Contradiction detected — resolve with last-writer-wins
-        self._store.set(key, new_value)
+        # Contradiction/supersession detected
+        if not self._temporal:
+            # Legacy mode: last-writer-wins overwrite
+            self._store.set(key, new_value)
+        else:
+            # Temporal mode: log supersession without overwriting
+            logger.info("Supersession detected for key=%r (temporal mode, not overwriting)", key)
+
         self._log_contradiction(key, old_value, new_value, source_ref)
         self._update_metadata(key)
         return True

@@ -44,6 +44,7 @@ from tvastar.fleet.bus import EventBus, FleetEvent
 from tvastar.fleet.registry import FleetRegistry
 
 if TYPE_CHECKING:
+    from tvastar.contrib.ltm.store import LTMStore as SQLiteLTMStore
     from tvastar.memory.store import Store
 
 
@@ -81,12 +82,16 @@ class FleetObserver:
         tracer: Any | None = None,
         alert_config: AlertConfig | None = None,
         store: "Store | None" = None,
+        graph_signals: bool = False,
+        ltm_store: "SQLiteLTMStore | None" = None,
     ) -> None:
         self._registry = registry
         self._event_bus = event_bus
         self._tracer = tracer
         self._alert_config = alert_config or AlertConfig()
         self._store: "Store | None" = store
+        self._graph_signals = graph_signals
+        self._ltm_store: "SQLiteLTMStore | None" = ltm_store
 
         # Quality score tracking: agent_name -> score (hot cache from EventBus events, Req 5.6)
         self._quality_scores: dict[str, float] = {}
@@ -105,10 +110,26 @@ class FleetObserver:
         # Correlation ID -> list of spans
         self._correlation_spans: dict[str, list[Any]] = {}
 
+        # Graph signals: track agents marked as potentially_affected
+        self._potentially_affected: set[str] = set()
+
+        # Build EdgeType verb set for topic matching (lazy, only when graph_signals=True)
+        self._edge_type_verbs: set[str] = set()
+        if self._graph_signals:
+            self._edge_type_verbs = self._load_edge_type_verbs()
+
         # Subscribe to fleet.loop.run_completed for outcome tracking (Req 5.2)
         self._event_bus.subscribe(
             "fleet.loop.run_completed", self._on_run_completed, agent="observer"
         )
+
+        # Graph signals: subscribe to topics matching EdgeType verbs (Req 15)
+        if self._graph_signals:
+            for verb in self._edge_type_verbs:
+                # Subscribe to topics like "fleet.depends_on", "fleet.caused", etc.
+                self._event_bus.subscribe(
+                    f"fleet.{verb}", self._on_graph_signal_event, agent="observer"
+                )
 
         # Reconcile quality scores from Event_Log on startup (Req 14.1, 14.2, 14.3)
         self.reconcile()
@@ -127,6 +148,10 @@ class FleetObserver:
         self.record_outcome(is_error)
         if agent_name and quality_score is not None:
             self.record_quality_score(agent_name, quality_score)
+
+    def _on_graph_signal_event(self, event: FleetEvent) -> None:
+        """Handle events whose topic matches an EdgeType verb — write relationship."""
+        self.handle_event_as_graph_signal(event)
 
     # ------------------------------------------------------------------
     # Startup reconciliation (Requirement 14.1, 14.2, 14.3)
@@ -457,6 +482,97 @@ class FleetObserver:
         return dict(self._quality_scores)
 
     # ------------------------------------------------------------------
+    # Graph signals (Requirement 15)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _load_edge_type_verbs() -> set[str]:
+        """Return lowercased EdgeType values for topic matching."""
+        from tvastar.contrib.ltm.store import EdgeType
+
+        return {e.value.lower() for e in EdgeType}
+
+    @property
+    def graph_signals(self) -> bool:
+        """Whether graph signal propagation is enabled."""
+        return self._graph_signals
+
+    @property
+    def potentially_affected(self) -> set[str]:
+        """Set of agent names currently marked as potentially_affected."""
+        return set(self._potentially_affected)
+
+    def set_ltm_store(self, ltm_store: "SQLiteLTMStore") -> None:
+        """Attach an LTMStore for graph signal relationship writes.
+
+        Typically called by Fleet after construction when graph_signals=True.
+        """
+        self._ltm_store = ltm_store
+
+    def handle_event_as_graph_signal(self, event: FleetEvent) -> bool:
+        """If graph_signals enabled and event topic matches an EdgeType verb, write relationship.
+
+        Returns True if a relationship was written, False otherwise.
+        """
+        if not self._graph_signals or self._ltm_store is None:
+            return False
+
+        # Check if the topic (or its last segment) matches an EdgeType verb
+        topic_parts = event.topic.rsplit(".", 1)
+        verb = topic_parts[-1].lower()
+
+        if verb not in self._edge_type_verbs:
+            return False
+
+        # Extract source/target from event payload
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        source = payload.get("source") or event.source_agent
+        target = payload.get("target", "")
+        if not target:
+            return False
+
+        self._ltm_store.relate(source, verb.upper(), target)
+        return True
+
+    def on_health_degradation(self, agent_name: str) -> list[str]:
+        """On health degradation, traverse DEPENDS_ON edges and mark dependents.
+
+        Finds all agents that DEPEND_ON the degraded agent via LTMStore
+        relationships, marks them as potentially_affected, and emits a
+        cascading alert.
+
+        Returns list of agent names marked as potentially_affected.
+        """
+        if not self._graph_signals or self._ltm_store is None:
+            return []
+
+        # Traverse incoming DEPENDS_ON edges: who depends on this agent?
+        # A DEPENDS_ON B means A's source depends on B's target.
+        # So we look for relationships where target_key = agent_name and edge_type = DEPENDS_ON
+        rels = self._ltm_store.relationships_of(
+            agent_name, direction="incoming", edge_type="DEPENDS_ON"
+        )
+
+        affected: list[str] = []
+        for rel in rels:
+            dependent = rel.source_key
+            self._potentially_affected.add(dependent)
+            affected.append(dependent)
+
+        if affected:
+            self._event_bus.publish(
+                "fleet.alert.cascading_health",
+                {
+                    "degraded_agent": agent_name,
+                    "affected_agents": affected,
+                    "alert_type": "cascading_health_degradation",
+                },
+                source_agent="fleet_observer",
+            )
+
+        return affected
+
+    # ------------------------------------------------------------------
     # Internal alert logic
     # ------------------------------------------------------------------
 
@@ -484,6 +600,10 @@ class FleetObserver:
                 "threshold": self._alert_config.quality_threshold,
             },
         )
+
+        # Graph signals: propagate health degradation through DEPENDS_ON edges
+        if self._graph_signals:
+            self.on_health_degradation(agent_name)
 
     def _check_error_rate_alert(self) -> None:
         """Check if error rate exceeds threshold within the configured window."""

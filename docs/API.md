@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.26.0. Every public symbol, field, and signature.
+Complete API reference for Tvastar v0.27.0. Every public symbol, field, and signature.
 
 ---
 
@@ -1643,6 +1643,8 @@ class LoopConfig:
     fallback_model: Model | None = None              # content policy fallback
     fallback_dir: str | None = None                  # override handoff fallback directory
     fallback_retention_days: int = 7                 # fallback file cleanup age
+    quality_gate: int = 80                           # score >= this skips retry (ponytail: don't waste tokens on "good enough")
+    escalation_policy: EscalationPolicy | None = None  # Swarm: escalate instead of HANDOFF
 
     def __post_init__(self) -> None
     # Validates: name non-empty, goal non-empty, max_iterations >= 1,

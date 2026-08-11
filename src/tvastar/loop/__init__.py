@@ -60,6 +60,7 @@ class FailureKind(str, Enum):
     UNKNOWN = "unknown"
     AUTH_ERROR = "auth_error"  # permanent: invalid credentials (Req 2.1)
     CONTENT_POLICY = "content_policy"  # permanent: content policy rejection (Req 2.2)
+    FUEL_EXHAUSTED = "fuel_exhausted"  # fuel budget depleted (Req 5)
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +75,27 @@ class LoopEvent:
     state: LoopState
     at: float
     data: dict = field(default_factory=dict)
+
+
+@dataclass
+class ChainTarget:
+    """Typed conditional chain target for LoopConfig.then.
+
+    Attributes:
+        target: Name of the loop to trigger.
+        on: Outcome state to match — "pass", "fail", or "any".
+        max_cycles: Optional limit on how many times this target can fire.
+    """
+
+    target: str
+    on: str = "pass"  # "pass" | "fail" | "any"
+    max_cycles: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.on not in ("pass", "fail", "any"):
+            raise ValueError(f"ChainTarget.on must be 'pass', 'fail', or 'any' (got {self.on!r})")
+        if self.max_cycles is not None and self.max_cycles < 1:
+            raise ValueError(f"ChainTarget.max_cycles must be >= 1 (got {self.max_cycles})")
 
 
 class LoopRun:
@@ -97,6 +119,7 @@ class LoopRun:
         "error",
         "context",
         "error_state",
+        "fuel_remaining",
         "_store",
         "_cached_projection",
     )
@@ -115,6 +138,7 @@ class LoopRun:
         error: str | None = None,
         context: dict | None = None,
         error_state: str | None = None,
+        fuel_remaining: float | None = None,
         # Legacy kwargs — accepted for backward compat, seed the cache
         result_text: str | None = None,
         result_steps: int | None = None,
@@ -135,6 +159,7 @@ class LoopRun:
         self.error = error
         self.context = context if context is not None else {}
         self.error_state = error_state
+        self.fuel_remaining = fuel_remaining
         self._store = _store
         # Seed cache from legacy kwargs if any were provided
         if (
@@ -287,7 +312,7 @@ class LoopConfig:
     )
     budget: "Any | None" = None  # BudgetPolicy — cumulative cost cap across all runs
     trigger_on: str | None = None  # None=manual/cron, "event:topic_name"=EventBus trigger
-    then: str | None = None  # chain target: trigger this loop on PASS
+    then: "str | list[ChainTarget] | None" = None  # chain target(s): str triggers on PASS, list routes by outcome
     allow_concurrent: bool = False  # ponytail: immutable after __post_init__
     adaptive_scheduling: bool = False  # Phase 3 — immutable after __post_init__
     metadata: dict = field(default_factory=dict)
@@ -299,6 +324,10 @@ class LoopConfig:
     fallback_dir: str | None = None  # NEW: override handoff fallback directory (Req 4.2)
     fallback_retention_days: int = 7  # NEW: fallback file cleanup (Req 4.6)
     escalation_policy: "EscalationPolicy | None" = None  # Swarm: escalate instead of HANDOFF
+    quality_gate: int = 80  # ponytail: score >= this skips retry (don't waste tokens on "good enough")
+    fuel: float | None = None  # Req 5: burn budget per iteration; None = no fuel tracking
+    memory_maintenance: bool = False  # Req 17: call LTMStore.maintain() periodically
+    maintenance_interval: int = 10  # Req 17: every N successful iterations
 
     # ponytail: fields sealed after construction to prevent runtime mutation
     _SEALED_FIELDS: tuple = field(
@@ -404,6 +433,7 @@ class Loop:
         self._cumulative_usd: float = 0.0  # accumulated cost across all runs
         self._event_bus: Any = None  # set via subscribe_trigger for publishing run_completed
         self._quality_window: list[float] = []  # sliding window for quality trend (Req 2)
+        self._successful_iterations: int = 0  # Req 17: counter for memory maintenance
 
         # Crash recovery: detect orphaned RUNNING runs from a previous process
         self._recover()
@@ -529,6 +559,7 @@ class Loop:
                 iteration=self._iteration,
                 started_at=time.time(),
                 context=context,
+                fuel_remaining=self._config.fuel,
             )
             self._history.append(run)
             # Enforce cap to prevent unbounded memory growth
@@ -683,6 +714,17 @@ class Loop:
                 self._publish_run_completed(run, quality_score=result.quality.score)
                 return
 
+        # Fuel-based termination (Req 5): deduct iteration cost from fuel_remaining
+        if run.fuel_remaining is not None:
+            cost = result.cost.usd if getattr(result, "cost", None) else 0.0
+            run.fuel_remaining -= cost
+            if run.fuel_remaining <= 0:
+                run.failure_kind = FailureKind.FUEL_EXHAUSTED
+                async with self._lock:
+                    self._set(run, LoopState.SUSPENDED)
+                self._publish_run_completed(run, quality_score=result.quality.score)
+                return
+
         async with self._lock:
             self._set(run, LoopState.VERIFYING)
 
@@ -690,12 +732,32 @@ class Loop:
             has_findings = any(f.severity in ("ERROR", "WARNING") for f in result.findings)
             failed = (not result.ok) or has_warnings or has_findings
 
+            # ponytail: quality-gated retry — if the score is above threshold,
+            # accept the result even with minor warnings. Don't burn tokens
+            # retrying "good enough." The gate only fires when the run completed
+            # normally (stopped == "end_turn") — a crashed/timed-out run is
+            # never "good enough."
+            quality_gate = getattr(self._config, "quality_gate", 80)
+            if failed and result.stopped == "end_turn" and result.quality.score >= quality_gate:
+                failed = False
+
             if not failed:
                 self._set(run, LoopState.PASS)
                 run.error_state = "resolved"
                 self._iteration = 0
                 self._consecutive_failures = 0
                 self._store.set(_CIRCUIT_BREAKER_KEY.format(name=self.name), "0")
+                # Fuel refuel on quality_gate pass (Req 5)
+                if run.fuel_remaining is not None and self._config.fuel is not None:
+                    run.fuel_remaining = min(
+                        run.fuel_remaining + self._config.fuel * 0.25,
+                        self._config.fuel,
+                    )
+                # Memory maintenance (Req 17): call maintain() every N successful iterations
+                if self._config.memory_maintenance:
+                    self._successful_iterations += 1
+                    if self._successful_iterations % self._config.maintenance_interval == 0:
+                        self._run_maintenance()
                 self._publish_run_completed(run, quality_score=result.quality.score)
                 return
 
@@ -1252,6 +1314,25 @@ class Loop:
         except Exception:
             pass  # improvement failure must never crash the loop
 
+    def _run_maintenance(self) -> None:
+        """Call LTMStore.maintain() if an LTMStore is accessible. Best-effort."""
+        try:
+            from ..contrib.ltm.store import LTMStore as SQLiteLTMStore
+
+            # Check if the store itself is an SQLiteLTMStore or has one attached
+            store = self._store
+            ltm: SQLiteLTMStore | None = None
+            if isinstance(store, SQLiteLTMStore):
+                ltm = store
+            elif hasattr(store, "ltm"):
+                candidate = getattr(store, "ltm")
+                if isinstance(candidate, SQLiteLTMStore):
+                    ltm = candidate
+            if ltm is not None:
+                ltm.maintain()
+        except Exception:
+            pass  # ponytail: maintenance failure must never crash the loop
+
     def _build_prompt(self, context: dict) -> str:
         parts = [f"Goal: {self._config.goal}"]
         if context:
@@ -1391,5 +1472,6 @@ __all__ = [
     "LoopEvent",
     "LoopGeneration",
     "FailureKind",
+    "ChainTarget",
     "_CIRCUIT_BREAKER_KEY",
 ]
