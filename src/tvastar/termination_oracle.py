@@ -95,9 +95,11 @@ class TerminationOracle:
                     )
                     task.cancel()
                     # Record oracle_intervention in journal
-                    journal.append(CycleEntry(
-                        iteration=journal.iterations,
-                        timestamp=time.time(),
-                        result_text="oracle_intervention",
-                        continued=False,
-                    ))
+                    journal.append(
+                        CycleEntry(
+                            iteration=journal.iterations,
+                            timestamp=time.time(),
+                            result_text="oracle_intervention",
+                            continued=False,
+                        )
+                    )

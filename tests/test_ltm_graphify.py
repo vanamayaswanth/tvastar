@@ -91,7 +91,9 @@ class TestImportError:
         import tvastar.contrib.ltm.graphify as graphify_mod
 
         # Patch the import mechanism to simulate networkx not being installed
-        original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+        original_import = (
+            __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+        )
 
         def mock_import(name, *args, **kwargs):
             if name == "networkx":

@@ -34,7 +34,9 @@ class ContradictionDetector:
     The caller (LTMStore.remember) handles the actual temporal write.
     """
 
-    def __init__(self, store: "Store", namespace: str = "default", *, temporal: bool = False) -> None:
+    def __init__(
+        self, store: "Store", namespace: str = "default", *, temporal: bool = False
+    ) -> None:
         self._store = store
         self._namespace = namespace
         self._log_key = f"{CONTRADICTION_LOG_PREFIX}{namespace}"

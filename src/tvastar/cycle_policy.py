@@ -53,9 +53,9 @@ class CyclePolicy:
     # Singleton sentinel for FORBID
     class _Forbid:
         __slots__ = ()
-        _instance: "_Forbid | None" = None
+        _instance: "CyclePolicy._Forbid | None" = None
 
-        def __new__(cls) -> "_Forbid":
+        def __new__(cls) -> "CyclePolicy._Forbid":
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
             return cls._instance
@@ -69,6 +69,6 @@ class CyclePolicy:
         def __hash__(self) -> int:
             return hash("CyclePolicy.FORBID")
 
-    FORBID: "_Forbid" = _Forbid()
+    FORBID: Any = _Forbid()
     ALLOW_TTL = _AllowTTL
     ALLOW_PREDICATE = _AllowPredicate

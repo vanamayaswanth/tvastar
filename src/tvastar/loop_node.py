@@ -67,9 +67,7 @@ class LoopNode:
 
             # Check quality gate — same logic as Loop._run_iteration_inner
             has_warnings = bool(result.warnings)
-            has_findings = any(
-                f.severity in ("ERROR", "WARNING") for f in result.findings
-            )
+            has_findings = any(f.severity in ("ERROR", "WARNING") for f in result.findings)
             failed = (not result.ok) or has_warnings or has_findings
 
             if failed and result.stopped == "end_turn" and result.quality.score >= quality_gate:

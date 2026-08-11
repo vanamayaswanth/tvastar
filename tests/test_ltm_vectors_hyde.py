@@ -256,7 +256,10 @@ class TestHyDEModel:
         results = index.search("How to make SQL faster?")
         assert len(results) >= 1
         # The database doc should rank high thanks to HyDE
-        assert "database" in results[0].knowledge.text.lower() or "index" in results[0].knowledge.text.lower()
+        assert (
+            "database" in results[0].knowledge.text.lower()
+            or "index" in results[0].knowledge.text.lower()
+        )
 
     def test_hyde_with_custom_embed_fn(self, populated_store: LTMStore):
         """hyde_model works alongside custom embed_fn."""

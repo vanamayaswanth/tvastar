@@ -251,7 +251,9 @@ class TestLoopMaintenance:
 
         from tvastar.loop import Loop, LoopConfig
 
-        cfg = LoopConfig(name="maint_test", goal="do stuff", memory_maintenance=True, maintenance_interval=3)
+        cfg = LoopConfig(
+            name="maint_test", goal="do stuff", memory_maintenance=True, maintenance_interval=3
+        )
 
         spec = MagicMock()
         spec.instructions = "test"

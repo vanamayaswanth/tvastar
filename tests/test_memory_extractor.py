@@ -10,14 +10,13 @@ Tests:
 
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import dataclass
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
-from tvastar.contrib.ltm.extractor import ExtractedFact, MemoryExtractor, _PATTERN_RE
+from tvastar.contrib.ltm.extractor import MemoryExtractor
 from tvastar.contrib.ltm.store import LTMStore
 from tvastar.types import Message
 
@@ -55,10 +54,12 @@ class TestLLMExtraction:
         """LLM mode prompts model and returns extracted facts."""
         model = AsyncMock()
         model.generate.return_value = FakeModelResponse(
-            json.dumps([
-                {"key": "stack", "value": "TypeScript + Supabase", "confidence": 0.9},
-                {"key": "db", "value": "PostgreSQL 16", "confidence": 0.85},
-            ])
+            json.dumps(
+                [
+                    {"key": "stack", "value": "TypeScript + Supabase", "confidence": 0.9},
+                    {"key": "db", "value": "PostgreSQL 16", "confidence": 0.85},
+                ]
+            )
         )
 
         extractor = MemoryExtractor(mode="llm", model=model)
@@ -186,9 +187,11 @@ class TestExtractAndRemember:
 
         model = AsyncMock()
         model.generate.return_value = FakeModelResponse(
-            json.dumps([
-                {"key": "language", "value": "Python 3.12", "confidence": 0.95},
-            ])
+            json.dumps(
+                [
+                    {"key": "language", "value": "Python 3.12", "confidence": 0.95},
+                ]
+            )
         )
 
         extractor = MemoryExtractor(mode="llm", model=model)

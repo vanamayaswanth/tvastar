@@ -9,8 +9,6 @@ Validates:
 
 from __future__ import annotations
 
-import tempfile
-
 import pytest
 
 from tvastar.contrib.ltm.store import LTMStore
@@ -44,7 +42,7 @@ class TestGraphSignalsDisabled:
 
     def test_no_relationships_written_when_disabled(self, registry, event_bus, ltm_store):
         """Events published when graph_signals=False must NOT write relationships."""
-        observer = FleetObserver(
+        FleetObserver(
             registry,
             event_bus,
             graph_signals=False,
@@ -62,9 +60,7 @@ class TestGraphSignalsDisabled:
         rels = ltm_store.relationships_of("agent_a", direction="outgoing")
         assert rels == []
 
-    def test_health_degradation_no_propagation_when_disabled(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_health_degradation_no_propagation_when_disabled(self, registry, event_bus, ltm_store):
         """Health degradation with graph_signals=False does not propagate."""
         observer = FleetObserver(
             registry,
@@ -85,11 +81,9 @@ class TestGraphSignalsDisabled:
 class TestGraphSignalsEnabled:
     """graph_signals=True writes relationships and propagates health."""
 
-    def test_event_matching_edge_type_writes_relationship(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_event_matching_edge_type_writes_relationship(self, registry, event_bus, ltm_store):
         """When graph_signals=True and topic matches EdgeType, write relationship."""
-        observer = FleetObserver(
+        FleetObserver(
             registry,
             event_bus,
             graph_signals=True,
@@ -110,11 +104,9 @@ class TestGraphSignalsEnabled:
         assert rels[0].edge_type == "DEPENDS_ON"
         assert rels[0].target_key == "agent_scraper"
 
-    def test_event_matching_caused_writes_relationship(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_event_matching_caused_writes_relationship(self, registry, event_bus, ltm_store):
         """Topic fleet.caused also matches EdgeType CAUSED."""
-        observer = FleetObserver(
+        FleetObserver(
             registry,
             event_bus,
             graph_signals=True,
@@ -131,11 +123,9 @@ class TestGraphSignalsEnabled:
         assert len(rels) == 1
         assert rels[0].edge_type == "CAUSED"
 
-    def test_non_edge_type_event_does_not_write_relationship(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_non_edge_type_event_does_not_write_relationship(self, registry, event_bus, ltm_store):
         """Events with topics NOT matching EdgeType verbs are ignored."""
-        observer = FleetObserver(
+        FleetObserver(
             registry,
             event_bus,
             graph_signals=True,
@@ -152,11 +142,9 @@ class TestGraphSignalsEnabled:
         rels = ltm_store.relationships_of("agent_a", direction="outgoing")
         assert rels == []
 
-    def test_event_without_target_does_not_write(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_event_without_target_does_not_write(self, registry, event_bus, ltm_store):
         """Event matching EdgeType but missing target payload is skipped."""
-        observer = FleetObserver(
+        FleetObserver(
             registry,
             event_bus,
             graph_signals=True,
@@ -172,9 +160,7 @@ class TestGraphSignalsEnabled:
         rels = ltm_store.relationships_of("agent_a", direction="outgoing")
         assert rels == []
 
-    def test_health_propagation_through_depends_on(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_health_propagation_through_depends_on(self, registry, event_bus, ltm_store):
         """Health degradation traverses DEPENDS_ON and marks dependents."""
         observer = FleetObserver(
             registry,
@@ -192,9 +178,7 @@ class TestGraphSignalsEnabled:
         assert "agent_research" in affected
         assert "agent_research" in observer.potentially_affected
 
-    def test_health_propagation_multiple_dependents(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_health_propagation_multiple_dependents(self, registry, event_bus, ltm_store):
         """Multiple dependents are all marked affected."""
         observer = FleetObserver(
             registry,
@@ -212,9 +196,7 @@ class TestGraphSignalsEnabled:
         assert set(affected) == {"agent_research", "agent_writer"}
         assert observer.potentially_affected == {"agent_research", "agent_writer"}
 
-    def test_cascading_alert_emitted_on_health_degradation(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_cascading_alert_emitted_on_health_degradation(self, registry, event_bus, ltm_store):
         """Cascading alert is published to EventBus on health degradation."""
         observer = FleetObserver(
             registry,
@@ -239,9 +221,7 @@ class TestGraphSignalsEnabled:
         assert alerts[0].payload["degraded_agent"] == "agent_scraper"
         assert "agent_research" in alerts[0].payload["affected_agents"]
 
-    def test_no_cascading_alert_when_no_dependents(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_no_cascading_alert_when_no_dependents(self, registry, event_bus, ltm_store):
         """No alert emitted if degraded agent has no dependents."""
         observer = FleetObserver(
             registry,
@@ -262,9 +242,7 @@ class TestGraphSignalsEnabled:
         assert affected == []
         assert alerts == []
 
-    def test_quality_degradation_triggers_health_propagation(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_quality_degradation_triggers_health_propagation(self, registry, event_bus, ltm_store):
         """When quality drops below threshold, health propagation fires automatically."""
         observer = FleetObserver(
             registry,
@@ -292,9 +270,7 @@ class TestGraphSignalsEnabled:
         assert "agent_writer" in alerts[0].payload["affected_agents"]
         assert "agent_writer" in observer.potentially_affected
 
-    def test_only_depends_on_edges_propagate(
-        self, registry, event_bus, ltm_store
-    ):
+    def test_only_depends_on_edges_propagate(self, registry, event_bus, ltm_store):
         """Health propagation only follows DEPENDS_ON edges, not other types."""
         observer = FleetObserver(
             registry,

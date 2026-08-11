@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
-    from . import Loop, LoopEvent
+    from . import ChainTarget, Loop, LoopEvent, LoopState
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ class LoopRegistry:
 
     def _chain_trigger(self, source: "Loop", event: "LoopEvent") -> None:
         """Trigger chained target loop(s) based on outcome state."""
-        from . import ChainTarget, LoopEvent as _LE, LoopState
+        from . import LoopState
 
         then = source.config.then
 
@@ -133,6 +133,8 @@ class LoopRegistry:
             return
 
         # list[ChainTarget] → route by outcome
+        if then is None:
+            return
         state = event.state
         for ct in then:
             if not self._chain_target_matches(ct, state):
@@ -163,7 +165,11 @@ class LoopRegistry:
             return True
         if ct.on == "pass" and state == LoopState.PASS:
             return True
-        if ct.on == "fail" and state in (LoopState.FAIL, LoopState.HANDOFF, LoopState.HANDOFF_FAILED):
+        if ct.on == "fail" and state in (
+            LoopState.FAIL,
+            LoopState.HANDOFF,
+            LoopState.HANDOFF_FAILED,
+        ):
             return True
         return False
 
@@ -230,7 +236,6 @@ class LoopRegistry:
 
     def _detect_cycle(self, new_loop: "Loop") -> None:
         """Detect chain cycles via DFS. Raises ValueError with cycle path."""
-        from . import ChainTarget
 
         # Build adjacency: name → list of target names
         def _targets(then_val: "str | list[ChainTarget] | None") -> list[str]:

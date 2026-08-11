@@ -38,7 +38,10 @@ def test_allow_ttl_rejects_negative():
 
 def test_allow_predicate_construction():
     """ALLOW_PREDICATE wraps a callable."""
-    fn = lambda r: True
+
+    def fn(r):
+        return True
+
     policy = CyclePolicy.ALLOW_PREDICATE(fn)
     assert policy.predicate is fn
 
@@ -59,14 +62,21 @@ def test_allow_ttl_equality():
 
 
 def test_allow_predicate_equality():
-    fn = lambda r: True
+    def fn(r):
+        return True
+
+    def other_fn(r):
+        return True
+
     assert CyclePolicy.ALLOW_PREDICATE(fn) == CyclePolicy.ALLOW_PREDICATE(fn)
-    # Different lambdas are not equal
-    assert CyclePolicy.ALLOW_PREDICATE(fn) != CyclePolicy.ALLOW_PREDICATE(lambda r: True)
+    # Different callables are not equal
+    assert CyclePolicy.ALLOW_PREDICATE(fn) != CyclePolicy.ALLOW_PREDICATE(other_fn)
 
 
 def test_cross_variant_inequality():
-    fn = lambda r: True
+    def fn(r):
+        return True
+
     assert CyclePolicy.FORBID != CyclePolicy.ALLOW_TTL(1)
     assert CyclePolicy.FORBID != CyclePolicy.ALLOW_PREDICATE(fn)
     assert CyclePolicy.ALLOW_TTL(1) != CyclePolicy.ALLOW_PREDICATE(fn)
@@ -107,7 +117,10 @@ def test_mixed_dependencies():
     g = _make_graph()
     g.task("a", "task a")
     g.task("b", "task b")
-    pred = lambda r: "done" in r.text
+
+    def pred(r):
+        return "done" in r.text
+
     g.task("c", "task c", depends_on=["a", ("b", CyclePolicy.ALLOW_PREDICATE(pred))])
     node = g._nodes["c"]
     assert node.depends_on == ["a", "b"]

@@ -166,9 +166,7 @@ async def auto_topology(
             elif policy_str == "forbid":
                 policy = CyclePolicy.FORBID
             else:
-                raise ValueError(
-                    f"Unknown cycle_policy {policy_str!r} on subtask {s['name']!r}"
-                )
+                raise ValueError(f"Unknown cycle_policy {policy_str!r} on subtask {s['name']!r}")
             cycle_edges.setdefault(s["name"], []).append((target, policy))
 
     # Build TaskGraph
@@ -196,16 +194,12 @@ async def auto_topology(
     return graph, profiles
 
 
-def _is_ancestor(
-    candidate: str, source: str, subtasks: list[dict[str, Any]]
-) -> bool:
+def _is_ancestor(candidate: str, source: str, subtasks: list[dict[str, Any]]) -> bool:
     """Return True if *candidate* is a topological ancestor of *source*.
 
     An ancestor is reachable by walking the depends_on edges backward from source.
     """
-    deps_map: dict[str, list[str]] = {
-        s["name"]: s.get("depends_on", []) for s in subtasks
-    }
+    deps_map: dict[str, list[str]] = {s["name"]: s.get("depends_on", []) for s in subtasks}
     # BFS from source walking upstream
     visited: set[str] = set()
     frontier = list(deps_map.get(source, []))

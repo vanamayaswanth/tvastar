@@ -17,13 +17,13 @@ Usage:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .store import LTMStore
 
 
-def to_networkx(store: "LTMStore", include_expired: bool = False):
+def to_networkx(store: "LTMStore", include_expired: bool = False) -> Any:
     """Return a networkx.DiGraph built from the relationships table.
 
     Each relationship becomes a directed edge with attributes:
@@ -43,9 +43,7 @@ def to_networkx(store: "LTMStore", include_expired: bool = False):
     try:
         import networkx as nx
     except ImportError:
-        raise ImportError(
-            "Install networkx: pip install tvastar[graph]"
-        ) from None
+        raise ImportError("Install networkx: pip install tvastar[graph]") from None
 
     G = nx.DiGraph()
 

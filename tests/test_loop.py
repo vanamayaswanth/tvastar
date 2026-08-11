@@ -941,6 +941,7 @@ def test_patterns_exported_from_tvastar():
         ]
     )
 
+
 # ---------------------------------------------------------------------------
 # Quality-gated retry — ponytail: don't retry "good enough"
 # ---------------------------------------------------------------------------
@@ -952,7 +953,6 @@ async def test_quality_gate_skips_retry_on_minor_warnings():
 
     ponytail: burning tokens retrying a 90-score run is waste, not diligence.
     """
-    from unittest.mock import patch
     from tvastar.detect.base import Finding, Severity
 
     # Mock the harness.run to return a result with 1 warning but ok=True pattern

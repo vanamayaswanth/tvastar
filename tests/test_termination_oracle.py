@@ -8,7 +8,15 @@ import time
 
 import pytest
 
-from tvastar import CycleEntry, CycleJournal, CyclePolicy, Harness, TaskGraph, TerminationOracle, create_agent
+from tvastar import (
+    CycleEntry,
+    CycleJournal,
+    CyclePolicy,
+    Harness,
+    TaskGraph,
+    TerminationOracle,
+    create_agent,
+)
 from tvastar.model import MockModel
 
 
@@ -47,7 +55,9 @@ async def test_oracle_cancels_on_wall_clock_exceeded():
 
     journal = CycleJournal()
     # Simulate a cycle that's been iterating
-    journal.append(CycleEntry(iteration=0, timestamp=time.time() - 2.0, result_text="iter0", continued=True))
+    journal.append(
+        CycleEntry(iteration=0, timestamp=time.time() - 2.0, result_text="iter0", continued=True)
+    )
 
     # Create a long-running task to cancel
     async def stuck_task():
@@ -157,6 +167,7 @@ async def test_oracle_cancels_stuck_cycle_integration():
 
     class SlowMockModel(Model):
         """Model that sleeps before responding — simulates a real LLM call."""
+
         name = "slow-mock"
         system = "mock"
 
@@ -188,7 +199,7 @@ async def test_oracle_cancels_stuck_cycle_integration():
     oracle = TerminationOracle(poll_interval=1.0, max_wall_clock=1.5)
     graph.attach_oracle(oracle)
 
-    result = await graph.run()
+    await graph.run()
 
     # The cycle should have been terminated by oracle
     assert len(graph._cycle_journals) == 1
@@ -225,7 +236,7 @@ async def test_oracle_failure_doesnt_crash_graph():
     graph.attach_oracle(CrashingOracle(poll_interval=1.0, max_wall_clock=10.0))
 
     # Graph should complete without raising
-    result = await graph.run()
+    await graph.run()
     # The cycle terminates via TTL (oracle died, fail-open)
     journal = list(graph._cycle_journals.values())[0]
     assert journal.terminated

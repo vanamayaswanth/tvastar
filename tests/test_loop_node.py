@@ -3,11 +3,9 @@
 Validates: Requirement 14
 """
 
-import asyncio
-
 import pytest
 
-from tvastar import GraphResult, Harness, LoopNode, TaskGraph, create_agent
+from tvastar import Harness, LoopNode, TaskGraph, create_agent
 from tvastar.detect.base import Finding, Severity
 from tvastar.loop import LoopConfig
 from tvastar.model import MockModel
@@ -97,7 +95,7 @@ async def test_loop_node_upstream_injection():
     loop_node = LoopNode(config, spec)
 
     upstream = {"research": "The sky is blue", "data": "Temperature is 72F"}
-    result = await loop_node.execute(context=upstream)
+    await loop_node.execute(context=upstream)
 
     # The model received a prompt containing the upstream context.
     # MockModel stores calls — verify the prompt was built with context.

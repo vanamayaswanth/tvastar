@@ -6,8 +6,6 @@ when new parameters are not provided.
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from tvastar import Harness, TaskGraph, create_agent

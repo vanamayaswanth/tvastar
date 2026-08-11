@@ -42,7 +42,10 @@ def test_allow_ttl_passes_validation():
 def test_allow_predicate_passes_validation():
     """A cycle with ALLOW_PREDICATE on the back-edge does not raise."""
     g = _make_graph()
-    pred = lambda r: "RETRY" in r.text
+
+    def pred(r):
+        return "RETRY" in r.text
+
     g.task("write", "write", depends_on=[("review", CyclePolicy.ALLOW_PREDICATE(pred))])
     g.task("review", "review", depends_on=["write"])
     g._validate()
@@ -104,7 +107,10 @@ def test_cycle_edges_populated_for_allow_ttl():
 def test_cycle_edges_populated_for_allow_predicate():
     """_cycle_edges registers ALLOW_PREDICATE back-edge."""
     g = _make_graph()
-    pred = lambda r: True
+
+    def pred(r):
+        return True
+
     policy = CyclePolicy.ALLOW_PREDICATE(pred)
     g.task("write", "write", depends_on=[("review", policy)])
     g.task("review", "review", depends_on=["write"])

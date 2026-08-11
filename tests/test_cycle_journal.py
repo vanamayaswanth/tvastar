@@ -3,9 +3,6 @@
 Validates: Requirement 3
 """
 
-import time
-
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -69,7 +66,9 @@ def test_iterations_counts_continued_true():
     journal = CycleJournal()
     journal.append(CycleEntry(iteration=0, timestamp=1.0, result_text="a", continued=True))
     journal.append(CycleEntry(iteration=1, timestamp=2.0, result_text="b", continued=True))
-    journal.append(CycleEntry(iteration=2, timestamp=3.0, result_text="ttl_reached", continued=False))
+    journal.append(
+        CycleEntry(iteration=2, timestamp=3.0, result_text="ttl_reached", continued=False)
+    )
     assert journal.iterations == 2
 
 
@@ -85,7 +84,9 @@ def test_iterations_zero_when_empty():
 def test_terminated_true_when_last_continued_false():
     journal = CycleJournal()
     journal.append(CycleEntry(iteration=0, timestamp=1.0, result_text="a", continued=True))
-    journal.append(CycleEntry(iteration=1, timestamp=2.0, result_text="ttl_reached", continued=False))
+    journal.append(
+        CycleEntry(iteration=1, timestamp=2.0, result_text="ttl_reached", continued=False)
+    )
     assert journal.terminated is True
 
 
@@ -107,7 +108,9 @@ def test_terminated_false_when_empty():
 def test_termination_reason_from_last_entry():
     journal = CycleJournal()
     journal.append(CycleEntry(iteration=0, timestamp=1.0, result_text="a", continued=True))
-    journal.append(CycleEntry(iteration=1, timestamp=2.0, result_text="predicate_false", continued=False))
+    journal.append(
+        CycleEntry(iteration=1, timestamp=2.0, result_text="predicate_false", continued=False)
+    )
     assert journal.termination_reason == "predicate_false"
 
 
@@ -181,10 +184,14 @@ def test_validate_no_journals_for_dag():
 def test_validate_multiple_cycle_edges_get_separate_journals():
     """Each cycle edge gets its own journal."""
     g = _make_graph()
-    g.task("write", "write", depends_on=[
-        ("review", CyclePolicy.ALLOW_TTL(3)),
-        ("edit", CyclePolicy.ALLOW_TTL(2)),
-    ])
+    g.task(
+        "write",
+        "write",
+        depends_on=[
+            ("review", CyclePolicy.ALLOW_TTL(3)),
+            ("edit", CyclePolicy.ALLOW_TTL(2)),
+        ],
+    )
     g.task("review", "review", depends_on=["write"])
     g.task("edit", "edit", depends_on=["write"])
     g._validate()
@@ -248,6 +255,8 @@ def test_property_converging(text_a, text_b):
     journal.append(CycleEntry(iteration=0, timestamp=1.0, result_text=text_a, continued=True))
     journal.append(CycleEntry(iteration=1, timestamp=2.0, result_text=text_b, continued=True))
 
-    ratio = SequenceMatcher(None, journal.entries[0].result_text, journal.entries[1].result_text).ratio()
+    ratio = SequenceMatcher(
+        None, journal.entries[0].result_text, journal.entries[1].result_text
+    ).ratio()
     expected_converging = (1.0 - ratio) > 0.1
     assert journal.converging == expected_converging

@@ -231,9 +231,7 @@ def test_at_most_one_active_row_per_key(values):
                 "SELECT key, valid_from, valid_until FROM facts WHERE valid_until IS NOT NULL"
             ).fetchall()
             for key, vf, vu in rows:
-                assert vf < vu, (
-                    f"Key {key!r}: valid_from={vf} >= valid_until={vu}"
-                )
+                assert vf < vu, f"Key {key!r}: valid_from={vf} >= valid_until={vu}"
     finally:
         for suffix in ("", "-wal", "-shm"):
             p = db_path + suffix

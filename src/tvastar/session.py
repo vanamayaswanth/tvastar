@@ -306,9 +306,7 @@ class Session:
             except Exception as e:
                 import logging
 
-                logging.getLogger(__name__).warning(
-                    "memory extraction failed: %s", e
-                )
+                logging.getLogger(__name__).warning("memory extraction failed: %s", e)
         await self.close()
 
     # ---- tool context / scoping ---------------------------------------------

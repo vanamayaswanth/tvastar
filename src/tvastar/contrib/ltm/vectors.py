@@ -235,7 +235,9 @@ class VectorIndex:
                         (doc_id,),
                     ).fetchone()
                     if row:
-                        k = Knowledge(id=row[0], text=row[1], source=row[2], agent=row[3], created_at=row[4])
+                        k = Knowledge(
+                            id=row[0], text=row[1], source=row[2], agent=row[3], created_at=row[4]
+                        )
                         results.append(SearchResult(knowledge=k, score=score))
                 except Exception:
                     pass

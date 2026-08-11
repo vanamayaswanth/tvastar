@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -147,7 +148,7 @@ class TaskGraph:
         name: str,
         prompt: str,
         *,
-        depends_on: list[DependencySpec] | None = None,
+        depends_on: "Sequence[DependencySpec] | None" = None,
         edge_conditions: dict[str, Any] | None = None,
         result: Any = None,
         cancel_after: float | None = None,
@@ -201,9 +202,7 @@ class TaskGraph:
                 dep_names.append(dep_name)
                 cycle_policies[dep_name] = policy
             else:
-                raise ValueError(
-                    f"depends_on entry must be str or (str, CyclePolicy), got {dep!r}"
-                )
+                raise ValueError(f"depends_on entry must be str or (str, CyclePolicy), got {dep!r}")
 
         self._nodes[name] = _TaskNode(
             name=name,
@@ -222,7 +221,7 @@ class TaskGraph:
         name: str,
         loop_node: "LoopNode",
         *,
-        depends_on: list[DependencySpec] | None = None,
+        depends_on: "Sequence[DependencySpec] | None" = None,
     ) -> "TaskGraph":
         """Register a LoopNode as a task in the graph.
 
@@ -257,9 +256,7 @@ class TaskGraph:
                 dep_names.append(dep_name)
                 cycle_policies[dep_name] = policy
             else:
-                raise ValueError(
-                    f"depends_on entry must be str or (str, CyclePolicy), got {dep!r}"
-                )
+                raise ValueError(f"depends_on entry must be str or (str, CyclePolicy), got {dep!r}")
 
         self._nodes[name] = _TaskNode(
             name=name,
@@ -340,10 +337,7 @@ class TaskGraph:
                 await done_events[dep].wait()
 
             # Propagate upstream failures without running this task (skip cycle-back deps).
-            non_cycle_deps = [
-                dep for dep in node.depends_on
-                if dep not in node.cycle_policies
-            ]
+            non_cycle_deps = [dep for dep in node.depends_on if dep not in node.cycle_policies]
             dep_errors = [dep for dep in non_cycle_deps if dep in errors]
             if dep_errors:
                 errors[name] = None
@@ -442,16 +436,10 @@ class TaskGraph:
                     # Determine which deps to inject from
                     if _edge_inject_deps is not None:
                         # edge_conditions filtered the list
-                        available_deps = [
-                            dep for dep in _edge_inject_deps
-                            if dep in completed
-                        ]
+                        available_deps = [dep for dep in _edge_inject_deps if dep in completed]
                     else:
                         # Default: inject all completed deps (skip cycle-back)
-                        available_deps = [
-                            dep for dep in node.depends_on
-                            if dep in completed
-                        ]
+                        available_deps = [dep for dep in node.depends_on if dep in completed]
                     if available_deps:
                         parts = [f"[{dep} result]\n{completed[dep].text}" for dep in available_deps]
                         prompt = "\n\n".join(parts) + "\n\n---\n\n" + node.prompt
@@ -519,9 +507,7 @@ class TaskGraph:
                         tg.create_task(_run_one(n))
                     # Start oracle poll loop if attached and cycles registered
                     if self._oracle is not None and self._cycle_edges:
-                        _oracle_task = tg.create_task(
-                            self._run_oracle_poll(_tg_ref)
-                        )
+                        _oracle_task = tg.create_task(self._run_oracle_poll(_tg_ref))
             except* Exception:
                 # ponytail: _run_one catches all exceptions internally and stores
                 # in `errors` dict. ExceptionGroup only surfaces if something truly
@@ -535,13 +521,17 @@ class TaskGraph:
             raise RuntimeError(f"Task {first_name!r} failed") from first_err
 
         all_findings = {name: r.findings for name, r in completed.items() if r.findings}
-        return GraphResult(completed, findings=all_findings, cycle_journals=self._cycle_journals, skipped=skipped)
+        return GraphResult(
+            completed, findings=all_findings, cycle_journals=self._cycle_journals, skipped=skipped
+        )
 
     # ------------------------------------------------------------------
     # Cycle re-entry
     # ------------------------------------------------------------------
 
-    def _should_cycle_continue(self, policy: Any, journal: "CycleJournal", run_result: "RunResult") -> tuple[bool, str | None]:
+    def _should_cycle_continue(
+        self, policy: Any, journal: "CycleJournal", run_result: "RunResult"
+    ) -> tuple[bool, str | None]:
         # ponytail: extracted for DRY
         """Determine if a cycle should re-enter or terminate."""
         from .cycle_policy import _AllowTTL, _AllowPredicate
@@ -585,33 +575,40 @@ class TaskGraph:
                 continue
 
             # Record this iteration
-            journal.append(CycleEntry(
-                iteration=journal.iterations,
-                timestamp=_time.time(),
-                result_text=run_result.text[:500],
-                continued=True,
-            ))
+            journal.append(
+                CycleEntry(
+                    iteration=journal.iterations,
+                    timestamp=_time.time(),
+                    result_text=run_result.text[:500],
+                    continued=True,
+                )
+            )
 
             # Check termination conditions
-            should_reenter, termination_reason = self._should_cycle_continue(policy, journal, run_result)
+            should_reenter, termination_reason = self._should_cycle_continue(
+                policy, journal, run_result
+            )
 
             if should_reenter:
                 # Spawn re-entry within the active TaskGroup
                 tg = _tg_ref[0]
                 if tg is not None:
                     import time as _time2
+
                     t = tg.create_task(self._cycle_rerun(dep, run_result, edge_key, _tg_ref))
                     self._cycle_tasks[edge_key] = t
                     if edge_key not in self._cycle_start_times:
                         self._cycle_start_times[edge_key] = _time2.time()
             else:
                 # Terminate: record in journal, last result flows downstream
-                journal.append(CycleEntry(
-                    iteration=journal.iterations,
-                    timestamp=_time.time(),
-                    result_text=termination_reason or "terminated",
-                    continued=False,
-                ))
+                journal.append(
+                    CycleEntry(
+                        iteration=journal.iterations,
+                        timestamp=_time.time(),
+                        result_text=termination_reason or "terminated",
+                        continued=False,
+                    )
+                )
 
     async def _cycle_rerun(
         self,
@@ -635,6 +632,7 @@ class TaskGraph:
         sess = self._harness.session()
         if node.model is not None:
             import dataclasses
+
             sess.spec = dataclasses.replace(sess.spec, model=node.model)
 
         try:
@@ -656,14 +654,18 @@ class TaskGraph:
             journal = self._cycle_journals[edge_key]
             policy = self._cycle_edges[edge_key]
 
-            journal.append(CycleEntry(
-                iteration=journal.iterations,
-                timestamp=_time.time(),
-                result_text=run_result.text[:500],
-                continued=True,
-            ))
+            journal.append(
+                CycleEntry(
+                    iteration=journal.iterations,
+                    timestamp=_time.time(),
+                    result_text=run_result.text[:500],
+                    continued=True,
+                )
+            )
 
-            should_reenter, termination_reason = self._should_cycle_continue(policy, journal, run_result)
+            should_reenter, termination_reason = self._should_cycle_continue(
+                policy, journal, run_result
+            )
 
             if should_reenter:
                 tg = _tg_ref[0]
@@ -671,24 +673,28 @@ class TaskGraph:
                     t = tg.create_task(self._cycle_rerun(name, run_result, edge_key, _tg_ref))
                     self._cycle_tasks[edge_key] = t
             elif not journal.terminated:
-                journal.append(CycleEntry(
-                    iteration=journal.iterations,
-                    timestamp=_time.time(),
-                    result_text=termination_reason or "terminated",
-                    continued=False,
-                ))
+                journal.append(
+                    CycleEntry(
+                        iteration=journal.iterations,
+                        timestamp=_time.time(),
+                        result_text=termination_reason or "terminated",
+                        continued=False,
+                    )
+                )
         except BaseException:
             # Record task_error termination in journal if possible
             import time as _time2
 
             journal = self._cycle_journals.get(edge_key)
             if journal and not journal.terminated:
-                journal.append(CycleEntry(
-                    iteration=journal.iterations,
-                    timestamp=_time2.time(),
-                    result_text="task_error",
-                    continued=False,
-                ))
+                journal.append(
+                    CycleEntry(
+                        iteration=journal.iterations,
+                        timestamp=_time2.time(),
+                        result_text="task_error",
+                        continued=False,
+                    )
+                )
                 raise
             # ponytail: If journal is already terminated (oracle did it),
             # swallow the CancelledError — don't crash the TaskGroup.
@@ -701,8 +707,11 @@ class TaskGraph:
 
     async def _run_oracle_poll(self, _tg_ref: list[Any]) -> None:
         """Run the attached oracle's poll loop, fail-open on any exception."""
+        oracle = self._oracle
+        if oracle is None:
+            return
         try:
-            await self._oracle._poll_loop(
+            await oracle._poll_loop(
                 self._cycle_journals,
                 self._cycle_tasks,
                 self._cycle_start_times,

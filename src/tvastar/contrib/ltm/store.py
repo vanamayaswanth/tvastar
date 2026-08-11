@@ -474,9 +474,7 @@ class LTMStore:
             resolved = EdgeType(edge_type)
         except ValueError:
             valid = sorted(e.value for e in EdgeType)
-            raise ValueError(
-                f"Unknown edge_type {edge_type!r}. Valid types: {valid}"
-            )
+            raise ValueError(f"Unknown edge_type {edge_type!r}. Valid types: {valid}")
         # Normalize to uppercase for storage consistency
         normalized = resolved.value
         now = time.time()
@@ -486,6 +484,7 @@ class LTMStore:
             (source, normalized, target, now, confidence),
         )
         self._conn.commit()
+        assert cursor.lastrowid is not None
         return Relationship(
             id=cursor.lastrowid,
             source_key=source,

@@ -311,8 +311,28 @@ class RetrievalRouter:
         # Fall back to longest word that looks like a key (alphanumeric + underscores)
         words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", query)
         # Filter out common stop words
-        stop = {"what", "how", "why", "the", "is", "are", "related", "to", "depends", "on",
-                "caused", "by", "leads", "connected", "chain", "path", "through", "via", "between", "and"}
+        stop = {
+            "what",
+            "how",
+            "why",
+            "the",
+            "is",
+            "are",
+            "related",
+            "to",
+            "depends",
+            "on",
+            "caused",
+            "by",
+            "leads",
+            "connected",
+            "chain",
+            "path",
+            "through",
+            "via",
+            "between",
+            "and",
+        }
         candidates = [w for w in words if w.lower() not in stop]
         return candidates[0] if candidates else ""
 
@@ -322,8 +342,6 @@ class RetrievalRouter:
 
         Returns (key, timestamp) where timestamp may be None if not parseable.
         """
-        import time as _time
-
         # Look for explicit numeric timestamp
         ts_match = re.search(r"at\s+(?:time\s+)?(\d+(?:\.\d+)?)", query, re.IGNORECASE)
         timestamp: float | None = None
@@ -336,8 +354,25 @@ class RetrievalRouter:
             key = quoted
         else:
             words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", query)
-            stop = {"what", "was", "the", "at", "time", "when", "before", "after",
-                    "yesterday", "last", "week", "month", "year", "ago", "in", "on", "recall"}
+            stop = {
+                "what",
+                "was",
+                "the",
+                "at",
+                "time",
+                "when",
+                "before",
+                "after",
+                "yesterday",
+                "last",
+                "week",
+                "month",
+                "year",
+                "ago",
+                "in",
+                "on",
+                "recall",
+            }
             candidates = [w for w in words if w.lower() not in stop]
             key = candidates[0] if candidates else ""
 

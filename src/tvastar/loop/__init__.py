@@ -312,7 +312,9 @@ class LoopConfig:
     )
     budget: "Any | None" = None  # BudgetPolicy — cumulative cost cap across all runs
     trigger_on: str | None = None  # None=manual/cron, "event:topic_name"=EventBus trigger
-    then: "str | list[ChainTarget] | None" = None  # chain target(s): str triggers on PASS, list routes by outcome
+    then: "str | list[ChainTarget] | None" = (
+        None  # chain target(s): str triggers on PASS, list routes by outcome
+    )
     allow_concurrent: bool = False  # ponytail: immutable after __post_init__
     adaptive_scheduling: bool = False  # Phase 3 — immutable after __post_init__
     metadata: dict = field(default_factory=dict)
@@ -324,7 +326,9 @@ class LoopConfig:
     fallback_dir: str | None = None  # NEW: override handoff fallback directory (Req 4.2)
     fallback_retention_days: int = 7  # NEW: fallback file cleanup (Req 4.6)
     escalation_policy: "EscalationPolicy | None" = None  # Swarm: escalate instead of HANDOFF
-    quality_gate: int = 80  # ponytail: score >= this skips retry (don't waste tokens on "good enough")
+    quality_gate: int = (
+        80  # ponytail: score >= this skips retry (don't waste tokens on "good enough")
+    )
     fuel: float | None = None  # Req 5: burn budget per iteration; None = no fuel tracking
     memory_maintenance: bool = False  # Req 17: call LTMStore.maintain() periodically
     maintenance_interval: int = 10  # Req 17: every N successful iterations
@@ -706,7 +710,7 @@ class Loop:
         self._append_agent_session(result.conversation_id)
 
         # cumulative budget: suspend the loop when total spend across runs exceeds cap
-        if self._config.budget is not None and hasattr(result, "cost"):
+        if self._config.budget is not None and result.cost is not None:
             self._cumulative_usd += result.cost.usd
             if self._cumulative_usd >= self._config.budget.max_usd:
                 async with self._lock:
@@ -716,7 +720,7 @@ class Loop:
 
         # Fuel-based termination (Req 5): deduct iteration cost from fuel_remaining
         if run.fuel_remaining is not None:
-            cost = result.cost.usd if getattr(result, "cost", None) else 0.0
+            cost = result.cost.usd if result.cost is not None else 0.0
             run.fuel_remaining -= cost
             if run.fuel_remaining <= 0:
                 run.failure_kind = FailureKind.FUEL_EXHAUSTED

@@ -136,16 +136,13 @@ async def test_taskgroup_produces_identical_results_to_gather(dag: dict[str, lis
     result = await graph.run()
 
     # Every task must produce a result
-    assert len(result) == len(dag), (
-        f"Expected {len(dag)} results, got {len(result)}"
-    )
+    assert len(result) == len(dag), f"Expected {len(dag)} results, got {len(result)}"
 
     # Each result must match the deterministic output for that task
     for task_name in dag:
         assert task_name in result.text, f"Missing result for task {task_name!r}"
         assert result[task_name].text == f"result_{task_name}", (
-            f"Task {task_name!r} produced {result[task_name].text!r}, "
-            f"expected 'result_{task_name}'"
+            f"Task {task_name!r} produced {result[task_name].text!r}, expected 'result_{task_name}'"
         )
 
     # cycle_journals should be empty for non-cycling graphs

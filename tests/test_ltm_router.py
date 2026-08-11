@@ -30,7 +30,9 @@ def populated_store(store: LTMStore):
     """Store with some facts, knowledge, and relationships for testing."""
     store.remember("language", "Python", agent="user")
     store.remember("framework", "FastAPI", agent="user")
-    store.store_knowledge("Transformers use self-attention mechanisms", source="paper", agent="researcher")
+    store.store_knowledge(
+        "Transformers use self-attention mechanisms", source="paper", agent="researcher"
+    )
     store.store_knowledge("Python is a programming language", source="docs", agent="system")
     store.relate("language", "RELATED_TO", "framework")
     return store
@@ -271,7 +273,9 @@ class TestFallbackChain:
 
             def _retrieve_multi_hop(self, query, *, limit):
                 attempt_log.append("multi_hop")
-                return [RetrievalResult(text="found", score=0.5, source="graph", method="multi_hop")]
+                return [
+                    RetrievalResult(text="found", score=0.5, source="graph", method="multi_hop")
+                ]
 
         router = FailingRouter(populated_store)
         results = router.retrieve("something")

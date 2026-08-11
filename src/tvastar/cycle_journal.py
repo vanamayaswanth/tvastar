@@ -8,7 +8,7 @@ post-execution inspection.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 
 __all__ = ["CycleEntry", "CycleJournal"]
