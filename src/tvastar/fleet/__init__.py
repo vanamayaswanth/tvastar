@@ -183,6 +183,9 @@ class FleetConfig:
     Attributes:
         alert_handlers: List of callables auto-subscribed to all fleet alert
             topics (quality, error_rate, cost_spike) at Fleet initialization.
+        graph_signals: When True, fleet events whose topic matches an EdgeType
+            verb are written as relationships to the shared LTMStore, and health
+            degradation propagates through DEPENDS_ON edges.
     """
 
     name: str
@@ -198,6 +201,7 @@ class FleetConfig:
     alert_handlers: list[Any] = field(
         default_factory=list
     )  # list of callables to subscribe to all alert topics
+    graph_signals: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +306,7 @@ from tvastar.fleet.state import ConflictRecord as ConflictRecord  # noqa: E402
 from tvastar.fleet.bus import EventBus as EventBus  # noqa: E402
 from tvastar.fleet.bus import FleetEvent as _FleetEventReal  # noqa: E402, F401
 from tvastar.fleet.bus import EventHandler as _EventHandlerReal  # noqa: E402, F401
+from tvastar.fleet.bus import DeadLetter as DeadLetter  # noqa: E402
 
 
 from tvastar.fleet.budget import FleetBudget as FleetBudget  # noqa: E402
@@ -386,6 +391,7 @@ class Fleet:
             self._bus,
             tracer=tracer,
             alert_config=config.alert_config,
+            graph_signals=config.graph_signals,
         )
 
         # Auto-subscribe alert handlers to all fleet alert topics

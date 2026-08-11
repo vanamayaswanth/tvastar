@@ -940,3 +940,122 @@ def test_patterns_exported_from_tvastar():
             ChangelogDrafter,
         ]
     )
+
+# ---------------------------------------------------------------------------
+# Quality-gated retry — ponytail: don't retry "good enough"
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_skips_retry_on_minor_warnings():
+    """A run with minor warnings but quality score >= gate should PASS, not RETRY.
+
+    ponytail: burning tokens retrying a 90-score run is waste, not diligence.
+    """
+    from unittest.mock import patch
+    from tvastar.detect.base import Finding, Severity
+
+    # Mock the harness.run to return a result with 1 warning but ok=True pattern
+    # We need to patch at a level where findings exist but result.ok is False
+    # due to warnings, yet quality.score is 90 (above gate of 80).
+    model = MockModel(["Task complete."])
+    spec = create_agent("test", model=model, instructions="", detect=False)
+    config = LoopConfig(
+        name="gate-test",
+        goal="do work",
+        schedule="@manual",
+        max_iterations=3,
+        quality_gate=80,  # default, explicit for clarity
+    )
+    loop = Loop(spec, config)
+
+    # Monkey-patch harness.run to return a result with 1 WARNING finding
+    original_run = loop._harness.run
+
+    async def patched_run(prompt, **kwargs):
+        result = await original_run(prompt, **kwargs)
+        # Inject one warning — score becomes 90 (still PASS grade)
+        result.findings = [
+            Finding("thrash_loop", Severity.WARNING, "tool called 3x with same args", {})
+        ]
+        return result
+
+    loop._harness.run = patched_run
+
+    run = await loop.trigger()
+
+    # With quality gate: score 90 >= 80, so it should PASS despite the warning
+    assert run.state == LoopState.PASS
+    assert run.ok
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_still_retries_below_threshold():
+    """A run with quality score below gate should still retry."""
+    from tvastar.detect.base import Finding, Severity
+
+    model = MockModel(["Task complete."])
+    spec = create_agent("test", model=model, instructions="", detect=False)
+    config = LoopConfig(
+        name="gate-test-low",
+        goal="do work",
+        schedule="@manual",
+        max_iterations=3,
+        quality_gate=80,
+    )
+    loop = Loop(spec, config)
+
+    original_run = loop._harness.run
+
+    async def patched_run(prompt, **kwargs):
+        result = await original_run(prompt, **kwargs)
+        # Inject 3 warnings — score becomes 70 (below gate of 80)
+        result.findings = [
+            Finding("thrash_loop", Severity.WARNING, "tool called 3x", {}),
+            Finding("ignored_tool_error", Severity.WARNING, "tool error ignored", {}),
+            Finding("empty_answer", Severity.WARNING, "empty answer", {}),
+        ]
+        return result
+
+    loop._harness.run = patched_run
+
+    run = await loop.trigger()
+
+    # Score 70 < gate 80 → should FAIL and retry
+    assert run.state == LoopState.RETRY
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_respects_hard_errors():
+    """Even with score above gate, result.ok=False from stopped='error' still fails."""
+    from tvastar.detect.base import Finding, Severity
+
+    model = MockModel(["Task complete."])
+    spec = create_agent("test", model=model, instructions="", detect=False)
+    config = LoopConfig(
+        name="gate-hard-error",
+        goal="do work",
+        schedule="@manual",
+        max_iterations=3,
+        quality_gate=80,
+    )
+    loop = Loop(spec, config)
+
+    original_run = loop._harness.run
+
+    async def patched_run(prompt, **kwargs):
+        result = await original_run(prompt, **kwargs)
+        # Hard error: result.ok will be False because stopped != "end_turn"
+        result.stopped = "error"
+        result.findings = [
+            Finding("thrash_loop", Severity.WARNING, "minor thing", {}),
+        ]
+        return result
+
+    loop._harness.run = patched_run
+
+    run = await loop.trigger()
+
+    # result.ok is False (stopped="error") — gate should NOT override this
+    # The quality_gate only fires when result.ok is True
+    assert run.state != LoopState.PASS

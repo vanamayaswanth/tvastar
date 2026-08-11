@@ -6,6 +6,14 @@ No external embedding models required — works offline with zero deps.
 For higher quality, users can pass a custom ``embed_fn`` that calls an
 external embedding API (OpenAI, Cohere, local model, etc.).
 
+Optional HyDE (Hypothetical Document Embedding): pass ``hyde_model`` callable
+to generate a hypothetical answer before embedding — improves retrieval quality
+for question-style queries.
+
+Optional hybrid_search: combines normalized FTS5 BM25 scores with vector cosine
+similarity using a configurable weight. Falls back gracefully when optional deps
+are unavailable.
+
 Usage:
     from tvastar.contrib.ltm.store import LTMStore
     from tvastar.contrib.ltm.vectors import VectorIndex
@@ -23,10 +31,19 @@ Usage:
     index = VectorIndex(store, embed_fn=my_openai_embed)
     index.build()
     results = index.search("attention mechanism", limit=3)
+
+    # With HyDE:
+    index = VectorIndex(store, hyde_model=my_llm_call)
+    index.build()
+    results = index.search("How does attention work?")
+
+    # Hybrid search (BM25 + vector):
+    results = index.hybrid_search("attention mechanism", bm25_weight=0.5)
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from collections import Counter
@@ -34,6 +51,8 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from .store import Knowledge, LTMStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -46,6 +65,9 @@ class SearchResult:
 
 # Type for custom embedding functions
 EmbedFn = Callable[[str], list[float]]
+
+# Type for HyDE model: takes a query string, returns a hypothetical answer string
+HydeModelFn = Callable[[str], str]
 
 
 class VectorIndex:
@@ -60,11 +82,21 @@ class VectorIndex:
     ----------
     store: The LTMStore to index.
     embed_fn: Optional custom embedding function. If None, uses built-in TF-IDF.
+    hyde_model: Optional callable that generates a hypothetical answer from a query.
+        When set, search() and hybrid_search() embed the hypothetical answer instead
+        of the raw query. On failure, falls back to embedding the raw query.
     """
 
-    def __init__(self, store: LTMStore, *, embed_fn: Optional[EmbedFn] = None) -> None:
+    def __init__(
+        self,
+        store: LTMStore,
+        *,
+        embed_fn: Optional[EmbedFn] = None,
+        hyde_model: Optional[HydeModelFn] = None,
+    ) -> None:
         self._store = store
         self._embed_fn = embed_fn
+        self._hyde_model = hyde_model
         self._documents: list[Knowledge] = []
         self._vectors: list[list[float]] = []
         self._vocab: list[str] = []
@@ -97,6 +129,9 @@ class VectorIndex:
     def search(self, query: str, *, limit: int = 5) -> list[SearchResult]:
         """Search for knowledge semantically similar to the query.
 
+        If hyde_model is configured, generates a hypothetical answer first and
+        embeds that. On HyDE failure, falls back to embedding the raw query.
+
         Parameters
         ----------
         query: The search query text.
@@ -109,10 +144,7 @@ class VectorIndex:
         if not self._built or not self._documents:
             return []
 
-        if self._embed_fn is not None:
-            query_vec = self._embed_fn(query)
-        else:
-            query_vec = self._tfidf_vector(query)
+        query_vec = self._embed_query(query)
 
         # Compute cosine similarity with all documents
         scores: list[tuple[int, float]] = []
@@ -129,6 +161,107 @@ class VectorIndex:
             results.append(SearchResult(knowledge=self._documents[idx], score=score))
 
         return results
+
+    def hybrid_search(
+        self, query: str, *, limit: int = 5, bm25_weight: float = 0.5
+    ) -> list[SearchResult]:
+        """Combine normalized FTS5 BM25 scores with vector cosine similarity.
+
+        final_score = bm25_weight * bm25_norm + (1 - bm25_weight) * vector_score
+
+        Falls back gracefully:
+        - HyDE failure → embed raw query
+        - Missing sentence-transformers → TF-IDF (current behavior)
+
+        Parameters
+        ----------
+        query: The search query text.
+        limit: Maximum results to return.
+        bm25_weight: Weight for BM25 scores (0.0-1.0). Vector weight = 1 - bm25_weight.
+
+        Returns
+        -------
+        List of SearchResult sorted by descending combined score.
+        """
+        # ponytail: clamp weight to [0, 1] — no validation error, just safe math
+        bm25_weight = max(0.0, min(1.0, bm25_weight))
+        vec_weight = 1.0 - bm25_weight
+
+        # --- BM25 scores from FTS5 ---
+        bm25_scores: dict[int, float] = {}  # knowledge id → normalized score
+        try:
+            fts_results = self._store.search_knowledge(query, limit=limit * 2)
+            if fts_results:
+                # Normalize: FTS5 rank is already positive (abs'd in store.py).
+                # Scale to [0, 1] using max normalization.
+                max_rank = max(r.rank for r in fts_results) or 1.0
+                for r in fts_results:
+                    bm25_scores[r.id] = r.rank / max_rank if max_rank > 0 else 0.0
+        except Exception:
+            logger.debug("FTS5 search failed in hybrid_search for query %r", query)
+
+        # --- Vector scores ---
+        vec_scores: dict[int, float] = {}  # knowledge id → cosine similarity
+        if self._built and self._documents:
+            query_vec = self._embed_query(query)
+            for i, doc_vec in enumerate(self._vectors):
+                sim = self._cosine_similarity(query_vec, doc_vec)
+                if sim > 0.0:
+                    vec_scores[self._documents[i].id] = sim
+
+        # --- Combine ---
+        all_ids = set(bm25_scores.keys()) | set(vec_scores.keys())
+        combined: list[tuple[int, float]] = []
+        for doc_id in all_ids:
+            bm25_s = bm25_scores.get(doc_id, 0.0)
+            vec_s = vec_scores.get(doc_id, 0.0)
+            final = bm25_weight * bm25_s + vec_weight * vec_s
+            combined.append((doc_id, final))
+
+        combined.sort(key=lambda x: x[1], reverse=True)
+
+        # Build results — need to map id back to Knowledge
+        id_to_doc = {doc.id: doc for doc in self._documents}
+        # Also include FTS results not in _documents (if index not built for all)
+        results: list[SearchResult] = []
+        for doc_id, score in combined[:limit]:
+            if doc_id in id_to_doc:
+                results.append(SearchResult(knowledge=id_to_doc[doc_id], score=score))
+            else:
+                # Fetch from BM25 results
+                try:
+                    row = self._store._conn.execute(
+                        "SELECT id, text, source, agent, created_at FROM knowledge_content WHERE id = ?",
+                        (doc_id,),
+                    ).fetchone()
+                    if row:
+                        k = Knowledge(id=row[0], text=row[1], source=row[2], agent=row[3], created_at=row[4])
+                        results.append(SearchResult(knowledge=k, score=score))
+                except Exception:
+                    pass
+
+        return results
+
+    def _embed_query(self, query: str) -> list[float]:
+        """Embed a query, applying HyDE if configured.
+
+        HyDE: generates a hypothetical answer via hyde_model, then embeds that.
+        Graceful fallback: if hyde_model raises, logs warning and embeds raw query.
+        """
+        text_to_embed = query
+
+        if self._hyde_model is not None:
+            try:
+                hypothetical = self._hyde_model(query)
+                if hypothetical:
+                    text_to_embed = hypothetical
+            except Exception:
+                # ponytail: HyDE failure is never fatal — embed raw query
+                logger.warning("HyDE generation failed for query %r, using raw query", query)
+
+        if self._embed_fn is not None:
+            return self._embed_fn(text_to_embed)
+        return self._tfidf_vector(text_to_embed)
 
     # --- TF-IDF implementation ---
 

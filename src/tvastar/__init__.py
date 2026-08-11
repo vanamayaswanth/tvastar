@@ -122,7 +122,11 @@ from .eval import (
     assert_pydantic,
     assert_steps_under,
 )
+from .cycle_journal import CycleEntry, CycleJournal
+from .cycle_policy import CyclePolicy
 from .graph import GraphResult, TaskGraph
+from .loop_node import LoopNode
+from .termination_oracle import TerminationOracle
 from .topology import auto_topology
 from .harness import Harness
 from .loop import FailureKind, Loop, LoopConfig, LoopEvent, LoopGeneration, LoopRun, LoopState
@@ -269,7 +273,7 @@ def __getattr__(name: str):
     raise AttributeError(f"module 'tvastar' has no attribute {name!r}")
 
 
-__version__ = "0.25.0"
+__version__ = "0.27.0"
 
 __all__ = [
     "CORE_API",
@@ -431,8 +435,14 @@ __all__ = [
     "run_ui",
     # DAG-based parallel task execution + auto-topology
     "TaskGraph",
+    "LoopNode",
     "GraphResult",
     "auto_topology",
+    # cycle control
+    "CyclePolicy",
+    "CycleEntry",
+    "CycleJournal",
+    "TerminationOracle",
     # loop engineering
     "Loop",
     "LoopConfig",

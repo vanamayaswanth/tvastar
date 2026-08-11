@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .cycle_policy import CyclePolicy
 from .graph import TaskGraph
 from .profiles import AgentProfile
 
@@ -43,13 +44,32 @@ Output ONLY a JSON object — no preamble, no markdown fences — matching this 
       "name": "short_snake_case_id",
       "role": "one-sentence specialist role description",
       "prompt": "full task prompt for an AI agent to execute",
-      "depends_on": ["name_of_upstream_subtask"]
+      "depends_on": ["name_of_upstream_subtask"],
+      "cycle_edges": []
     }}
   ]
 }}
+
+## Cycle Edges (optional)
+When a subtask needs to loop back to an earlier subtask for iterative refinement
+(e.g. reviewer sends work back to writer), add a cycle_edges entry:
+  "cycle_edges": [
+    {{
+      "target": "name_of_upstream_subtask_to_loop_back_to",
+      "cycle_policy": "allow_ttl",
+      "max_iterations": 3
+    }}
+  ]
+Cycle policies:
+- "allow_ttl": permit the cycle up to max_iterations re-entries (default 3).
+- "forbid" or omitting cycle_edges: no cycle, strict DAG edge.
+Only use cycle_edges when the goal explicitly requires iterative review/revision loops.
+The target MUST be an upstream subtask that this subtask already depends on (directly or transitively).
+
 Rules:
 - Keep names unique, lowercase, underscored (e.g. "competitor_research").
 - depends_on may be empty [] for tasks that can run in parallel from the start.
+- cycle_edges may be empty [] or omitted entirely for strict DAG tasks.
 - A task's prompt should be self-contained — don't assume the agent sees other tasks.
 - Upstream results are injected automatically; reference them naturally in the prompt.
 - Minimum 2, maximum {max_subtasks} subtasks.
@@ -125,13 +145,43 @@ async def auto_topology(
             if dep not in names:
                 raise ValueError(f"Subtask {s['name']!r} depends on unknown task {dep!r}")
 
+    # Parse cycle annotations and validate targets are topological ancestors
+    cycle_edges: dict[str, list[tuple[str, Any]]] = {}  # source_name -> [(target, policy)]
+    for s in subtasks:
+        for ce in s.get("cycle_edges", []):
+            target = ce.get("target", "")
+            if target not in names:
+                raise ValueError(
+                    f"Subtask {s['name']!r} cycle_edge targets unknown task {target!r}"
+                )
+            # Validate target is a topological ancestor of source
+            if not _is_ancestor(target, s["name"], subtasks):
+                raise ValueError(
+                    f"Cycle target {target!r} is not a topological ancestor of {s['name']!r}"
+                )
+            policy_str = ce.get("cycle_policy", "forbid")
+            if policy_str == "allow_ttl":
+                max_iter = ce.get("max_iterations", 3)
+                policy = CyclePolicy.ALLOW_TTL(max_iter)
+            elif policy_str == "forbid":
+                policy = CyclePolicy.FORBID
+            else:
+                raise ValueError(
+                    f"Unknown cycle_policy {policy_str!r} on subtask {s['name']!r}"
+                )
+            cycle_edges.setdefault(s["name"], []).append((target, policy))
+
     # Build TaskGraph
     graph = TaskGraph(harness)
     for s in subtasks:
+        # Merge normal depends_on with cycle back-edges
+        deps: list[str | tuple[str, Any]] = list(s.get("depends_on", []))
+        for target, policy in cycle_edges.get(s["name"], []):
+            deps.append((target, policy))
         graph.task(
             s["name"],
             s.get("prompt", s["name"]),
-            depends_on=s.get("depends_on", []),
+            depends_on=deps,
         )
 
     # Build one AgentProfile per subtask role
@@ -144,3 +194,27 @@ async def auto_topology(
     ]
 
     return graph, profiles
+
+
+def _is_ancestor(
+    candidate: str, source: str, subtasks: list[dict[str, Any]]
+) -> bool:
+    """Return True if *candidate* is a topological ancestor of *source*.
+
+    An ancestor is reachable by walking the depends_on edges backward from source.
+    """
+    deps_map: dict[str, list[str]] = {
+        s["name"]: s.get("depends_on", []) for s in subtasks
+    }
+    # BFS from source walking upstream
+    visited: set[str] = set()
+    frontier = list(deps_map.get(source, []))
+    while frontier:
+        node = frontier.pop()
+        if node == candidate:
+            return True
+        if node in visited:
+            continue
+        visited.add(node)
+        frontier.extend(deps_map.get(node, []))
+    return False

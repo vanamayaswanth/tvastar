@@ -111,6 +111,10 @@ class AgentSpec:
     #: function to reorder tool-use requests before execution; receives the
     #: list of tool-use blocks and returns a sorted list.
     tool_order_fn: Optional[Callable[["list"], "list"]] = None
+    #: optional memory extraction mode run on session close.
+    #: "llm" = prompt model for structured facts, "pattern" = regex extraction,
+    #: None/False = disabled (default, opt-in only).
+    memory_extraction: Optional[str] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self, *, last_user_text: str = "") -> str:
@@ -187,6 +191,7 @@ def create_agent(
     fallback_models: Optional[list[Model]] = None,
     tool_order_fn: Optional[Callable[["list"], "list"]] = None,
     compress_tool_output: bool = True,
+    memory_extraction: Optional[str] = None,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -307,5 +312,6 @@ def create_agent(
         middleware=middleware,
         fallback_models=fallback_models,
         tool_order_fn=tool_order_fn,
+        memory_extraction=memory_extraction,
         metadata=metadata,
     )

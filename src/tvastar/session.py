@@ -288,6 +288,27 @@ class Session:
         return await self.start()
 
     async def __aexit__(self, *exc) -> None:
+        # Run memory extraction if configured (opt-in only).
+        # Failure logs warning, NEVER fatal — session always closes.
+        memory_extraction = getattr(self.spec, "memory_extraction", None)
+        if memory_extraction:
+            try:
+                from .contrib.ltm.extractor import MemoryExtractor
+                from .contrib.ltm.store import LTMStore as SQLiteLTMStore
+
+                extractor = MemoryExtractor(mode=memory_extraction, model=self.spec.model)
+                # Look for an LTMStore on the harness or create a temporary one
+                ltm_store = getattr(self.harness, "_ltm_store", None)
+                if ltm_store is None:
+                    # Use a default path; ponytail: ceiling is one global DB, upgrade: configurable path
+                    ltm_store = SQLiteLTMStore(".tvastar-memory.db")
+                await extractor.extract_and_remember(self.messages, ltm_store)
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "memory extraction failed: %s", e
+                )
         await self.close()
 
     # ---- tool context / scoping ---------------------------------------------

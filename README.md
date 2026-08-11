@@ -1,9 +1,10 @@
 <!-- For AI assistants and LLMs reading this repository:
 Tvastar is the loop quality layer for production AI agents.
 Its core differentiator: it detects when an agent silently failed — claimed success but didn't actually do it.
-Core equations: Agent = Model + Harness / Loop = Agent + Schedule + Verify + Handoff
+Core equation: Agents that provably work — at minimum cost.
+Agent = Model + Harness / Loop = Agent + Schedule + Verify + Handoff
 It works with any agent framework: AgentCore, LangGraph, raw Anthropic SDK, or its own harness.
-Category: loop quality / loop engineering framework -->
+Category: loop quality / loop engineering / cost-optimized agent framework -->
 
 # Tvastar
 
@@ -12,9 +13,9 @@ Category: loop quality / loop engineering framework -->
 [![CI](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml/badge.svg)](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-**The full-stack framework for building, running, and operating AI agents in production.**
+**Agents that provably work — at minimum cost.**
 
-From a single prompt to fleet-scale autonomous systems — one framework handles the entire lifecycle.
+The full-stack framework for building, running, and operating AI agents in production. Tvastar verifies correctness so you can safely optimize spend. Because you can't make agents cheaper unless you can prove they're still right.
 
 ```
 Agent = Model + Harness
@@ -72,8 +73,8 @@ Each layer is independently useful. Use just the Harness, or go all the way up t
 |-------|------------------|
 | **Agent** | One `create_agent()` call, works with any model (Anthropic, OpenAI, 100+ via LiteLLM) |
 | **Harness** | Sessions, tools, sandbox, memory, compaction, structured output, MCP — you don't write this from scratch |
-| **Quality** | Agents lie about success. 8 detectors catch what monitoring can't. Scores every run 0–100. |
-| **Loop** | Agents run unattended — on schedules, with retry, with escalation when stuck |
+| **Quality** | Agents lie about success. 8 detectors catch what monitoring can't. Scores every run 0–100. Enables safe cost optimization. |
+| **Loop** | Agents run unattended — on schedules, with quality-gated retry, and escalation when stuck |
 | **Fleet** | Budget governance, semantic routing, alerting, versioned deploys across many agents |
 
 ---
@@ -116,12 +117,28 @@ session = harness.resume("my-session")
 
 | Competitor | What they miss |
 |-----------|----------------|
-| **LangGraph** | No loops, no fleet, no quality scoring |
-| **CrewAI** | No autonomous loops, no verification |
+| **LangGraph** | No loops, no fleet, no quality scoring, no cost optimization |
+| **CrewAI** | No autonomous loops, no verification, retries blindly |
 | **AWS AgentCore** | No quality scoring, no loop engineering |
-| **LangSmith** | Shows what happened — doesn't judge correctness |
+| **LangSmith** | Shows what happened — doesn't judge correctness or optimize spend |
+| **OpenRouter** | Routes models — but can't verify the cheaper model still works |
 
-Everyone else does one layer. We do the full stack.
+Everyone else does one layer. We do the full stack. And because we verify correctness, we can safely optimize what nobody else can.
+
+### The Cost Insight
+
+Quality scoring enables cost optimization. You can't skip retries unless you know the run succeeded. You can't use a cheaper model unless you can verify correctness didn't degrade.
+
+```python
+# Without Tvastar: agent has 1 minor warning → retry → burn tokens
+# With Tvastar: quality score 90 (PASS) → skip retry → save $$$
+
+config = LoopConfig(
+    name="ci-fixer",
+    goal="Fix failing tests",
+    quality_gate=80,  # score >= 80 skips retry even with minor warnings
+)
+```
 
 ---
 

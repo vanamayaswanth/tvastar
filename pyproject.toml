@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tvastar"
-version = "0.26.0"
-description = "Tvastar — a programmable agent harness framework for Python. Agent = Model + Harness."
+version = "0.27.0"
+description = "Tvastar — agents that provably work at minimum cost. The full-stack framework for building, running, and operating AI agents in production."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -45,6 +45,7 @@ github = ["httpx>=0.27"]
 slack = ["slack_sdk>=3.0"]
 http = ["httpx>=0.27"]
 pagerduty = ["httpx>=0.27"]
+graph = ["networkx>=3.0"]
 dev = ["pytest>=9.0.3", "pytest-asyncio>=0.23", "ruff>=0.4", "hypothesis>=6.100.0", "pydantic>=2.0", "cryptography>=41.0", "httpx>=0.27"]
 all = [
   "anthropic>=0.40.0",

@@ -52,19 +52,28 @@ if TYPE_CHECKING:  # pragma: no cover
     from tvastar.session import RunResult
     from tvastar.types import Message
 
-from .store import Episode, Fact, Knowledge
+from .store import Episode, Fact, Knowledge, Relationship
 from .store import LTMStore as SQLiteLTMStore
+from .store import EdgeType
 from .vectors import SearchResult, VectorIndex
+from .router import RetrievalResult, RetrievalRouter
+from .extractor import ExtractedFact, MemoryExtractor
 
 __all__ = [
     "LTMNode",
     "LTMStore",
     "SQLiteLTMStore",
+    "EdgeType",
     "Fact",
     "Episode",
     "Knowledge",
+    "Relationship",
     "SearchResult",
     "VectorIndex",
+    "RetrievalResult",
+    "RetrievalRouter",
+    "ExtractedFact",
+    "MemoryExtractor",
 ]
 
 # ---------------------------------------------------------------------------
