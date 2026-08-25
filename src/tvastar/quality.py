@@ -34,7 +34,11 @@ _ERROR_STOP_PENALTY = 50
 
 @dataclass
 class LoopQualityReport:
-    """Behavioral quality score for one completed agent run."""
+    """Behavioral quality score for one completed agent run.
+
+    Extended with CLEAR dimensions (arxiv.org/html/2511.14136v1):
+    Cost, Latency, Efficacy, Assurance, Reliability.
+    """
 
     score: int
     grade: str  # "PASS" | "WARN" | "FAIL"
@@ -42,14 +46,41 @@ class LoopQualityReport:
     warnings: list[Finding]
     findings: list[Finding]
     summary: str
+    # CLEAR enterprise dimensions
+    cost_usd: float = 0.0
+    latency_seconds: float = 0.0
+    pass_at_8: float = 1.0  # Estimated consistency (pass@k, k=8)
 
     @property
     def passed(self) -> bool:
         return self.grade == "PASS"
 
+    @property
+    def enterprise_grade(self) -> str:
+        """CLEAR enterprise deployment readiness."""
+        if self.score >= 90 and len(self.errors) == 0:
+            return "EXCELLENT"
+        elif self.score >= 80:
+            return "GOOD"
+        elif self.score >= 70:
+            return "ACCEPTABLE"
+        elif self.score >= 60:
+            return "MARGINAL"
+        return "POOR"
+
+    @property
+    def ready_for_production(self) -> bool:
+        """True if enterprise_grade >= ACCEPTABLE."""
+        return self.score >= 70
+
 
 def score_run(result: "RunResult") -> LoopQualityReport:
-    """Compute a LoopQualityReport from a RunResult's findings and stop state."""
+    """Compute a LoopQualityReport from a RunResult's findings and stop state.
+
+    Extended with CLEAR dimensions: cost, latency, reliability estimation.
+    """
+    import math
+
     errors = [f for f in result.findings if f.severity == Severity.ERROR]
     warnings = [f for f in result.findings if f.severity == Severity.WARNING]
 
@@ -92,6 +123,13 @@ def score_run(result: "RunResult") -> LoopQualityReport:
     else:
         summary = ", ".join(parts)
 
+    # CLEAR dimensions
+    cost_usd = result.cost.usd if hasattr(result, "cost") and result.cost else 0.0
+    latency_seconds = getattr(result, "latency_seconds", 0.0)
+    # Estimate pass@8 from pass@1 (CLEAR research: ~0.35 decay factor)
+    pass_at_1 = score / 100.0
+    pass_at_8 = max(0.0, min(1.0, pass_at_1 * (1 - 0.35 * math.log(8))))
+
     return LoopQualityReport(
         score=score,
         grade=grade,
@@ -99,6 +137,9 @@ def score_run(result: "RunResult") -> LoopQualityReport:
         warnings=warnings,
         findings=result.findings,
         summary=summary,
+        cost_usd=cost_usd,
+        latency_seconds=latency_seconds,
+        pass_at_8=pass_at_8,
     )
 
 

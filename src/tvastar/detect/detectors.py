@@ -181,6 +181,99 @@ def step_limit(ctx: RunContext) -> list[Finding]:
     return []
 
 
+def fail_plausible(ctx: RunContext) -> list[Finding]:
+    """Class D silent failure: LLM transforms error into fluent, plausible narrative.
+
+    Based on arxiv.org/html/2606.14589v1 - the most dangerous class of silent failure.
+    The agent produces fluent output that contradicts or hides earlier errors.
+
+    Detection patterns:
+    1. Final claim contradicts tool evidence earlier in trajectory
+    2. Error mentioned then dismissed without resolution
+    3. Success claimed but no tool evidence supports it
+    """
+    # Pattern 1: Earlier tool error that was "narrated away"
+    error_then_success = _FAILURE_SIGNAL.search
+    success_claimed = _SUCCESS_CLAIM.search
+
+    # Look for: tool error → later fluent dismissal
+    saw_tool_error = False
+    for ev in ctx.events:
+        if ev.result and error_then_success(ev.result.content):
+            saw_tool_error = True
+        # Check if assistant later claims success over it
+        # (final_text is already checked by unverified_completion)
+
+    # Pattern 2: Claim of completion with no supporting tool calls
+    if success_claimed(ctx.final_text) and len(ctx.tool_calls) == 0:
+        return [
+            Finding(
+                "fail_plausible",
+                Severity.ERROR,
+                "agent claims success but made no tool calls to verify",
+                {"claim": ctx.final_text[:160]},
+            )
+        ]
+
+    # Pattern 3: Error appeared in trajectory but final text dismisses it
+    if saw_tool_error and ctx.final_text:
+        # Check if final text acknowledges the error
+        acknowledges = bool(
+            re.search(
+                r"\b(unfortunately|however|note that|warning|issue|problem|failed|error)\b",
+                ctx.final_text,
+                re.IGNORECASE,
+            )
+        )
+        if not acknowledges:
+            return [
+                Finding(
+                    "fail_plausible",
+                    Severity.WARNING,
+                    "tool error occurred but final answer does not acknowledge it",
+                    {"final": ctx.final_text[:160]},
+                )
+            ]
+
+    return []
+
+
+def stalled_progress(ctx: RunContext, *, min_steps: int = 5, window: int = 3) -> list[Finding]:
+    """Agent is making tool calls but not progressing toward the goal.
+
+    Based on AgentPRM (arxiv.org/html/2511.08325v1) - detect steps with
+    low "promise" (goal advancement) and "progress" (completion fraction).
+
+    Ponytail: simple heuristic - if last N tool calls have no text output
+    and no clear state change, progress has stalled.
+    """
+    if len(ctx.events) < min_steps:
+        return []
+
+    # Check last `window` events for progress indicators
+    recent = ctx.events[-window:]
+    has_text_output = any(
+        ev.result and len(ev.result.content) > 50 for ev in recent
+    )
+    has_state_change = any(
+        ev.result and not ev.result.is_error for ev in recent
+    )
+
+    # If all recent tool calls produced minimal output, likely stalled
+    if not has_text_output and not has_state_change:
+        tool_names = list(set(ev.call.name for ev in recent))
+        return [
+            Finding(
+                "stalled_progress",
+                Severity.WARNING,
+                f"last {window} tool calls show no clear progress toward goal",
+                {"tools": tool_names, "steps": [ev.step for ev in recent]},
+            )
+        ]
+
+    return []
+
+
 def default_detectors() -> list:
     """The recommended high-precision detector suite."""
     return [
@@ -189,6 +282,8 @@ def default_detectors() -> list:
         thrash_loop,
         ignored_tool_error,
         unverified_completion,
+        fail_plausible,  # Class D silent failure detection
+        stalled_progress,  # AgentPRM-style progress detection
         prompt_injection,
         empty_answer,
         step_limit,

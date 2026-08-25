@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .base import Model, ModelRetryPolicy
+from .base import CascadeModel, Model, ModelRetryPolicy
 from .mock import MockModel
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -20,6 +20,7 @@ __all__ = [
     "Model",
     "ModelRetryPolicy",
     "MockModel",
+    "CascadeModel",
     "AnthropicModel",
     "OpenAIModel",
     "LiteLLMModel",
