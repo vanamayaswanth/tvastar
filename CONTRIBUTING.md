@@ -79,4 +79,4 @@ Open an issue with a minimal reproduction (ideally using `MockModel` +
 ## License
 
 By contributing, you agree that your contributions are licensed under the
-project's [MIT License](LICENSE).
+project's [Apache 2.0 License](LICENSE).

@@ -1,17 +1,20 @@
-# Getting Started with Tvastar
+# Getting started with Tvastar
 
-Five minutes from zero to a running loop. Follow this guide top-to-bottom — every step builds on the last.
+Tvastar is a Python harness for agents that use tools and act on real systems. Start with a one-shot harness run, then make a concrete task acceptable only when its named check passes.
 
----
+## Requirements
 
-## Step 0 — Install
+- Python **3.11+**
+- A model provider for real-model runs, or `MockModel` for offline tests
+
+Install the core package and the provider you plan to use:
 
 ```bash
-pip install tvastar                 # core (zero dependencies)
-pip install "tvastar[anthropic]"    # + Claude models
-pip install "tvastar[openai]"       # + OpenAI / Groq / Ollama
-pip install "tvastar[all]"          # everything
+pip install "tvastar[anthropic]"
+export ANTHROPIC_API_KEY="..."
 ```
+
+Other options include `OPENAI_API_KEY`, `GROQ_API_KEY`, a running local Ollama server, or an OpenAI-compatible endpoint. The core package has no runtime dependencies; provider integrations are optional.
 
 Verify the install:
 
@@ -19,289 +22,148 @@ Verify the install:
 python -c "import tvastar; print(tvastar.__version__)"
 ```
 
----
+## First harness run
 
-## Step 1 — Set your API key
-
-```bash
-# Claude (Anthropic)
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# OpenAI (or any compatible provider)
-export OPENAI_API_KEY="sk-..."
-```
-
-Tvastar reads these from the environment automatically — you never pass them in code.
-
----
-
-## Step 2 — Your first one-shot agent
-
-Save this as `hello.py` and run it:
+Save this as `hello.py`:
 
 ```python
 import asyncio
-from tvastar import create_agent, Harness
-from tvastar.model.anthropic import AnthropicModel
 
-spec = create_agent(
+from tvastar import Harness, create_agent
+from tvastar.model import AnthropicModel
+
+agent = create_agent(
     "greeter",
     model=AnthropicModel("claude-haiku-4-5-20251001"),
-    instructions="You are a friendly assistant.",
+    instructions="You are a concise, friendly assistant.",
 )
 
-result = asyncio.run(Harness(spec).run("What is the capital of France?"))
-print(result.text)    # Paris
-print(result.ok)      # True
-print(result.steps)   # 1 (no tools needed)
+async def main() -> None:
+    result = await Harness(agent).run("What is the capital of France?")
+    print(result.text)
+    print(result.ok)
+
+asyncio.run(main())
 ```
+
+Run it:
 
 ```bash
 python hello.py
 ```
 
-That's the minimal pattern: `create_agent` → `Harness` → `run`. Everything else is layered on top.
+The basic shape is always the same: `create_agent()` declares the agent, `Harness` supplies the runtime, and `run()` executes one task. `result.ok` is the runtime/quality outcome, not a proof that an arbitrary real-world task is correct.
 
----
+## First verified action: CI repair
 
-## Step 3 — Add a tool
+The fastest way to understand Tvastar's acceptance contract is to use its reference workflow in a project with a failing test suite:
 
-Tools are Python functions the model can call. Tvastar auto-derives the JSON schema from the type hints.
+```bash
+tvastar-fix --path . --test-cmd "pytest -q" --check
+```
+
+The workflow is deliberately simple:
+
+1. Tvastar runs the named test command to establish that it is failing.
+2. The agent reads the failure and may edit files in the selected project directory.
+3. Tvastar reruns the **same** test command itself.
+4. The result is `already-green`, `fixed`, or `unfixed`; `--check` exits non-zero if the command is still failing.
+
+The agent's final text does not decide success. The rerun test command does. Review the produced diff before committing it; `tvastar-fix` does not push changes or open a pull request.
+
+If no model can be resolved, run `tvastar-fix --help`. It can use `GROQ_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, a running Ollama server, or an explicit `--model` / `--base-url` / `--api-key` combination.
+
+For a fully inspectable offline demo, run:
+
+```bash
+python examples/self_healing_agent.py
+```
+
+That example executes real `pytest` commands while using scripted model decisions by default. Set `TVASTAR_REAL=1` and configure Anthropic to use a real model.
+
+## Add a tool
+
+Tools are typed Python functions that the model may call.
 
 ```python
 import asyncio
-from tvastar import create_agent, Harness
+
+from tvastar import Harness, create_agent
+from tvastar.model import AnthropicModel
 from tvastar.tools.base import tool
-from tvastar.model.anthropic import AnthropicModel
 
 @tool
 def get_weather(city: str) -> str:
-    """Return current weather for a city."""
-    # Replace with a real API call in production
+    """Return the current weather for a city."""
     return f"Sunny, 22°C in {city}"
 
-spec = create_agent(
-    "weather-bot",
+agent = create_agent(
+    "weather",
     model=AnthropicModel("claude-haiku-4-5-20251001"),
-    instructions="Help users with weather questions. Always use get_weather.",
+    instructions="Answer weather questions. Always use get_weather.",
     tools=[get_weather],
 )
 
-result = asyncio.run(Harness(spec).run("What's the weather in Tokyo?"))
-print(result.text)   # "It is sunny and 22°C in Tokyo."
-print(result.steps)  # 2 (one turn for tool call, one for answer)
-```
-
-You can add as many tools as you need. The model decides which ones to call.
-
----
-
-## Step 4 — Keep a conversation alive
-
-`session()` creates a persistent conversation thread. Each `prompt()` builds on the history of the previous ones.
-
-```python
-import asyncio
-from tvastar import create_agent, Harness
-from tvastar.model.anthropic import AnthropicModel
-
-spec = create_agent(
-    "tutor",
-    model=AnthropicModel("claude-sonnet-4-6"),
-    instructions="You are a math tutor. Walk through problems step by step.",
-)
-
-async def main():
-    sess = Harness(spec).session()
-
-    r1 = await sess.prompt("What is 12 × 12?")
-    print(r1.text)  # 144
-
-    r2 = await sess.prompt("Now multiply that by 2.")
-    print(r2.text)  # 288 — model remembers the previous answer
-
-    r3 = await sess.prompt("Explain the pattern in one sentence.")
-    print(r3.text)
+async def main() -> None:
+    result = await Harness(agent).run("What is the weather in Tokyo?")
+    print(result.text)
 
 asyncio.run(main())
 ```
 
-### Sessions Survive Crashes
+For a coding agent, use `default_toolset()` and choose an execution boundary appropriate to the task.
 
-With a persistent Store, sessions are automatically event-sourced. If the process crashes, resume from the last committed event:
+## Persist a session across restarts
+
+`InMemoryStore` is the default and lasts only for the current process. Use a persistent store when restart recovery matters:
 
 ```python
+from tvastar import Harness
 from tvastar.memory.store import FileStore
 
-harness = Harness(agent, store=FileStore("./data"))
-session = harness.resume("my-session")  # picks up where it left off
+harness = Harness(agent, store=FileStore(".tvastar-state"))
+await harness.run("Review the failing tests.", session_id="repair-42")
+
+# In a later process:
+resumed = harness.resume("repair-42")
+if resumed:
+    result = await resumed.prompt("Continue from the last completed step.")
 ```
 
----
+Tvastar records event-sourced session history. Recovery is limited by the configured store's last successful write; it is not guaranteed by an in-memory session.
 
-## Step 5 — Get typed output
+## Choose a sandbox safely
 
-Instead of parsing text yourself, tell Tvastar what shape you want back:
+`create_agent()` defaults to `VirtualSandbox`, which is convenient for unit tests and trusted development. It is **not** an operating-system isolation boundary.
+
+For untrusted model-generated code or meaningful side effects, use a `LocalSandbox` with a restrictive `SecurityPolicy`, or a container/remote sandbox appropriate to your threat model:
 
 ```python
-import asyncio
-from tvastar import create_agent, Harness
-from tvastar.model.anthropic import AnthropicModel
-from pydantic import BaseModel
+from tvastar import LocalSandbox, SecurityPolicy, create_agent
 
-class CodeReview(BaseModel):
-    summary: str
-    issues: list[str]
-    severity: str   # "low" | "medium" | "high"
-
-spec = create_agent(
-    "reviewer",
-    model=AnthropicModel("claude-sonnet-4-6"),
-    instructions="Review code and return structured findings.",
+policy = SecurityPolicy(
+    allowed_commands={"pytest", "python"},
+    network=False,
+    timeout_seconds=30,
 )
-
-async def main():
-    sess = Harness(spec).session()
-    result = await sess.prompt(
-        "Review this: def add(a, b): return a - b",
-        result=CodeReview,
-    )
-    review: CodeReview = result.data
-    print(review.severity)     # "medium"
-    print(review.issues)       # ["Function subtracts instead of adding"]
-
-asyncio.run(main())
-```
-
-The schema is injected into the prompt; Tvastar parses and validates the response automatically.
-
----
-
-## Step 6 — Use the built-in tools
-
-`default_toolset()` gives you bash, file read/write/edit, grep, and glob — everything a coding agent needs:
-
-```python
-import asyncio
-from tvastar import create_agent, Harness, default_toolset
-from tvastar.model.anthropic import AnthropicModel
-
-spec = create_agent(
-    "coder",
-    model=AnthropicModel("claude-sonnet-4-6"),
-    instructions="You are a Python expert. Fix bugs in the workspace.",
-    tools=default_toolset(),
+agent = create_agent(
+    "bounded-coder",
+    model=model,
+    tools=tools,
+    sandbox=lambda: LocalSandbox("./workspace", policy=policy),
 )
-
-result = asyncio.run(Harness(spec).run("Write a hello.py that prints 'Hello, World!' and run it."))
-print(result.text)
 ```
 
----
+Read the [Threat Model](threat-model.md) before connecting untrusted inputs, external MCP tools, or production credentials.
 
-## Step 7 — Your first loop
+## Next steps
 
-A loop is an agent on a schedule. It runs automatically, retries on failure, and escalates to you only when it cannot fix something itself.
-
-```python
-import asyncio
-from tvastar.loop.patterns import CISweeper
-from tvastar.model.anthropic import AnthropicModel
-
-loop = CISweeper(
-    model=AnthropicModel("claude-sonnet-4-6"),
-    schedule="*/15 * * * *",  # every 15 minutes
-    cancel_after=300.0,         # fail-safe timeout
-)
-
-# Trigger once to test it
-run = asyncio.run(loop.trigger())
-print(run.state)        # LoopState.PASS or LoopState.FAIL
-print(run.result_text)  # what the agent did
-```
-
-Check your loop's production readiness before deploying:
-
-```bash
-# Scaffold from a template
-tvastar loop init CISweeper
-
-# Score readiness (L0 → L3)
-tvastar loop audit .tvastar/loops/ci_sweeper.py:loop
-
-# Trigger once from CLI
-tvastar loop run .tvastar/loops/ci_sweeper.py:loop
-```
-
----
-
-## Step 8 — Run with MockModel in tests
-
-`MockModel` lets you write fast, deterministic unit tests with no API calls:
-
-```python
-import asyncio
-import pytest
-from tvastar import create_agent, Harness
-from tvastar.model.mock import MockModel
-
-def test_agent_returns_text():
-    spec = create_agent(
-        "assistant",
-        model=MockModel(script=["Paris"]),
-        instructions="Answer questions.",
-    )
-    result = asyncio.run(Harness(spec).run("Capital of France?"))
-    assert result.text == "Paris"
-    assert result.ok
-```
-
-`MockModel(script=["a", "b", "c"])` replays responses in order — one per model call.
-
----
-
-## What's next?
-
-| Goal | Where to look |
-|------|--------------|
-| Copy-paste recipes for every feature | [Patterns Cookbook](PATTERNS.md) |
-| Full API reference | [API Reference](API.md) |
-| Decision guide (which API to use when?) | [Usage Guide](USAGE.md) |
-| All available patterns + when to use each | [Patterns Cookbook](PATTERNS.md) — Pattern Quick-Reference table |
-| Production deployment | README → Deploy anywhere |
-| Testing strategy | README → Testing |
-
----
-
-## Common first-time issues
-
-**`ImportError: No module named 'anthropic'`**
-You installed the core package without extras. Run:
-```bash
-pip install "tvastar[anthropic]"
-```
-
-**`AuthenticationError` / `401`**
-Your API key is not set or is wrong:
-```bash
-echo $ANTHROPIC_API_KEY   # should print your key
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
-
-**`result.ok` is `False` but no exception**
-Check `result.stopped` and `result.findings`:
-```python
-print(result.stopped)   # "end_turn" | "max_steps" | "error"
-for f in result.findings:
-    print(f.severity, f.message)
-```
-
-**Model keeps calling the wrong tool**
-Make the tool descriptions more specific. The model picks tools based on their docstring.
-
-**Session context fills up**
-Add a `CompactionPolicy`:
-```python
-from tvastar.compaction import CompactionPolicy
-spec = create_agent(..., compaction=CompactionPolicy(max_messages=40, keep_last=10))
-```
+| Goal | Read |
+|---|---|
+| Understand each system layer and when to use it | [Architecture Map](ARCHITECTURE_MAP.md) |
+| Decide between a harness, session, workflow, dispatch, or loop | [Usage Guide](USAGE.md) |
+| Copy a focused working recipe or explore a capability | [Cookbook](COOKBOOK.md) |
+| Look up a signature | [API Reference](API.md) |
+| Run recurring verified work | [Loop and verification guidance](COOKBOOK.md#loop-engineering) |
+| Understand detector evidence and its limits | [Benchmarks](BENCHMARKS.md) |
+| Inspect runnable demonstrations | [Examples](../examples/README.md) |

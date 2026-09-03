@@ -1,5 +1,7 @@
 # Architecture Decision Records
 
+This document records the trade-offs behind Tvastar's design. For the current system layers, component responsibilities, end-to-end data flow, and guidance on when to use each part, start with the [Architecture Map](ARCHITECTURE_MAP.md).
+
 Key design decisions in Tvastar, recorded at the time they were made.
 Format: Context → Decision → Consequences.
 

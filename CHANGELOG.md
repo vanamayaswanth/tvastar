@@ -4,6 +4,23 @@ All notable changes to Tvastar are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Task-specific loop verification** — `VerificationContract` and
+  `VerificationVerdict` let a Loop accept or reject a run using an explicit
+  verifier. Required verification fails closed when no verifier is configured,
+  the verifier fails, raises, or returns an invalid result.
+
+### Documentation
+
+- Reframed the public documentation around Tvastar as a durable Python agent
+  harness, with verification and assurance as evidence-bound capabilities and
+  verified CI repair as the flagship reference workflow.
+- Added a documentation index and clarified durability, detector, sandbox, and
+  benchmark boundaries.
+
 ## [0.27.0] — 2026-07-18
 
 ### Added — Quality-Gated Retry (Cost Optimization)

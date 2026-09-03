@@ -1,32 +1,24 @@
 # Tvastar Cookbook
 
-> **This is the full pattern library and recipe book.** For the quick overview, see the [README](../README.md). For getting started, see [Getting Started](GETTING_STARTED.md).
+> **Deep-dive patterns and capability reference.** Start with the [documentation map](README.md), the [root README](../README.md), and [Getting Started](GETTING_STARTED.md) before using this guide as a reference.
 
 [![PyPI](https://img.shields.io/pypi/v/tvastar.svg)](https://pypi.org/project/tvastar/)
 [![Python](https://img.shields.io/pypi/pyversions/tvastar.svg)](https://pypi.org/project/tvastar/)
 [![CI](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml/badge.svg)](https://github.com/vanamayaswanth/tvastar/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../LICENSE)
 
-**The agent harness that catches when AI agents lie about success.**
+**Tvastar is a durable Python agent harness.** It gives agents a controlled runtime for tools, sandboxed work, sessions, and optional durable state. Verification, governance, quality findings, and receipts are evidence-bound capabilities layered on that runtime—not universal proof that an agent is correct.
 
-```python
-# pip install tvastar
-from tvastar import Harness, create_agent, default_toolset
-from tvastar.model import AnthropicModel
+The flagship reference workflow is verified CI repair:
 
-agent = create_agent(
-    "my-agent",
-    model=AnthropicModel("claude-sonnet-4-6"),
-    tools=default_toolset(),
-)
-result = await Harness(agent).run("Fix the failing tests")
-
-print(result.quality.grade)    # "FAIL"
-print(result.quality.summary)  # "agent claimed success but last tool shows failure"
-print(result.ok)               # False — Tvastar caught the lie
+```bash
+pip install "tvastar[anthropic]"
+tvastar-fix --path . --test-cmd "pytest -q" --check
 ```
 
-> **Benchmark:** 3,651 failed agent trajectories from [tau2-bench](https://github.com/sierra-research/tau2-bench). Tvastar detected **100%**. Traditional monitoring detected **0%**. [Details →](#benchmark-tau2-bench-10832-trajectories)
+It runs the named test command before and after agent edits. The rerun command—not the agent's final message—decides whether the repair is accepted. See [Getting Started](GETTING_STARTED.md#first-verified-action-ci-repair) for setup and [the self-healing example](../examples/self_healing_agent.py) for a fully inspectable demo.
+
+> **Detector evidence:** the repository's tau2-bench experiment measures post-hoc detection on archived customer-service trajectories. It is not a general correctness, prevention, or commercial-monitoring comparison claim. Read [Benchmarks](BENCHMARKS.md) for the method and limitations.
 
 ---
 
@@ -35,7 +27,7 @@ print(result.ok)               # False — Tvastar caught the lie
 - [Why Tvastar](#why-tvastar)
 - [Loop in 60 seconds](#loop-in-60-seconds)
 - [What is a harness?](#what-is-a-harness)
-- [The five problems Tvastar solves](#the-five-problems-tvastar-solves)
+- [What the harness addresses](#what-the-harness-addresses)
 - [Works with any agent or model](#works-with-any-agent-or-model)
 - [See it in action: tvastar-fix](#see-it-in-action-tvastar-fix)
 - [When not to use Tvastar](#when-not-to-use-tvastar)
@@ -68,7 +60,7 @@ print(result.ok)               # False — Tvastar caught the lie
 - [Trace viewer UI](#trace-viewer-ui--inspect-every-run-locally)
 - [Tool masking](#tool-masking--show-the-model-only-the-tools-it-needs-now)
 - [Silent-failure detection](#silent-failure-detection)
-- [Benchmark results](#benchmark-tau2-bench-10832-trajectories)
+- [Evidence boundary and benchmark](#evidence-boundary-and-benchmark)
 - [Untrusted content & prompt-injection detection](#untrusted-content--prompt-injection-detection)
 - [Dynamic Capability Governance](#dynamic-capability-governance--lock-dangerous-tools-to-specific-phases)
 - [Transactional Sandbox](#transactional-sandbox--atomic-rollback-on-failure)
@@ -84,8 +76,7 @@ print(result.ok)               # False — Tvastar caught the lie
 - [Runtime registration APIs](#runtime-registration-apis)
 - [Configurable retry and depth limits](#configurable-retry-and-depth-limits)
 - [DispatchPool](#dispatchpool--isolated-dispatch-state)
-- [What we're building](#what-were-building)
-- [Roadmap](#roadmap)
+- [Historical planning archive](HISTORICAL_PLANNING.md)
 - [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
 - [Further reading](#further-reading)
@@ -94,30 +85,25 @@ print(result.ok)               # False — Tvastar caught the lie
 
 ## Why Tvastar
 
-**Your agents complete tasks they didn't actually finish. They loop forever without telling you. They swallow errors and say "done." Tvastar detects this — automatically, in any loop.**
+Agents that use tools can change files, call external systems, and leave work half-finished. A model's final message is not reliable acceptance evidence for that work.
+
+Tvastar supplies the runtime around the model call: tools, sessions, an execution boundary, optional durable state, and observable run results. Use its detectors to surface post-hoc signals, and use a task-specific verifier or independently rerun a named check when a workflow needs an acceptance decision.
 
 ```python
-result = await harness.run("fix the failing tests")
-print(result.quality.score)    # 40
-print(result.quality.grade)    # "FAIL"
-print(result.quality.summary)  # "1 error — final answer claims success but the last tool result shows failure"
-```
+result = await harness.run("Fix the failing tests")
+print(result.text)      # What the agent says happened
+print(result.findings)  # Signals from the executed run, if any
 
-```bash
-pip install tvastar
-# or: tvastar quality my_agent.py:agent "fix the tests"  → score 0–100, exit 1 if FAIL
+# For acceptance, check the condition that matters to your task.
+# Example: rerun the named test command, as tvastar-fix does.
 ```
 
 ```
 Agent = Model + Harness
-Loop  = Agent + Schedule + Verify + Handoff
+Loop  = Agent + Schedule + Verification + Handoff
 ```
 
-You shouldn't be prompting agents anymore. You should be building systems that do it for you — and knowing whether they actually did.
-
-```bash
-pip install tvastar
-```
+Use the harness for agents that need a controlled runtime. Use a persistent store when state must survive restarts, and choose a sandbox that matches the threat model instead of treating a convenience sandbox as isolation.
 
 ---
 
@@ -146,7 +132,7 @@ tvastar loop audit .tvastar/loops/ci_sweeper.py:loop   # score readiness L0→L3
 tvastar loop run   .tvastar/loops/ci_sweeper.py:loop   # trigger once to test
 ```
 
-The loop runs the agent, verifies the result, retries with exponential backoff, and escalates to you (Slack, email, any webhook) only when it cannot fix something itself. You walk away. It runs.
+The loop coordinates scheduled execution, retries, backoff, and handoff. It can use quality findings as signals; attach a task-specific `VerificationContract` when the loop must reject a claimed result based on explicit evidence. Without a persistent `Store`, run and session history lasts only for the current process.
 
 ---
 
@@ -160,27 +146,17 @@ Tvastar includes lightweight framework primitives so you have something to run (
 
 ---
 
-## The five problems Tvastar solves
+## What the harness addresses
 
-**1. You are still manually prompting agents**
+**1. A model call needs a runtime.** `Harness` provides the tools, session lifecycle, and execution context around an agent definition instead of making each application rebuild them.
 
-The leverage point has shifted. You should be building systems that prompt agents for you — not babysitting individual runs. Tvastar is the framework that makes automated agent loops production-ready. Give the loop a goal and a schedule. Walk away.
+**2. Real actions need a deliberate execution boundary.** `VirtualSandbox` is useful for trusted tests and development. `LocalSandbox` adds Tvastar policy controls; use containers or remote infrastructure when the deployment needs stronger isolation.
 
-**2. Running agent-produced code safely**
+**3. A final message is not an acceptance test.** Findings can surface post-hoc evidence from a run. For a workflow that must decide success, attach a `VerificationContract` or independently rerun the named check that matters.
 
-Most frameworks assume you have a container. Tvastar runs real code in-memory with no Docker, no setup, no external service. Switch to Docker or a remote sandbox with one line when you need stronger isolation.
+**4. Restart recovery requires durable storage.** `FileStore`, `SQLiteStore`, and other persistent stores retain successfully written session events. `InMemoryStore` does not survive a process restart, and no store can recover work that was never persisted.
 
-**3. Agents that lie about success**
-
-An agent says "all tests pass" over a failing run. An agent claims a file was created but nothing was written. Tvastar detects silent failures automatically — the loop does not trust what the agent says, only what actually happened.
-
-**4. Long-running agents that crash**
-
-A 10-minute agent run failing at minute 9 loses everything. Tvastar checkpoints transcript and filesystem after every step. Crashes resume from where they stopped, not from the beginning.
-
-**5. Deploying the same agent everywhere**
-
-One agent definition runs as a web service, AWS Lambda, GitHub Action, container, or serverless function. No rewriting. No framework-specific deployment config.
+**5. Control-plane features are optional compositions.** Loops, workflows, dispatch, and Fleet extend the harness for recurring, multi-step, event-driven, or coordinated work. Start with the smallest composition that meets the task.
 
 ---
 
@@ -252,18 +228,21 @@ The harness wraps the model. It does not care which one.
 
 ---
 
-## See it in action: tvastar-fix
+## See it in action: `tvastar-fix`
 
-The fastest way to understand Tvastar is to watch it fix something real.
+The fastest way to understand Tvastar is to watch it verify a repair against a real command.
 
-`tvastar-fix` is a CLI tool and GitHub Action that auto-fixes failing tests. Your tests fail on a PR. Tvastar runs the agent, executes the fixes in a safe sandbox, verifies they actually pass, and pushes the correction — without you touching a line.
-
-It is the reference implementation for everything the harness provides: safe execution, silent failure detection, crash recovery, and deploy-anywhere portability in one working example.
+`tvastar-fix` runs a baseline test command, lets an agent inspect and edit the selected project directory, then reruns the **same** command itself. Its `fixed` outcome is based on that observed exit result—not on the model's final text. Add `--check` when the command must fail a CI step if the suite remains red.
 
 ```bash
-pip install "tvastar[fix]"
-tvastar-fix --test-cmd "pytest tests/" --model claude-opus-4-6
+pip install "tvastar[anthropic]"
+export ANTHROPIC_API_KEY="..."
+tvastar-fix --path . --test-cmd "pytest tests/ -q" --check
 ```
+
+The command reports changed files and a best-effort diff for review. It does not commit, push, or create a pull request. The bundled GitHub Action executes the same verifier-backed workflow; repository policy remains responsible for reviewing and accepting any resulting change.
+
+For an inspectable local demonstration, see [`examples/self_healing_agent.py`](../examples/self_healing_agent.py).
 
 ---
 
@@ -283,8 +262,8 @@ Tvastar is for agents that do things — run code, edit files, call tools — an
 
 | Problem | How Tvastar handles it | API |
 |---|---|---|
-| Code execution without Docker | In-memory sandbox, zero setup | `VirtualSandbox` (default) |
-| Real bash, jailed to a directory | Allowlist commands, network off | `LocalSandbox` + `SecurityPolicy` |
+| Trusted, in-memory code execution | Zero setup; no host filesystem | `VirtualSandbox` (not an isolation boundary) |
+| Constrained local subprocess | Allowlist commands and disable network | `LocalSandbox` + `SecurityPolicy` |
 | Filesystem changes need atomic rollback | Snapshot before, restore on exception | `harness.transaction()` |
 | Agent claims success but didn't | Silent failure detection on every run | `unverified_completion` detector |
 | Agent loops on the same tool | Thrash detection fires before the loop spins forever | `thrash_loop` detector |
@@ -1417,13 +1396,15 @@ async with Harness(agent) as h:
 ```python
 from tvastar import VirtualSandbox, LocalSandbox, SecurityPolicy
 
-# Default — in-memory, zero deps
+# Convenience for tests and trusted development. Not an isolation boundary.
 create_agent(..., sandbox=VirtualSandbox)
 
-# Real bash, jailed to a directory
+# Constrained subprocess for a local workspace.
 policy = SecurityPolicy(allowed_commands={"python", "pytest"}, network=False)
 create_agent(..., sandbox=lambda: LocalSandbox("./workspace", policy=policy))
 ```
+
+`VirtualSandbox` runs in the host process and is not suitable for isolating untrusted model-generated code. `LocalSandbox` applies Tvastar policy checks but is not a complete host-security boundary; use a container or remote sandbox when the threat model requires stronger containment. See the [Threat Model](threat-model.md).
 
 ---
 
@@ -1444,12 +1425,14 @@ await client.close()
 
 ## Durable execution — survive crashes
 
+A session can resume after a restart only when its events are written to a persistent store. `InMemoryStore` is the default and lasts only for the current process.
+
 ```python
 from tvastar import Harness, FileStore
 
 harness = Harness(agent, store=FileStore(".tvastar-state"))
 
-# On restart — resume from last checkpoint
+# On restart — resume from the last successfully persisted event.
 sess = harness.resume("sess_abc123") or harness.session()
 ```
 
@@ -1615,19 +1598,13 @@ if not result.ok:
 
 Built-in detectors: `unknown_tool`, `schema_mismatch`, `thrash_loop`, `ignored_tool_error`, `unverified_completion`, `prompt_injection`, `empty_answer`, `step_limit`.
 
-### Benchmark: tau2-bench (10,832 trajectories)
+### Evidence boundary and benchmark
 
-Evaluated against the [tau2-bench dataset](https://github.com/sierra-research/tau2-bench) — 3,651 failed agent trajectories across 4 model families and 4 domains (airline, retail, telecom).
+The [tau2-bench experiment](BENCHMARKS.md) evaluates Tvastar's **post-hoc** detector suite on archived failure trajectories. It is useful evidence about this repository's method, but it does not establish prevention, universal correctness, production false-positive rates, or a comparison with commercial monitoring products.
 
-| Failure Category | Count | Tvastar | Traditional Monitoring | Gap |
-|-----------------|-------|---------|----------------------|-----|
-| False success (agent lied) | 461 | **100%** | 0% | +100% |
-| Ambiguous (stuck/looping) | 3,175 | **100%** | 0% | +100% |
-| Honest failure | 15 | **100%** | 0% | +100% |
+The detector results are signals after a run. For work that needs an acceptance decision, add a task-specific `VerificationContract` to the loop or independently rerun a named check, as `tvastar-fix` does. A named check proves only the condition it checks.
 
-**Key finding:** 97% of "false success" failures are preceded by detectable thrash loops. Tvastar catches the root cause upstream — before the agent even produces its misleading final message. Traditional exit-code monitoring catches none of them.
-
-Top detectors on false-success cases: `thrash_loop` (97.2%), `step_limit` (98.5%), `unverified_completion` (2.8%).
+Read [Benchmarks](BENCHMARKS.md) for the pinned-data requirements, methodology, reported breakdown, and limitations.
 
 Write your own:
 
@@ -2229,189 +2206,11 @@ pool.close()  # release all cached harnesses
 
 ---
 
-## What we're building
+## Historical product notes
 
-Tvastar is the engine. Every product below is built on top of it — same harness,
-same tools, same deploy model. Framework features get added only when a product
-needs them.
+> **Archived.** The dated product ideas and milestone snapshot that previously appeared here are retained in the [Historical planning archive](HISTORICAL_PLANNING.md#cookbook-product-and-roadmap-snapshot). They are not current products, release commitments, or supported behavior.
 
----
-
-### ✅ tvastar-fix — Auto-repair failing tests
-*Shipped. The reference implementation.*
-
-Your CI fails. `tvastar-fix` runs the agent, edits the source, re-runs the suite
-itself, and pushes the fix — without you touching a line. Verification is a real
-exit code, never the model's claim.
-
-```bash
-pip install "tvastar[fix]"
-tvastar-fix --test-cmd "pytest tests/" --model claude-opus-4-6
-```
-
----
-
-### ✅ tvastar-outbound — AI outbound sales agent
-*Shipped v0.9.0.*
-
-Give it a CSV of leads. It researches each one in parallel (company site, news,
-LinkedIn via `web_browse` + `web_search`), scores and prioritises them with
-`TaskGraph`, writes a personalised cold email for each, waits for your approval
-via `ApprovalGate`, then sends. Full audit trail in the trace viewer.
-
-```bash
-pip install tvastar
-tvastar-outbound --csv leads.csv --icp "B2B SaaS, 50+ employees" \
-    --sender-name "Jane" --sender-company "Acme" --sender-email jane@acme.com \
-    --min-score 0.6 --dry-run
-```
-
-Or programmatically:
-
-```python
-from tvastar.outbound import run_campaign
-from tvastar.model import AnthropicModel
-
-result = await run_campaign(
-    "leads.csv",
-    model=AnthropicModel("claude-sonnet-4-5"),
-    icp="B2B SaaS companies with 50+ employees struggling with developer productivity",
-    sender_name="Jane Smith",
-    sender_company="Acme",
-    sender_email="jane@acme.com",
-    min_score=0.6,
-)
-print(f"Sent {result.sent}/{result.leads_qualified} emails.")
-```
-
-**Why Tvastar is the right engine:**
-- `TaskGraph` researches all leads in parallel — 50 leads in wall-clock time of 1
-- `web_browse` + `web_search` — no external scraping service needed
-- `ApprovalGate` — human reviews every draft before anything goes out
-- `BudgetPolicy` — hard cost ceiling per campaign
-- `JSONLExporter` + `tvastar ui` — see every email and every research step
-
----
-
-### 🔒 tvastar-comply — PII / PFI / PHI compliance layer
-*Core shipped in `tvastar.assurance`. Token-vault rehydration coming in v0.16.0.*
-
-Healthcare, finance, and legal companies cannot use AI agents on real customer
-data without a compliance layer. The redaction and audit-trail layer is already
-in `tvastar.assurance` — no extra install needed.
-
-**What's shipped today (`tvastar.assurance`):**
-
-| Capability | API |
-|---|---|
-| SSN, DOB, email, phone, IP, credit card redaction | `SanitizationPolicy.hipaa()` / `.pci()` / `.gdpr()` |
-| ML entity detection (names, locations, passports) | `SanitizationPolicy.presidio()` |
-| Cryptographic proof PII was removed | Hash covers sanitized form — `receipt.verify()` |
-| Role-gated audit log access | `TrustLog(can_read=fn)` |
-| Retention + legal hold | `RetentionPolicy` |
-| Per-run compliance report | `receipt.to_audit_report()` |
-
-```python
-from tvastar.assurance import AssurancePolicy, SanitizationPolicy, TrustLog
-
-agent = create_agent(
-    "clinical-assistant",
-    model=AnthropicModel(),
-    assurance=AssurancePolicy(
-        log=TrustLog(".tvastar-trust.jsonl"),
-        sanitize=SanitizationPolicy.hipaa(),   # PHI redacted before hash
-        min_score=80,
-    ),
-)
-# Input:  "Jane Doe, SSN 123-45-6789, diagnosis: hypertension"
-# → Receipt stores: "Jane Doe, SSN [SSN], diagnosis: hypertension"
-# → Hash proves PII was removed — tamper-evident
-```
-
-**Coming in v0.16.0 (tvastar-comply):**
-- Token-vault rehydration — `[SSN_1]` → original value, post-LLM, on your infra
-- CCPA + GLBA coverage
-- Enterprise compliance dashboard
-
-The vault stays local. **No PII ever leaves your infrastructure.**
-
----
-
-### 📋 tvastar-review — GitHub PR review bot
-*Coming after tvastar-outbound.*
-
-Webhook fires on PR open → agent reads the diff → posts inline comments → flags
-shallow or unverified completions using the built-in detectors. Ships as a
-zero-config GitHub Action.
-
-```yaml
-- uses: vanamayaswanth/tvastar-review@v1
-  with:
-    model: claude-sonnet-4-6
-```
-
----
-
-### 🛠 tvastar-devops — Production auto-heal agent
-*Extending `tvastar-fix` to live systems.*
-
-Log watcher detects anomaly → agent diagnoses root cause → runs bash fix →
-verifies with a real exit code → pages you only if it cannot fix it. Same
-"verify with real signals" principle as `tvastar-fix`, extended to production
-incidents.
-
----
-
-### 💬 tvastar-support — Customer support agent
-*Multi-platform, persistent, production-ready.*
-
-One session per user, memory across conversations, simultaneous Telegram / Slack /
-email. `dispatch()` per inbound message, `on_complete` sends the reply.
-Human escalation via `ApprovalGate` when confidence is low.
-
----
-
-### 🔍 tvastar-research — Competitive intel agent
-*Parallel web research → structured report.*
-
-Describe what you want to know. Agent fans out across sources with `fan_out()`,
-synthesises with structured output (`result=`), delivers a report. VCs, analysts,
-marketing teams.
-
----
-
-## Roadmap
-
-Products ship first. Framework features get added only when a product needs them.
-
-| Milestone | What ships | Status |
-|---|---|---|
-| **Web tools** | `web_browse` + `web_search` — Jina AI, zero deps | ✅ v0.8.1 |
-| **DAG execution** | `TaskGraph` — parallel tasks, critical path only | ✅ v0.8.0 |
-| **tvastar-outbound** | Outbound sales agent — research → score → email → send | ✅ v0.9.0 |
-| **SOTA safety** | Governance, transactions, LTM, memory cap, OpenAI retry | ✅ v0.10.0 |
-| **Loop Engineering** | `Loop`, 7 patterns, CLI, MakerChecker, L0→L3 audit | ✅ v0.11.0 |
-| **Self-Improving Loops** | `meta_model` prompt evolution, generational archive, MakerChecker cross-run memory | ✅ v0.12.0 |
-| **Loop Quality** | `score_run()`, `LoopQualityReport`, `tvastar quality` CLI, 14 source bug fixes, security hardening | ✅ v0.13.0 |
-| **Plug into anything** | `tvastar.wrap`, `adapters.openai`, `adapters.langgraph`, `adapters.agentcore` — Loop Quality on any framework | ✅ v0.14.0 |
-| **Verifiable Execution** | `AssurancePolicy`, `ExecutionReceipt`, `TrustLog` — cryptographic receipts + SLA enforcement | ✅ v0.15.0 |
-| **Audit reports** | `receipt.to_audit_report()` — text + HTML, hand to a lawyer | ✅ v0.15.1 |
-| **7 regulatory gaps** | model tracking, tool outputs, PII redaction, human approver, access control, breach alert, retention | ✅ v0.15.2–v0.15.4 |
-| **Presidio ML PII** | `SanitizationPolicy.presidio()` — 50+ entity types, 15+ languages | ✅ v0.15.3 |
-| **Silent-failure benchmark** | tau2-bench 10,832 trajectories — 100% detection on false-success | ✅ v0.18.0 |
-| **Core primitives upgrade** | `enforce()`, durable checkpoints, profile-keyed MockModel, `score_pipeline`, `detect_from_messages`, `redact_messages`, `scan_messages_for_injection`, composable tracer helpers | ✅ v0.19.0 |
-| **Agent Debugger example** | Meta-agent that diagnoses, fixes, and verifies failing trajectories — exercises every framework feature | ✅ v0.19.0 |
-| **Maximum Dynamism Audit** | 34 requirements: configurable params, registration APIs, extension points (hooks/middleware/fallbacks), stream parity, Protocol types, bug fixes, DispatchPool, lazy imports | ✅ v0.20.0 |
-| **Pi Ecosystem Adaptations** | Tool output compression, model-based verification, per-task model routing, SQLite FTS5 memory, latchkey auth tool, TaskGraph resume journal | ✅ v0.21.0 |
-| **GitHub Adaptation Map** | 12 adaptations: 5-stage compaction, loop supervisor, EU AI Act compliance, chaos eval, permission isolation, fleet checkpoint, contradiction resolution, adaptive scheduling, ROCS metric, CubeSandbox, readiness badges, memory interchange | ✅ v0.22.0 |
-| **tvastar-comply** | Token-vault PII rehydration, CCPA / GLBA coverage, enterprise dashboard | 🔒 v0.16.0 |
-| **tvastar-review** | GitHub PR bot — diff → inline comments → GitHub Action | 📋 v1.0.0 |
-| **tvastar-devops** | Auto-heal production incidents | 📋 v1.1.0 |
-| **tvastar-support** | Multi-platform customer support agent | 📋 v1.2.0 |
-| **Hosted platform** | Cloud-hosted harness, product dashboard, skill marketplace | 📋 v2.0.0 |
-
-> Framework features are only added when a product needs them — not to match a checklist.
-> `tvastar-comply` unlocks healthcare, finance, and legal — the highest-value enterprise markets.
+The maintained verified-repair workflow remains documented in [Getting Started](GETTING_STARTED.md#first-verified-action-ci-repair) and demonstrated by [`examples/self_healing_agent.py`](../examples/self_healing_agent.py).
 
 ---
 
@@ -2549,13 +2348,13 @@ tvastar loop run .tvastar/loops/ci_sweeper.py:loop
 
 ## Further reading
 
-- [Getting Started](docs/GETTING_STARTED.md) — install → first agent → first loop in 5 minutes
-- [Usage Guide](docs/USAGE.md) — decision trees for every API choice
-- [API Reference](docs/API.md) — every public symbol, fully typed
-- [Patterns Cookbook](docs/PATTERNS.md) — 38 copy-paste recipes
-- [12-Factor Agents map](docs/twelve-factor-agents.md) — how Tvastar maps to the production checklist (honest verdicts)
-- [AGENTS.md](AGENTS.md) — contributor guide for working in this repo
-- [CLAUDE.md](CLAUDE.md) — codebase map for AI assistants
+- [Documentation map](README.md) — choose the shortest path for your goal
+- [Getting Started](GETTING_STARTED.md) — install, first agent, and first verified repair
+- [Usage Guide](USAGE.md) — decision trees for core APIs
+- [API Reference](API.md) — public symbols and signatures
+- [12-Factor Agents map](twelve-factor-agents.md) — an evidence-bounded production checklist
+- [Contributing](../CONTRIBUTING.md) — contributor workflow
+- [Architecture Decision Records](ARCHITECTURE.md) — maintainers' design history
 
 ---
 

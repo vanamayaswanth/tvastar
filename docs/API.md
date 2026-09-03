@@ -1576,8 +1576,38 @@ class FailureKind(str, Enum):
     MODEL_ERROR  = "model_error"   # provider API error
     LOGIC_ERROR  = "logic_error"   # agent ran but goal not met (result.ok False)
     DETECTION    = "detection"     # silent-failure detector fired
+    VERIFICATION = "verification"  # explicit VerificationContract did not pass
     UNKNOWN      = "unknown"       # unexpected exception
 ```
+
+---
+
+### `VerificationContract` — task-specific acceptance evidence
+
+```python
+from tvastar.verification import VerificationContract, VerificationVerdict
+
+@dataclass
+class VerificationVerdict:
+    passed: bool
+    summary: str = ""
+    evidence: dict = field(default_factory=dict)
+
+@dataclass
+class VerificationContract:
+    required: bool = True
+    verifier: Callable[[RunResult], bool | VerificationVerdict] | None = None
+```
+
+Attach the contract to `LoopConfig.verification`. When verification is required,
+a loop run fails if no verifier is configured, the verifier raises, returns an
+invalid value, or returns a failed verdict. A boolean is normalized into a
+verdict; use `VerificationVerdict` when callers need a human-readable summary
+or structured evidence.
+
+A verifier proves only the condition it checks. For example, rerunning a named
+test command verifies that command's result; it does not prove the system is
+secure or generally correct.
 
 ---
 
@@ -1596,6 +1626,7 @@ class LoopRun:
     result_steps: int | None
     result_stopped: str | None
     findings: list             # from silent-failure detectors
+    verdict: VerificationVerdict | None  # result of explicit loop verification
     failure_kind: FailureKind | None
     retry_after: float | None  # unix timestamp: honour backoff before retrying
     error: str | None          # exception message if run errored
@@ -1636,6 +1667,7 @@ class LoopConfig:
     retry_backoff_base: float = 30.0 # seconds: 30 → 60 → 120 with exponential growth
     circuit_breaker_limit: int = 5   # consecutive HANDOFF cycles → SUSPENDED
     handoff: HandoffPolicy | None = None
+    verification: VerificationContract | None = None  # explicit task-specific gate
     meta_model: Model | None = None  # one-shot instruction rewriter after FAIL
     optimizer: Callable | None = None  # Callable[[str, list[LoopRun]], str]; takes precedence over meta_model
     metadata: dict = field(default_factory=dict)

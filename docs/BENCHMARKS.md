@@ -1,16 +1,24 @@
 # Benchmarks
 
-Reproducible evaluation of Tvastar's silent-failure detection against academic datasets.
+This page records a reproducible experiment on Tvastar's silent-failure detectors. It is a report of the repository's evaluation, not a general product-performance claim.
+
+## Scope and interpretation
+
+This experiment measures **post-hoc detection** on archived tau2-bench failure trajectories. It does not establish universal correctness, prevention of bad outcomes, production false-positive rates, cost savings, or performance on arbitrary agent tasks.
+
+“Traditional Monitoring” below is this repository's authored naive baseline, not a claim about commercial monitoring products or a representative industry comparator. It checks only the final tool result for an error or explicit nonzero-exit-code text.
+
+Do not use these results in external marketing without the exact dataset revision, the conversion pipeline, retained command output, and held-out and false-positive evaluation. This repository documents the procedure below; it does not claim to include those additional evaluation artifacts or to support conclusions beyond this experiment.
 
 ---
 
-## tau2-bench Silent Failure Benchmark
+## tau2-bench silent-failure benchmark
 
 **Dataset:** [sierra-research/tau2-bench](https://github.com/sierra-research/tau2-bench) — 10,832 agent trajectories across 4 model families (Claude 3.7 Sonnet, GPT-4.1, GPT-4.1 Mini, o4-mini) and 4 domains (airline, retail, telecom, telecom-workflow).
 
-**Paper:** "From Confident Closing to Silent Failure" ([arXiv:2606.09863](https://arxiv.org/abs/2606.09863))
+**Paper:** “From Confident Closing to Silent Failure” ([arXiv:2606.09863](https://arxiv.org/abs/2606.09863))
 
-### Results Summary
+### Reported results
 
 | Failure Category | Count | Tvastar | Traditional Monitoring | Gap |
 |-----------------|-------|---------|----------------------|-----|
@@ -18,7 +26,7 @@ Reproducible evaluation of Tvastar's silent-failure detection against academic d
 | Ambiguous (stuck/looping) | 3,175 | **100%** | 0% | +100% |
 | Honest failure (agent admitted inability) | 15 | **100%** | 0% | +100% |
 
-### Per-Detector Breakdown (on 461 false-success trajectories)
+### Per-detector breakdown (on 461 false-success trajectories)
 
 | Detector | Catch Rate | What It Finds |
 |----------|-----------|---------------|
@@ -26,11 +34,7 @@ Reproducible evaluation of Tvastar's silent-failure detection against academic d
 | `step_limit` | 98.5% | Agent hit max_steps without completing |
 | `unverified_completion` | 2.8% | Agent claimed success but tool output contradicts |
 
-### Key Finding
-
-97% of "false success" failures are preceded by detectable thrash loops. The agent gets stuck, loops on the same tool call, eventually hits max_steps, and *then* produces a confident "I've completed your request" message. Tvastar catches the root cause (the loop) upstream — before the misleading final message is even generated. Traditional exit-code monitoring catches none of these.
-
-### Per-Model Results
+### Per-model results
 
 | Model | Failed Trajectories | Detection Rate |
 |-------|-------------------|---------------|
@@ -39,7 +43,7 @@ Reproducible evaluation of Tvastar's silent-failure detection against academic d
 | GPT-4.1 Mini | 510 | 100.0% |
 | o4-mini | 1,058 | 99.9% |
 
-### Per-Domain Results
+### Per-domain results
 
 | Domain | Failed Trajectories | Detection Rate |
 |--------|-------------------|---------------|
@@ -50,7 +54,7 @@ Reproducible evaluation of Tvastar's silent-failure detection against academic d
 
 ---
 
-## How to Reproduce
+## Reproduce the reported experiment
 
 ### Prerequisites
 
@@ -59,16 +63,19 @@ pip install tvastar
 # or: uv sync --extra dev
 ```
 
-### Step 1: Get the dataset
+### 1. Get the dataset
 
 ```bash
 git clone --depth 1 https://github.com/sierra-research/tau2-bench.git data/tau2-bench
 ```
 
-### Step 2: Convert to JSONL
+Record the clone's commit SHA before converting it. The shallow clone command alone does not identify a stable dataset revision.
+
+### 2. Convert to JSONL
+
+Save the following conversion pipeline as `scripts/convert_tau2_to_jsonl.py`, then run it from the repository root:
 
 ```python
-# scripts/convert_tau2_to_jsonl.py
 import json
 from pathlib import Path
 
@@ -97,19 +104,23 @@ with output_path.open("w", encoding="utf-8") as out:
 print(f"Wrote {count} trajectories to {output_path}")
 ```
 
-### Step 3: Run the benchmark
+```bash
+python scripts/convert_tau2_to_jsonl.py
+```
+
+### 3. Run the benchmark
 
 ```bash
 python -m tvastar.bench.silent_failure data/tau2-bench-trajectories.jsonl --output-dir ./results/
 ```
 
-### Step 4: Honest breakdown by failure category
+### 4. Produce the failure-category breakdown
 
 ```bash
 python scripts/honest_benchmark.py
 ```
 
-This produces a per-label breakdown showing exactly which detectors fire on which failure types.
+Keep the command output with the dataset revision and converted JSONL metadata. The commands reproduce this repository's method; they do not by themselves supply a held-out evaluation or production false-positive rate.
 
 ---
 
@@ -117,29 +128,28 @@ This produces a per-label breakdown showing exactly which detectors fire on whic
 
 1. Each trajectory with `reward=0` (ground-truth failure) is loaded from the dataset.
 2. The final assistant message is classified using the paper's three-class taxonomy:
-   - **False success:** assertion patterns match ("successfully", "completed", "booked") and no honest-failure patterns
-   - **Honest failure:** honest-failure patterns match ("I cannot", "I'm unable", "transferring to human")
-   - **Ambiguous:** both or neither match
+   - **False success:** assertion patterns match (`successfully`, `completed`, `booked`) and no honest-failure patterns.
+   - **Honest failure:** honest-failure patterns match (`I cannot`, `I'm unable`, `transferring to human`).
+   - **Ambiguous:** both or neither match.
 3. Each trajectory is converted to a Tvastar `RunContext` (messages, tools, stop reason).
-4. Tvastar's full detector suite runs against each `RunContext`.
-5. A naive baseline (exit-code checking only) runs for comparison.
+4. Tvastar's detector suite runs against each `RunContext`.
+5. The repository's authored naive baseline runs for comparison.
 6. Results are aggregated by model, domain, and detector.
 
-### What "traditional monitoring" means
+### Definition of “Traditional Monitoring”
 
-The naive baseline fires only when:
-- The last tool result has `is_error=True`, OR
-- The last tool result content contains an explicit exit code pattern (`[exit 1]`, `exit code 1`)
+The authored baseline fires only when:
 
-It misses all semantic failures — which is the point. These trajectories don't crash. They don't throw exceptions. They return HTTP 200. The agent just does the wrong thing and says it succeeded.
+- The last tool result has `is_error=True`, or
+- The last tool result content contains an explicit exit-code pattern (`[exit 1]`, `exit code 1`).
 
----
+It is intentionally narrow. Its result should be read only as a contrast within this experiment, not as a result for commercial tools or monitoring practice generally.
 
 ## Limitations
 
-- **Detection ≠ prevention.** Tvastar detects failures post-hoc. It does not prevent the agent from producing a wrong answer.
-- **thrash_loop dominates.** 97% of false-success catches come from loop detection, not semantic claim verification. The `unverified_completion` detector catches only 2.8% directly.
-- **Dataset bias.** tau2-bench is a customer-service benchmark. Coding agents, research agents, and creative agents may have different failure patterns.
-- **Labeling is regex-based.** The three-class labeling uses pattern matching on the final message. Some trajectories may be mislabeled.
-
-We report these limitations because honest documentation is better than impressive documentation that misleads.
+- **Detection is not prevention.** The benchmark observes archived failures after the fact; it does not show that Tvastar prevents a wrong answer or repair.
+- **The verifier is task-specific.** A detector result or passing named check does not establish general correctness, security, or safety.
+- **`thrash_loop` dominates.** 97% of false-success catches come from loop detection, not direct semantic claim verification; `unverified_completion` catches only 2.8% directly.
+- **Dataset scope is narrow.** tau2-bench is a customer-service benchmark. Coding, research, and creative agents may have different failure patterns.
+- **Labeling is regex-based.** The three-class labels use final-message pattern matching, so some trajectories may be mislabeled.
+- **External claims need more evidence.** Reproduce against a pinned revision, preserve pipeline and output, and evaluate held-out data and false positives before making external claims.
