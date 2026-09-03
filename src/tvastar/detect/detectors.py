@@ -190,11 +190,9 @@ def fail_plausible(ctx: RunContext) -> list[Finding]:
     Detection patterns:
     1. Final claim contradicts tool evidence earlier in trajectory
     2. Error mentioned then dismissed without resolution
-    3. Success claimed but no tool evidence supports it
     """
     # Pattern 1: Earlier tool error that was "narrated away"
     error_then_success = _FAILURE_SIGNAL.search
-    success_claimed = _SUCCESS_CLAIM.search
 
     # Look for: tool error → later fluent dismissal
     saw_tool_error = False
@@ -204,18 +202,7 @@ def fail_plausible(ctx: RunContext) -> list[Finding]:
         # Check if assistant later claims success over it
         # (final_text is already checked by unverified_completion)
 
-    # Pattern 2: Claim of completion with no supporting tool calls
-    if success_claimed(ctx.final_text) and len(ctx.tool_calls) == 0:
-        return [
-            Finding(
-                "fail_plausible",
-                Severity.ERROR,
-                "agent claims success but made no tool calls to verify",
-                {"claim": ctx.final_text[:160]},
-            )
-        ]
-
-    # Pattern 3: Error appeared in trajectory but final text dismisses it
+    # Pattern 2: Error appeared in trajectory but final text dismisses it
     if saw_tool_error and ctx.final_text:
         # Check if final text acknowledges the error
         acknowledges = bool(

@@ -9,7 +9,7 @@ from io import StringIO
 
 import pytest
 
-from tvastar import create_agent
+from tvastar import VerificationContract, VerificationVerdict, create_agent
 from tvastar.loop import FailureKind, Loop, LoopConfig, LoopRun, LoopState
 from tvastar.loop.handoff import CallbackHandoff, HandoffPolicy, LogHandoff, MultiHandoff
 from tvastar.loop.schedule import next_run_time
@@ -25,6 +25,8 @@ def _loop(
     goal: str = "do work",
     max_iterations: int = 3,
     handoff=None,
+    verification=None,
+    quality_gate: int = 80,
 ) -> Loop:
     model = MockModel(responses or ["Work complete. SUCCESS"])
     spec = create_agent("test", model=model, instructions="", detect=False)
@@ -34,6 +36,8 @@ def _loop(
         schedule="@manual",
         max_iterations=max_iterations,
         handoff=handoff,
+        verification=verification,
+        quality_gate=quality_gate,
     )
     return Loop(spec, config)
 
@@ -1059,3 +1063,73 @@ async def test_quality_gate_respects_hard_errors():
     # result.ok is False (stopped="error") — gate should NOT override this
     # The quality_gate only fires when result.ok is True
     assert run.state != LoopState.PASS
+
+
+# ---------------------------------------------------------------------------
+# Success verification contract
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_loop_without_verification_contract_leaves_verdict_empty():
+    run = await _loop().trigger()
+
+    assert run.state == LoopState.PASS
+    assert run.verdict is None
+
+
+@pytest.mark.asyncio
+async def test_required_verifier_returning_true_passes_with_verdict():
+    loop = _loop(verification=VerificationContract(verifier=lambda result: True))
+
+    run = await loop.trigger()
+
+    assert run.state == LoopState.PASS
+    assert run.verdict is not None
+    assert run.verdict.passed
+
+
+@pytest.mark.asyncio
+async def test_failed_verifier_blocks_pass_despite_zero_quality_gate():
+    expected_verdict = VerificationVerdict(
+        False, "external verification failed", {"check": "integration"}
+    )
+    loop = _loop(
+        max_iterations=1,
+        quality_gate=0,
+        verification=VerificationContract(verifier=lambda result: expected_verdict),
+    )
+    states = []
+    loop.on_event(lambda event: states.append(event.state))
+
+    run = await loop.trigger()
+
+    assert run.state != LoopState.PASS
+    assert LoopState.PASS not in states
+    assert run.failure_kind == FailureKind.VERIFICATION
+    assert run.error == "external verification failed"
+    assert run.verdict == expected_verdict
+
+
+def _raising_verifier(_result):
+    raise RuntimeError("unavailable")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("contract", "summary"),
+    [
+        (VerificationContract(), "verification required but no verifier configured"),
+        (VerificationContract(verifier=_raising_verifier), "verifier raised an exception"),
+    ],
+)
+async def test_missing_or_raising_verifier_fails_closed(contract, summary):
+    loop = _loop(max_iterations=1, verification=contract)
+
+    run = await loop.trigger()
+
+    assert run.state != LoopState.PASS
+    assert run.failure_kind == FailureKind.VERIFICATION
+    assert run.verdict is not None
+    assert not run.verdict.passed
+    assert run.error == summary

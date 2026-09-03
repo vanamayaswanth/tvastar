@@ -6,12 +6,20 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-09-04
+
 ### Added
 
 - **Task-specific loop verification** — `VerificationContract` and
   `VerificationVerdict` let a Loop accept or reject a run using an explicit
   verifier. Required verification fails closed when no verifier is configured,
   the verifier fails, raises, or returns an invalid result.
+
+### Changed
+
+- `fail_plausible()` no longer treats a tool-free success response as an error;
+  task-specific verification is the explicit opt-in mechanism when an external
+  acceptance check is required.
 
 ### Documentation
 

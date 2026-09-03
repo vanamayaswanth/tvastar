@@ -595,3 +595,10 @@ async def test_max_steps_finding():
     agent = create_agent("t", model=MockModel(forever), tools=default_toolset(), max_steps=3)
     result = await Harness(agent).run("go")
     assert any(f.detector == "step_limit" for f in result.findings)
+
+
+def test_default_detectors_allow_tool_free_success_text():
+    """A textual answer may be complete without requiring a tool invocation."""
+    ctx = _ctx([_asst(TextBlock(text="Work complete. SUCCESS"))])
+    findings = run_detectors(ctx, default_detectors())
+    assert not [finding for finding in findings if finding.severity == Severity.ERROR]

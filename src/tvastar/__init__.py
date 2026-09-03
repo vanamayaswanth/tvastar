@@ -222,6 +222,7 @@ from .workflow import (
 from .workflow import (
     cli_logs as workflow_logs,
 )
+from .verification import VerificationContract, VerificationVerdict
 from .wrap import WrappedResult, wrap
 
 CORE_API: tuple[str, ...] = (
@@ -273,7 +274,7 @@ def __getattr__(name: str):
     raise AttributeError(f"module 'tvastar' has no attribute {name!r}")
 
 
-__version__ = "0.27.0"
+__version__ = "0.28.0"
 
 __all__ = [
     "CORE_API",
@@ -451,6 +452,8 @@ __all__ = [
     "LoopEvent",
     "LoopGeneration",
     "FailureKind",
+    "VerificationContract",
+    "VerificationVerdict",
     "HandoffPolicy",
     "LogHandoff",
     "CallbackHandoff",

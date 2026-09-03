@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ..memory.store import Store
     from ..model.base import Model
     from ..observability import Tracer
+    from ..verification import VerificationContract, VerificationVerdict
     from .classifiers import ClassificationResult, ErrorClassifier
     from .handoff import HandoffPolicy
 
@@ -57,6 +58,7 @@ class FailureKind(str, Enum):
     MODEL_ERROR = "model_error"  # provider API error
     LOGIC_ERROR = "logic_error"  # agent ran but goal not met (result.ok False)
     DETECTION = "detection"  # silent-failure detector fired
+    VERIFICATION = "verification"  # configured success verifier rejected the run
     UNKNOWN = "unknown"
     AUTH_ERROR = "auth_error"  # permanent: invalid credentials (Req 2.1)
     CONTENT_POLICY = "content_policy"  # permanent: content policy rejection (Req 2.2)
@@ -117,6 +119,7 @@ class LoopRun:
         "failure_kind",
         "retry_after",
         "error",
+        "verdict",
         "context",
         "error_state",
         "fuel_remaining",
@@ -146,6 +149,7 @@ class LoopRun:
         findings: list | None = None,
         # Private — not part of serialization
         _store: "Any | None" = None,
+        verdict: "VerificationVerdict | None" = None,
     ) -> None:
         self.run_id = run_id
         self.loop_name = loop_name
@@ -157,6 +161,7 @@ class LoopRun:
         self.failure_kind = failure_kind
         self.retry_after = retry_after
         self.error = error
+        self.verdict = verdict
         self.context = context if context is not None else {}
         self.error_state = error_state
         self.fuel_remaining = fuel_remaining
@@ -306,6 +311,7 @@ class LoopConfig:
     retry_backoff_base: float = 30.0  # seconds: 30 → 60 → 120 before HANDOFF
     circuit_breaker_limit: int = 5  # consecutive HANDOFF cycles → SUSPENDED
     handoff: "HandoffPolicy | None" = None
+    verification: "VerificationContract | None" = None
     meta_model: "Model | None" = None  # if set, rewrites instructions after each FAIL
     optimizer: "Any | None" = (
         None  # Callable[[str, list[LoopRun]], str] — takes precedence over meta_model
@@ -744,6 +750,18 @@ class Loop:
             quality_gate = getattr(self._config, "quality_gate", 80)
             if failed and result.stopped == "end_turn" and result.quality.score >= quality_gate:
                 failed = False
+
+            if not failed and self._config.verification is not None:
+                from ..verification import evaluate_contract
+
+                run.verdict = evaluate_contract(self._config.verification, result)
+                if run.verdict is not None and not run.verdict.passed:
+                    run.failure_kind = FailureKind.VERIFICATION
+                    run.error = run.verdict.summary or "verification failed"
+                    self._set(run, LoopState.FAIL)
+                    await self._handle_fail(run)
+                    self._publish_run_completed(run, quality_score=result.quality.score)
+                    return
 
             if not failed:
                 self._set(run, LoopState.PASS)
@@ -1460,6 +1478,15 @@ class Loop:
                         "started_at": run.started_at,
                         "failure_kind": run.failure_kind,
                         "error": run.error,
+                        "verdict": (
+                            {
+                                "passed": run.verdict.passed,
+                                "summary": run.verdict.summary,
+                                "evidence": run.verdict.evidence,
+                            }
+                            if run.verdict is not None
+                            else None
+                        ),
                         "conversation_id": run.conversation_id,
                     }
                 ),

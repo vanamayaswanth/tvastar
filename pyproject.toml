@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tvastar"
-version = "0.27.0"
+version = "0.28.0"
 description = "Tvastar — agents that provably work at minimum cost. The full-stack framework for building, running, and operating AI agents in production."
 readme = "README.md"
 requires-python = ">=3.11"
