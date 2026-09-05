@@ -1,15 +1,13 @@
 name: Publish to PyPI
 
 # Token-free publishing via PyPI Trusted Publishing (OIDC).
-# Fires when you publish a GitHub Release. One-time setup on PyPI:
+# A version tag runs validation, builds exactly one artifact set, then publishes it.
+# One-time setup on PyPI:
 #   pypi.org → your project → Publishing → Add a GitHub publisher:
 #     Owner: vanamayaswanth   Repository: tvastar
 #     Workflow: publish.yml    Environment: pypi
-# After that, no API token is ever needed again.
 
 on:
-  release:
-    types: [published]
   push:
     tags:
       - "v*"
@@ -27,8 +25,29 @@ jobs:
           python-version: "3.12"
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+      - name: Verify locked release version
+        shell: bash
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          actual=$(uv run python -c "import tomllib; from pathlib import Path; print(tomllib.loads(Path('pyproject.toml').read_text())['project']['version'])")
+          runtime=$(uv run python -c "import tvastar; print(tvastar.__version__)")
+          test "$actual" = "$expected"
+          test "$runtime" = "$expected"
+          uv lock --check
+      - name: Validate release
+        run: |
+          uv run --extra all --extra dev ruff check src/tvastar/ examples/ tests/
+          uv run --extra all --extra dev ruff format --check src/tvastar/ examples/ tests/
+          uv run --extra all --extra dev pytest -q
+          uv run --extra all --extra dev python scripts/quality_gate.py
       - name: Build sdist + wheel
         run: uv build
+      - name: Verify versioned artifacts
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test -f "dist/tvastar-${version}-py3-none-any.whl"
+          test -f "dist/tvastar-${version}.tar.gz"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -40,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write          # required for Trusted Publishing (OIDC)
+      id-token: write
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4

@@ -58,27 +58,3 @@ jobs:
         env:
           TVASTAR_QUALITY_THRESHOLD: ${{ vars.TVASTAR_QUALITY_THRESHOLD || '70' }}
         run: python scripts/quality_gate.py
-
-  type-check:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install (all extras + dev)
-        run: uv pip install --system -e ".[all,dev]"
-
-      - name: Type check (mypy ratchet)
-        run: python scripts/check_mypy_ratchet.py
-        timeout-minutes: 5

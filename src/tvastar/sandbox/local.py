@@ -1,9 +1,9 @@
-"""LocalSandbox — runs real shell commands in a subprocess, jailed to a root.
+"""LocalSandbox — runs real host shell commands with a contained working directory.
 
-For when you need actual tooling (python, git, compilers) on the host. Commands
-run with cwd pinned to the sandbox root, an enforced timeout, and output caps.
-Use a :class:`SecurityPolicy` allowlist for untrusted models. For full
-isolation prefer a container adapter (see ``providers/``).
+For actual tooling (python, git, compilers), commands execute on the host: this
+is not host isolation. ``cwd`` is contained beneath the LocalFileSystem root,
+with an enforced timeout and output caps. Use a :class:`SecurityPolicy` for
+untrusted models; use a container adapter for isolation.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from ..errors import SecurityViolation
 from ..filesystem.local import LocalFileSystem
 from .base import (
     AuditEntry,
@@ -68,7 +69,9 @@ class LocalSandbox(Sandbox):
         cpu_limit = self.resources.max_cpu_seconds
         candidates = [t for t in [timeout, self.policy.timeout_seconds, cpu_limit] if t is not None]
         effective_timeout = min(candidates) if candidates else None
-        workdir = self.root if not cwd else (self.root / cwd).resolve()
+        if cwd is not None and Path(cwd).is_absolute():
+            raise SecurityViolation(f"Absolute cwd is not allowed: {cwd!r}")
+        workdir = self.root if cwd is None else self.fs._abs(cwd)
 
         run_env = dict(os.environ)
         if not self.policy.network:

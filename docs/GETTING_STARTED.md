@@ -136,7 +136,7 @@ Tvastar records event-sourced session history. Recovery is limited by the config
 
 `create_agent()` defaults to `VirtualSandbox`, which is convenient for unit tests and trusted development. It is **not** an operating-system isolation boundary.
 
-For untrusted model-generated code or meaningful side effects, use a `LocalSandbox` with a restrictive `SecurityPolicy`, or a container/remote sandbox appropriate to your threat model:
+`LocalSandbox` rejects absolute `cwd` values and resolves relative `cwd` values beneath its configured root. That contains the process's starting directory, not the process itself: commands still run on the host and can escape the workspace through normal host capabilities. For untrusted model-generated code or meaningful side effects, use a `LocalSandbox` with a restrictive `SecurityPolicy` only as a control layer, or choose a container/remote sandbox when isolation is required:
 
 ```python
 from tvastar import LocalSandbox, SecurityPolicy, create_agent

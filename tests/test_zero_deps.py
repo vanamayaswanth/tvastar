@@ -177,12 +177,12 @@ class TestLazyImportErrors:
 
     def test_presidio_import_error(self):
         """Presidio policy raises with install instruction when package missing."""
-        with patch.dict(sys.modules, {"presidio_analyzer": None, "presidio_anonymizer": None}):
-            mods_to_remove = [
-                k for k in sys.modules if "presidio" in k or k == "tvastar.assurance.sanitize"
-            ]
-            saved = {k: sys.modules.pop(k) for k in mods_to_remove}
-            try:
+        mods_to_remove = [
+            k for k in sys.modules if "presidio" in k or k == "tvastar.assurance.sanitize"
+        ]
+        saved = {k: sys.modules.pop(k) for k in mods_to_remove}
+        try:
+            with patch.dict(sys.modules, {"presidio_analyzer": None, "presidio_anonymizer": None}):
                 from tvastar.assurance.sanitize import SanitizationPolicy
 
                 policy = SanitizationPolicy.presidio()
@@ -191,11 +191,11 @@ class TestLazyImportErrors:
                 error_msg = str(exc_info.value).lower()
                 assert "presidio" in error_msg
                 assert "pip install" in error_msg
-            except ImportError as e:
-                error_msg = str(e).lower()
-                assert "presidio" in error_msg
-            finally:
-                sys.modules.update(saved)
+        except ImportError as e:
+            error_msg = str(e).lower()
+            assert "presidio" in error_msg
+        finally:
+            sys.modules.update(saved)
 
     def test_otel_graceful_when_missing(self):
         """OTelExporter degrades gracefully when opentelemetry SDK is missing."""

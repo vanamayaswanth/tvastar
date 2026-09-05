@@ -396,3 +396,111 @@ class TestMaxTaskDepthFromSpec:
         async with sess:
             result = await sess.task("go")
         assert result.text == "ok."
+
+
+# ── Delegation policy and sandbox lifecycle ──────────────────────────────────
+
+
+class TestDelegationSafety:
+    def test_child_spec_inherits_parent_runtime_policies(self):
+        """Delegated work preserves the parent's execution controls."""
+        from tvastar import GovernancePolicy
+
+        def policy_hook(messages):
+            return messages
+
+        governance = GovernancePolicy({"default": {"*"}})
+        parent = _agent(
+            compaction=object(),
+            tool_retry=object(),
+            budget=object(),
+            approval_gate=object(),
+            tool_policy=lambda context: context.available,
+            governance=governance,
+            system_prompt_hook=lambda prompt: prompt,
+            memory_cap_mb=1.5,
+            assurance=object(),
+            pruner=object(),
+            scrub_after_run=True,
+            structured_retries=7,
+            max_task_depth=9,
+            tool_concurrency=2,
+            pre_tool_hook=lambda name, args: args,
+            post_tool_hook=lambda name, args, result: result,
+            step_callback=lambda step, response, messages: None,
+            stop_predicate=lambda result: False,
+            middleware=[policy_hook],
+            fallback_models=[MockModel([])],
+            tool_order_fn=lambda uses: uses,
+            memory_extraction="pattern",
+            delegation_source="parent",
+        )
+        session = Harness(parent).session()
+
+        child = session._build_child_spec(
+            profile=None,
+            instructions_override=None,
+            model_override=None,
+            thinking_level_override=None,
+            max_steps_override=None,
+        )
+
+        for field in (
+            "compaction",
+            "tool_retry",
+            "budget",
+            "approval_gate",
+            "tool_policy",
+            "governance",
+            "system_prompt_hook",
+            "memory_cap_mb",
+            "assurance",
+            "pruner",
+            "scrub_after_run",
+            "structured_retries",
+            "max_task_depth",
+            "tool_concurrency",
+            "pre_tool_hook",
+            "post_tool_hook",
+            "step_callback",
+            "stop_predicate",
+            "middleware",
+            "fallback_models",
+            "tool_order_fn",
+            "memory_extraction",
+        ):
+            assert getattr(child, field) is getattr(session.spec, field)
+        assert child.detectors == session.spec.detectors
+        assert child.metadata == session.spec.metadata
+        assert child.metadata is not session.spec.metadata
+
+    async def test_child_reuses_parent_sandbox_without_owning_its_lifecycle(self):
+        """A child sees the active parent sandbox but cannot stop it on close."""
+        from tvastar.sandbox import VirtualSandbox
+
+        class TrackingSandbox(VirtualSandbox):
+            def __init__(self):
+                super().__init__()
+                self.starts = 0
+                self.stops = 0
+
+            async def start(self):
+                self.starts += 1
+
+            async def stop(self):
+                self.stops += 1
+
+        sandbox = TrackingSandbox()
+        harness = Harness(_agent(["child reply"], sandbox=lambda: sandbox))
+        parent = harness.session()
+
+        async with parent:
+            result = await parent.task("delegate")
+            child = next(session for session in harness._sessions.values() if session is not parent)
+            assert result.text == "child reply"
+            assert child.sandbox is sandbox
+            assert child._owns_sandbox is False
+            assert sandbox.starts == 1
+            assert sandbox.stops == 0
+
+        assert sandbox.stops == 1

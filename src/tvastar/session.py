@@ -199,6 +199,7 @@ class Session:
     id: str = field(default_factory=lambda: f"sess_{uuid.uuid4().hex[:12]}")
     messages: list[Message] = field(default_factory=list)
     sandbox: Optional[Sandbox] = None
+    _owns_sandbox: bool = True
     _started: bool = False
     _active_skill: Optional[Skill] = None
     _task_depth: int = 0  # how deep in the task delegation tree we are
@@ -234,8 +235,10 @@ class Session:
     async def start(self) -> "Session":
         if self._started:
             return self
-        self.sandbox = self.spec.sandbox_factory()
-        await self.sandbox.start()
+        if self.sandbox is None:
+            self.sandbox = self.spec.sandbox_factory()
+        if self._owns_sandbox:
+            await self.sandbox.start()
         self._started = True
         # Create ConversationWriter if harness is in durable mode
         if self.harness._durable and self._writer is None:
@@ -252,7 +255,7 @@ class Session:
     async def close(self) -> None:
         if self._writer is not None:
             await self._write_record(RecordType.SESSION_END, {})
-        if self.sandbox is not None:
+        if self.sandbox is not None and self._owns_sandbox:
             await self.sandbox.stop()
         self._started = False
 
@@ -547,10 +550,11 @@ class Session:
 
         child = self.harness.session(spec=child_spec)
         child._task_depth = self._task_depth + 1
-        # Share parent's sandbox with child so files are visible across task
-        # boundaries and transaction rollback covers both (Bug #6)
+        # Share the active parent sandbox so child work observes the same files
+        # and transaction boundary. The parent remains responsible for lifecycle.
         if self.sandbox is not None:
             child.sandbox = self.sandbox
+            child._owns_sandbox = False
 
         # ── inject cwd into child system prompt ─────────────────────────────
         full_prompt = prompt
@@ -654,7 +658,7 @@ class Session:
             # None (or no profile) → inherit parent's detector configuration
             eff_detect = parent.detectors if parent.detectors else False
 
-        return create_agent(
+        child_spec = create_agent(
             child_name,
             model=eff_model,
             instructions=eff_instructions,
@@ -667,7 +671,32 @@ class Session:
             thinking_level=eff_thinking,
             detect=eff_detect,
             subagents=nested_subagents,
+            compaction=parent.compaction,
+            tool_retry=parent.tool_retry,
+            budget=parent.budget,
+            approval_gate=parent.approval_gate,
+            tool_policy=parent.tool_policy,
+            governance=parent.governance,
+            system_prompt_hook=parent.system_prompt_hook,
+            memory_cap_mb=parent.memory_cap_mb,
+            assurance=parent.assurance,
+            pruner=parent.pruner,
+            scrub_after_run=parent.scrub_after_run,
+            structured_retries=parent.structured_retries,
+            max_task_depth=parent.max_task_depth,
+            tool_concurrency=parent.tool_concurrency,
+            pre_tool_hook=parent.pre_tool_hook,
+            post_tool_hook=parent.post_tool_hook,
+            step_callback=parent.step_callback,
+            stop_predicate=parent.stop_predicate,
+            middleware=parent.middleware,
+            fallback_models=parent.fallback_models,
+            tool_order_fn=parent.tool_order_fn,
+            compress_tool_output=False,
+            memory_extraction=parent.memory_extraction,
         )
+        child_spec.metadata = dict(parent.metadata)
+        return child_spec
 
     def tracer_event(self, kind: str, **data: Any) -> None:
         safe = {f"attr_{k}" if k == "name" else k: v for k, v in data.items()}
@@ -723,6 +752,7 @@ class Session:
 
     async def _run_loop(self) -> RunResult:
         total = Usage()
+        total_cost = Cost()
         steps = 0
         stopped = "end_turn"
         spec = self.spec
@@ -737,10 +767,21 @@ class Session:
 
         try:
             while steps < spec.max_steps:
+                budget = spec.budget
+                unpriced_model = self._unpriced_budget_model()
+                if unpriced_model is not None:
+                    from .cost import UnknownModelCostError
+
+                    budget = spec.budget
+                    if budget.on_exceed == "stop":
+                        stopped = "budget"
+                        break
+                    raise UnknownModelCostError(unpriced_model, budget.max_usd)
                 steps += 1
                 tools: list[ToolSpec] = self._visible_tool_specs(steps)
                 # Apply middleware before generate
                 effective_messages = self._apply_middleware(self.messages)
+                producer_model = spec.model
                 with self.tracer.span(
                     "model.generate",
                     **_genai_request_attrs(spec, step=steps, n_tools=len(tools)),
@@ -785,6 +826,7 @@ class Session:
                                         temperature=spec.temperature,
                                         thinking_level=spec.thinking_level,
                                     )
+                                    producer_model = _fb_model
                                     break
                                 except Exception:
                                     continue
@@ -795,6 +837,10 @@ class Session:
                             raise
                 _set_genai_response_attrs(sp, resp)
                 total = total + resp.usage
+                step_cost = Cost(
+                    resp.usage.input_tokens, resp.usage.output_tokens, producer_model.name
+                )
+                total_cost = total_cost + step_cost
                 self.tracer_event(
                     "model_responded",
                     stop_reason=resp.stop_reason.value
@@ -818,14 +864,11 @@ class Session:
                 # attribute per-step cost to the active budget phase (if any)
                 budget = getattr(spec, "budget", None)
                 if budget is not None:
-                    step_cost = Cost(
-                        resp.usage.input_tokens, resp.usage.output_tokens, spec.model.name
-                    )
                     budget.attribute(step_cost)
 
                 # enforce the cost budget via shared helper
                 stop_reason, _budget_approved, _budget_warnings = await self._enforce_budget(
-                    total,
+                    total_cost,
                     _budget_approved=_budget_approved,
                     _budget_warnings=_budget_warnings,
                 )
@@ -861,7 +904,7 @@ class Session:
                             usage=total,
                             steps=steps,
                             stopped="in_progress",
-                            cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
+                            cost=total_cost,
                         )
                         if spec.stop_predicate(_result_in_progress):
                             stopped = "predicate"
@@ -899,7 +942,7 @@ class Session:
                 usage=total,
                 steps=steps,
                 stopped=stopped,
-                cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
+                cost=total_cost,
                 conversation_id=self.id,
             )
             result.findings = self._detect(result)
@@ -1177,43 +1220,73 @@ class Session:
     # ---- streaming variant --------------------------------------------------
 
     async def stream(self, text: str) -> AsyncIterator[StreamEvent]:
+        """Stream a run while preserving prompt() durability and assurance semantics."""
         if not self._started:
             await self.start()
-        self.messages.append(Message("user", text))
+        prompt_text = text
+        vault = None
+        policy = getattr(self.spec, "assurance", None)
+        if policy is not None and getattr(policy, "vault", None) is not None:
+            vault = policy.vault
+            prompt_text = vault.tokenize(prompt_text, getattr(policy, "sanitize", None))
+        self.messages.append(Message("user", prompt_text))
+        await self._write_record(RecordType.USER_MESSAGE, {"message": self.messages[-1]})
+        self.tracer_event("message_received", role="user")
+        self._last_user_text = text
+        self._approval_records = []
+
         spec = self.spec
         steps = 0
         total = Usage()
-        _budget_approved = False
-        _budget_warnings: list["Finding"] = []
+        total_cost = Cost()
+        budget_approved = False
+        budget_warnings: list["Finding"] = []
         stopped = "end_turn"
+        started_at = time.time()
+        await self._write_record(
+            RecordType.RUN_START, {"session_id": self.id, "started_at": started_at}
+        )
 
-        while steps < spec.max_steps:
-            steps += 1
-            tools = self._visible_tool_specs(steps)
-            yield StreamEvent("turn_start", {"step": steps})
-            # Apply middleware before generate
-            effective_messages = self._apply_middleware(self.messages)
-            resp: Optional[ModelResponse] = None
-            try:
-                async for ev in spec.model.stream(
-                    effective_messages,
-                    system=self._system_prompt(),
-                    tools=tools or None,
-                    max_tokens=spec.max_tokens,
-                    temperature=spec.temperature,
-                    thinking_level=spec.thinking_level,
-                ):
-                    if ev.type == "turn_end":
-                        resp = ev.data["response"]
-                    else:
-                        yield ev
-            except Exception as exc:
-                # Reactive overflow recovery via shared helper.
-                if _is_context_overflow(exc):
-                    recovered = await self._maybe_compact_reactive(exc, step=steps)
-                    if recovered:
+        try:
+            while steps < spec.max_steps:
+                budget = spec.budget
+                unpriced_model = self._unpriced_budget_model()
+                if unpriced_model is not None:
+                    from .cost import UnknownModelCostError
+
+                    budget = spec.budget
+                    assert budget is not None
+                    if budget.on_exceed == "stop":
+                        stopped = "budget"
+                        yield StreamEvent("turn_end", {"text": "", "stopped": stopped})
+                        break
+                    raise UnknownModelCostError(unpriced_model, budget.max_usd)
+
+                steps += 1
+                tools = self._visible_tool_specs(steps)
+                yield StreamEvent("turn_start", {"step": steps})
+                effective_messages = self._apply_middleware(self.messages)
+                producer_model = spec.model
+                resp: Optional[ModelResponse] = None
+                try:
+                    async for event in spec.model.stream(
+                        effective_messages,
+                        system=self._system_prompt(),
+                        tools=tools or None,
+                        max_tokens=spec.max_tokens,
+                        temperature=spec.temperature,
+                        thinking_level=spec.thinking_level,
+                    ):
+                        if event.type == "turn_end":
+                            resp = event.data["response"]
+                        else:
+                            yield event
+                except Exception as exc:
+                    if _is_context_overflow(exc):
+                        if not await self._maybe_compact_reactive(exc, step=steps):
+                            raise
                         effective_messages = self._apply_middleware(self.messages)
-                        async for ev in spec.model.stream(
+                        async for event in spec.model.stream(
                             effective_messages,
                             system=self._system_prompt(),
                             tools=tools or None,
@@ -1221,69 +1294,247 @@ class Session:
                             temperature=spec.temperature,
                             thinking_level=spec.thinking_level,
                         ):
-                            if ev.type == "turn_end":
-                                resp = ev.data["response"]
+                            if event.type == "turn_end":
+                                resp = event.data["response"]
                             else:
-                                yield ev
+                                yield event
+                    elif spec.fallback_models:
+                        for fallback_model in spec.fallback_models:
+                            try:
+                                async for event in fallback_model.stream(
+                                    effective_messages,
+                                    system=self._system_prompt(),
+                                    tools=tools or None,
+                                    max_tokens=spec.max_tokens,
+                                    temperature=spec.temperature,
+                                    thinking_level=spec.thinking_level,
+                                ):
+                                    if event.type == "turn_end":
+                                        resp = event.data["response"]
+                                    else:
+                                        yield event
+                                producer_model = fallback_model
+                                break
+                            except Exception:
+                                continue
+                        if resp is None:
+                            raise exc
                     else:
                         raise
-                else:
-                    raise
-            assert resp is not None
-            total = total + resp.usage
-            self.messages.append(resp.message)
+                if resp is None:
+                    raise RuntimeError("model stream ended without a turn_end response")
 
-            # Budget enforcement via shared helper
-            stop_reason, _budget_approved, _budget_warnings = await self._enforce_budget(
-                total,
-                _budget_approved=_budget_approved,
-                _budget_warnings=_budget_warnings,
-            )
-            if stop_reason is not None:
-                stopped = stop_reason
-                yield StreamEvent("turn_end", {"text": resp.message.text or "", "stopped": stopped})
-                break
+                total = total + resp.usage
+                step_cost = Cost(
+                    resp.usage.input_tokens, resp.usage.output_tokens, producer_model.name
+                )
+                total_cost = total_cost + step_cost
+                self.messages.append(resp.message)
+                await self._write_record(RecordType.ASSISTANT_MESSAGE, {"message": resp.message})
+                await self._write_record(
+                    RecordType.STEP_COMPLETE,
+                    {
+                        "step": steps,
+                        "input_tokens": resp.usage.input_tokens,
+                        "output_tokens": resp.usage.output_tokens,
+                    },
+                )
+                if budget is not None:
+                    budget.attribute(step_cost)
 
-            # Memory cap enforcement via shared helper
-            mem_stop = await self._enforce_memory_cap(resp)
-            if mem_stop is not None:
-                stopped = mem_stop
-                yield StreamEvent("turn_end", {"text": resp.message.text or "", "stopped": stopped})
-                break
+                stop_reason, budget_approved, budget_warnings = await self._enforce_budget(
+                    total_cost,
+                    _budget_approved=budget_approved,
+                    _budget_warnings=budget_warnings,
+                )
+                if stop_reason is not None:
+                    stopped = stop_reason
+                    yield StreamEvent(
+                        "turn_end", {"text": resp.message.text or "", "stopped": stopped}
+                    )
+                    break
 
-            if resp.stop_reason != StopReason.TOOL_USE and not resp.tool_uses:
-                stopped = "end_turn"
-                yield StreamEvent("turn_end", {"text": resp.message.text})
-                break
-            # Tool calls go through _execute_tools which already enforces
-            # governance policy (tool masking/blocking) via the same path as prompt().
-            for use in resp.tool_uses:
-                yield StreamEvent("tool_call", {"name": use.name, "input": use.input})
-            results = await self._execute_tools(resp.tool_uses)
-            for r in results:
-                yield StreamEvent("tool_result", {"content": r.content, "error": r.is_error})
-            self.messages.append(Message("user", results))
-            # auto-compact if policy threshold is reached
-            await self._maybe_compact()
+                mem_stop = await self._enforce_memory_cap(resp)
+                if mem_stop is not None:
+                    stopped = mem_stop
+                    yield StreamEvent(
+                        "turn_end", {"text": resp.message.text or "", "stopped": stopped}
+                    )
+                    break
+
+                if spec.step_callback is not None:
+                    try:
+                        spec.step_callback(steps, resp, self.messages)
+                    except Exception:
+                        import warnings as _warnings
+
+                        _warnings.warn("step_callback raised; continuing loop")
+
+                if spec.stop_predicate is not None:
+                    try:
+                        result_in_progress = RunResult(
+                            text=self._last_assistant_text(),
+                            messages=self.messages,
+                            usage=total,
+                            steps=steps,
+                            stopped="in_progress",
+                            cost=total_cost,
+                        )
+                        if spec.stop_predicate(result_in_progress):
+                            stopped = "predicate"
+                            yield StreamEvent(
+                                "turn_end", {"text": resp.message.text or "", "stopped": stopped}
+                            )
+                            break
+                    except Exception:
+                        import warnings as _warnings
+
+                        _warnings.warn("stop_predicate raised; continuing loop")
+
+                if resp.stop_reason != StopReason.TOOL_USE and not resp.tool_uses:
+                    stopped = "end_turn"
+                    yield StreamEvent("turn_end", {"text": resp.message.text})
+                    break
+                for use in resp.tool_uses:
+                    yield StreamEvent("tool_call", {"name": use.name, "input": use.input})
+                results = await self._execute_tools(resp.tool_uses)
+                for result in results:
+                    yield StreamEvent(
+                        "tool_result", {"content": result.content, "error": result.is_error}
+                    )
+                self.messages.append(Message("user", results))
+                await self._write_record(RecordType.USER_MESSAGE, {"message": self.messages[-1]})
+                await self._maybe_compact()
+                self._checkpoint()
+            else:
+                stopped = "max_steps"
+
             self._checkpoint()
-        else:
-            stopped = "max_steps"
+            run_result = RunResult(
+                text=self._last_assistant_text(),
+                messages=self.messages,
+                usage=total,
+                steps=steps,
+                stopped=stopped,
+                cost=total_cost,
+                conversation_id=self.id,
+            )
+            run_result.findings = self._detect(run_result)
+            if budget_warnings:
+                run_result.findings = list(run_result.findings) + budget_warnings
+            run_result.receipt = self._assure(run_result, started_at=started_at)
+            await self._write_record(
+                RecordType.RUN_END,
+                {
+                    "stopped": stopped,
+                    "usage": {
+                        "input_tokens": total.input_tokens,
+                        "output_tokens": total.output_tokens,
+                    },
+                    "findings": [
+                        {
+                            "detector": finding.detector,
+                            "severity": finding.severity.value,
+                            "message": finding.message,
+                        }
+                        for finding in run_result.findings
+                    ],
+                    "cost": {
+                        "input_tokens": run_result.cost.input_tokens,
+                        "output_tokens": run_result.cost.output_tokens,
+                        "model": run_result.cost.model,
+                    },
+                },
+            )
+            if getattr(spec, "scrub_after_run", False):
+                import hashlib as _hashlib
 
-        # Produce findings from configured detectors (same as prompt path)
-        self._checkpoint()
-        final_text = self._last_assistant_text()
-        _stream_result = RunResult(
-            text=final_text,
-            messages=self.messages,
-            usage=total,
-            steps=steps,
-            stopped=stopped,
-            cost=Cost(total.input_tokens, total.output_tokens, spec.model.name),
-            conversation_id=self.id,
-        )
-        _stream_result.findings = self._detect(_stream_result)
-        if _budget_warnings:
-            _stream_result.findings = list(_stream_result.findings) + _budget_warnings
+                for message in self.messages:
+                    digest = _hashlib.sha256(str(message.content).encode()).hexdigest()
+                    message.content = f"[scrubbed:sha256:{digest[:16]}]"
+
+            if vault is not None:
+                run_result.text = vault.rehydrate(run_result.text)
+            receipt = run_result.receipt
+            yield StreamEvent(
+                "result",  # type: ignore[arg-type]
+                {
+                    "text": run_result.text,
+                    "steps": run_result.steps,
+                    "stopped": run_result.stopped,
+                    "usage": {
+                        "input_tokens": run_result.usage.input_tokens,
+                        "output_tokens": run_result.usage.output_tokens,
+                    },
+                    "findings": [
+                        {
+                            "detector": finding.detector,
+                            "severity": finding.severity.value,
+                            "message": finding.message,
+                        }
+                        for finding in run_result.findings
+                    ],
+                    "receipt": None
+                    if receipt is None
+                    else {
+                        "run_id": receipt.run_id,
+                        "content_hash": receipt.content_hash,
+                        "quality_score": receipt.quality_score,
+                        "quality_grade": receipt.quality_grade,
+                    },
+                },
+            )
+        except (asyncio.CancelledError, GeneratorExit) as exc:
+            # A consumer can cancel or explicitly close an async generator while it
+            # is suspended at a yield. Persist the terminal state, then propagate
+            # the original control-flow signal unchanged.
+            await self._write_record(
+                RecordType.ERROR,
+                {"error_type": type(exc).__name__, "error_message": "stream cancelled"},
+            )
+            await self._write_record(
+                RecordType.RUN_END,
+                {
+                    "stopped": "cancelled",
+                    "usage": {
+                        "input_tokens": total.input_tokens,
+                        "output_tokens": total.output_tokens,
+                    },
+                    "findings": [],
+                    "cost": {
+                        "input_tokens": total.input_tokens,
+                        "output_tokens": total.output_tokens,
+                        "model": spec.model.name,
+                    },
+                },
+            )
+            raise
+        except Exception as exc:
+            await self._write_record(
+                RecordType.ERROR,
+                {"error_type": type(exc).__name__, "error_message": str(exc)},
+            )
+            await self._write_record(
+                RecordType.RUN_END,
+                {
+                    "stopped": "error",
+                    "usage": {
+                        "input_tokens": total.input_tokens,
+                        "output_tokens": total.output_tokens,
+                    },
+                    "findings": [],
+                    "cost": {
+                        "input_tokens": total.input_tokens,
+                        "output_tokens": total.output_tokens,
+                        "model": spec.model.name,
+                    },
+                },
+            )
+            yield StreamEvent(
+                "error",
+                {"error_type": type(exc).__name__, "error_message": str(exc)},
+            )
+            raise
 
     # ---- helpers ------------------------------------------------------------
 
@@ -1308,9 +1559,19 @@ class Session:
 
     # ---- shared policy enforcement helpers (used by _run_loop and stream) ----
 
+    def _unpriced_budget_model(self) -> str | None:
+        """Return the first selectable unpriced model when budget enforcement is enabled."""
+        if self.spec.budget is None:
+            return None
+        for model in [self.spec.model, *(self.spec.fallback_models or [])]:
+            name = getattr(model, "name", None)
+            if not isinstance(name, str) or not Cost(model=name).is_priced:
+                return str(name)
+        return None
+
     async def _enforce_budget(
         self,
-        total: Usage,
+        running: Cost,
         *,
         _budget_approved: bool = False,
         _budget_warnings: "list[Finding] | None" = None,
@@ -1332,8 +1593,6 @@ class Session:
 
         if budget is None:
             return None, _budget_approved, _budget_warnings
-
-        running = Cost(total.input_tokens, total.output_tokens, spec.model.name)
 
         if not _budget_approved:
             if budget.should_warn(running):

@@ -9,6 +9,7 @@ from typing import Any
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
+import pytest
 
 from tvastar import Harness, TaskGraph, create_agent
 from tvastar.memory.store import InMemoryStore, Store
@@ -388,3 +389,144 @@ class TestStaleEntriesIgnored:
         assert result["current_b"].text == "fresh_b"
         # Only current_b should have called model
         assert model.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Verified resume journal (v0.28.1)
+# ---------------------------------------------------------------------------
+
+
+async def test_verified_resume_uses_isolated_fingerprinted_records():
+    """Verified resume rejects a changed graph and never consumes legacy strings."""
+    journal = InMemoryStore()
+    run_id = "verified-run"
+
+    first_model = TrackingModel(label="first", response="cached")
+    first_graph = TaskGraph(_make_harness(first_model))
+    first_graph.task("node", "original prompt")
+    await first_graph.run(graph_run_id=run_id, journal=journal, verified_resume=True)
+
+    assert journal.get(f"{run_id}:node") is None
+    verified_key = f"{run_id}:verified-resume:v1:node"
+    assert isinstance(journal.get(verified_key), str)
+
+    same_model = TrackingModel(label="same", response="should not run")
+    same_graph = TaskGraph(_make_harness(same_model))
+    same_graph.task("node", "original prompt")
+    same_result = await same_graph.run(graph_run_id=run_id, journal=journal, verified_resume=True)
+    assert same_model.call_count == 0
+    assert same_result["node"].text == "cached"
+
+    changed_model = TrackingModel(label="changed", response="fresh")
+    changed_graph = TaskGraph(_make_harness(changed_model))
+    changed_graph.task("node", "changed prompt")
+    changed_result = await changed_graph.run(
+        graph_run_id=run_id,
+        journal=journal,
+        verified_resume=True,
+    )
+    assert changed_model.call_count == 1
+    assert changed_result["node"].text == "fresh"
+
+
+async def test_verified_resume_requires_journal_and_graph_run_id():
+    """Verified resume cannot silently run without its trust boundary."""
+    graph = TaskGraph(_make_harness(TrackingModel(label="required")))
+    graph.task("node", "work")
+
+    import pytest
+
+    with pytest.raises(ValueError, match="journal and graph_run_id"):
+        await graph.run(verified_resume=True)
+    with pytest.raises(ValueError, match="journal and graph_run_id"):
+        await graph.run(verified_resume=True, journal=InMemoryStore())
+
+
+@pytest.mark.parametrize(
+    ("change", "expected_calls"),
+    [
+        ("inject_results", 1),
+        ("model", 1),
+        ("timeout", 1),
+    ],
+)
+async def test_verified_resume_reexecutes_when_execution_inputs_change(change, expected_calls):
+    """Execution-affecting inputs are fingerprinted rather than reused stale."""
+    journal = InMemoryStore()
+    run_id = f"verified-{change}"
+    first_node_model = TrackingModel(label="node-first", response="cached")
+    first_node_model.name = "model-a"
+    first_graph = TaskGraph(_make_harness(TrackingModel(label="harness-first")))
+    first_graph.task("node", "work", model=first_node_model)
+    await first_graph.run(graph_run_id=run_id, journal=journal, verified_resume=True)
+
+    second_node_model = TrackingModel(label="node-second", response="fresh")
+    second_node_model.name = "model-b" if change == "model" else "model-a"
+    second_graph = TaskGraph(_make_harness(TrackingModel(label="harness-second")))
+    second_graph.task(
+        "node", "work", model=second_node_model, cancel_after=2.0 if change == "timeout" else None
+    )
+    result = await second_graph.run(
+        inject_results=change != "inject_results",
+        graph_run_id=run_id,
+        journal=journal,
+        verified_resume=True,
+    )
+
+    assert second_node_model.call_count == expected_calls
+    assert result["node"].text == "fresh"
+
+
+async def test_verified_resume_reexecutes_corrupt_record_and_opaque_callable():
+    """Corrupt journals and anonymous conditions are never trusted for reuse."""
+    journal = InMemoryStore()
+    run_id = "verified-corrupt"
+    first_model = TrackingModel(label="first", response="cached")
+    first_graph = TaskGraph(_make_harness(first_model))
+    first_graph.task("node", "work")
+    await first_graph.run(graph_run_id=run_id, journal=journal, verified_resume=True)
+
+    key = f"{run_id}:verified-resume:v1:node"
+    journal.set(key, "not json")
+    replacement = TrackingModel(label="replacement", response="fresh")
+    replacement_graph = TaskGraph(_make_harness(replacement))
+    replacement_graph.task("node", "work")
+    result = await replacement_graph.run(graph_run_id=run_id, journal=journal, verified_resume=True)
+    assert replacement.call_count == 1
+    assert result["node"].text == "fresh"
+
+    opaque = TrackingModel(label="opaque", response="opaque fresh")
+    opaque_graph = TaskGraph(_make_harness(opaque))
+    opaque_graph.task("source", "source")
+    opaque_graph.task(
+        "node", "work", depends_on=["source"], edge_conditions={"source": lambda _: True}
+    )
+    await opaque_graph.run(graph_run_id="opaque", journal=journal, verified_resume=True)
+    repeat = TrackingModel(label="opaque-repeat", response="fresh again")
+    repeat_graph = TaskGraph(_make_harness(repeat))
+    repeat_graph.task("source", "source")
+    repeat_graph.task(
+        "node", "work", depends_on=["source"], edge_conditions={"source": lambda _: True}
+    )
+    await repeat_graph.run(graph_run_id="opaque", journal=journal, verified_resume=True)
+    assert repeat.call_count == 2
+
+
+@pytest.mark.parametrize("changed", [{"instructions": "changed"}, {"max_tokens": 17}])
+async def test_verified_resume_reexecutes_when_default_agent_contract_changes(changed):
+    """Ordinary nodes fingerprint the harness agent's stable execution contract."""
+    journal = InMemoryStore()
+    run_id = "verified-default-agent-contract"
+    first = TrackingModel(label="first", response="cached")
+    first_graph = TaskGraph(Harness(create_agent("agent", model=first, instructions="original")))
+    first_graph.task("node", "work")
+    await first_graph.run(graph_run_id=run_id, journal=journal, verified_resume=True)
+
+    second = TrackingModel(label="second", response="fresh")
+    spec_kwargs = {"instructions": "original", **changed}
+    graph = TaskGraph(Harness(create_agent("agent", model=second, **spec_kwargs)))
+    graph.task("node", "work")
+    result = await graph.run(graph_run_id=run_id, journal=journal, verified_resume=True)
+
+    assert second.call_count == 1
+    assert result["node"].text == "fresh"

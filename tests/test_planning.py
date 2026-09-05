@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from tvastar.model.mock import MockModel
 from tvastar.planning import (
     AgileMethodology,
@@ -11,6 +13,7 @@ from tvastar.planning import (
     DesignDoc,
     EARSMethodology,
     Plan,
+    PlanDiagnostic,
     Planner,
     PlanningMethodology,
     Task,
@@ -399,3 +402,97 @@ async def test_planner_methodology_defaults_to_ears():
     planner = Planner(model=MockModel())
     assert planner.methodology.name == "ears"
     assert isinstance(planner.methodology, EARSMethodology)
+
+
+# --- Planning output durability ---
+
+
+async def test_plan_returns_non_executable_diagnostics_for_malformed_output():
+    """A malformed planning phase is explicit and does not fabricate executable work."""
+    model = MockModel(script=["this is not JSON"])
+
+    plan = await Planner(model=model).plan("Build a dashboard")
+
+    assert plan.valid is False
+    assert plan.is_valid is False
+    assert plan.requirements == []
+    assert plan.tasks == []
+    assert plan.diagnostics == [
+        PlanDiagnostic(
+            phase="requirements",
+            code="malformed_json",
+            message="output is not valid JSON",
+            details=plan.diagnostics[0].details,
+        )
+    ]
+    assert len(model.calls) == 1
+    with pytest.raises(ValueError, match="Cannot execute invalid plan"):
+        await plan.execute(None)
+
+
+async def test_plan_returns_schema_diagnostic_for_invalid_task_shape():
+    """Schema-invalid later phases return an invalid Plan rather than fallback tasks."""
+    model = MockModel(script=[SAMPLE_REQUIREMENTS, SAMPLE_DESIGN, '[{"id": "T1"}]'])
+
+    plan = await Planner(model=model).plan("Build a dashboard")
+
+    assert plan.valid is False
+    assert plan.diagnostics[0].phase == "tasks"
+    assert plan.diagnostics[0].code == "schema_invalid"
+    assert "missing required field" in plan.diagnostics[0].message
+
+
+@pytest.mark.parametrize(
+    ("requirements", "tasks", "diagnostic_code"),
+    [
+        ("[]", SAMPLE_TASKS, "empty_requirements"),
+        (
+            json.dumps([{**json.loads(SAMPLE_REQUIREMENTS)[0], "id": ""}]),
+            SAMPLE_TASKS,
+            "empty_id",
+        ),
+        (json.dumps([json.loads(SAMPLE_REQUIREMENTS)[0]] * 2), SAMPLE_TASKS, "duplicate_id"),
+        (SAMPLE_REQUIREMENTS, "[]", "empty_tasks"),
+        (
+            SAMPLE_REQUIREMENTS,
+            json.dumps([{**json.loads(SAMPLE_TASKS)[0], "id": ""}]),
+            "empty_id",
+        ),
+        (SAMPLE_REQUIREMENTS, json.dumps([json.loads(SAMPLE_TASKS)[0]] * 2), "duplicate_id"),
+        (
+            SAMPLE_REQUIREMENTS,
+            json.dumps([{**json.loads(SAMPLE_TASKS)[0], "requirements": ["missing"]}]),
+            "unknown_requirement",
+        ),
+        (
+            SAMPLE_REQUIREMENTS,
+            json.dumps([{**json.loads(SAMPLE_TASKS)[0], "depends_on": ["missing"]}]),
+            "unknown_dependency",
+        ),
+        (
+            SAMPLE_REQUIREMENTS,
+            json.dumps([{**json.loads(SAMPLE_TASKS)[0], "depends_on": ["T1"]}]),
+            "self_dependency",
+        ),
+        (
+            SAMPLE_REQUIREMENTS,
+            json.dumps(
+                [
+                    {**json.loads(SAMPLE_TASKS)[0], "depends_on": ["T2"]},
+                    {**json.loads(SAMPLE_TASKS)[1], "depends_on": ["T1"]},
+                ]
+            ),
+            "dependency_cycle",
+        ),
+    ],
+)
+async def test_plan_semantic_validation_blocks_execution(requirements, tasks, diagnostic_code):
+    """Parsed plans are rejected before execution when their graph is semantically unsafe."""
+    plan = await Planner(model=MockModel(script=[requirements, SAMPLE_DESIGN, tasks])).plan(
+        "Build auth"
+    )
+
+    assert plan.valid is False
+    assert diagnostic_code in {diagnostic.code for diagnostic in plan.diagnostics}
+    with pytest.raises(ValueError, match="Cannot execute invalid plan"):
+        await plan.execute(None)

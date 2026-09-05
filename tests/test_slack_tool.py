@@ -66,7 +66,6 @@ async def test_import_error_when_slack_sdk_missing(monkeypatch):
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
     # Hide slack_sdk from the import system
     with patch.dict(sys.modules, {"slack_sdk": None}):
-        monkeypatch.delitem(sys.modules, "slack_sdk", raising=False)
         with pytest.raises(ToolError, match="Install tvastar\\[slack\\] for Slack tools"):
             await slack_post_message.invoke(
                 {"channel": "#test", "text": "hello"},

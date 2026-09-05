@@ -129,7 +129,8 @@ resumed = harness.resume("ci-repair-42")
 
 - **Use a task-specific verifier for a task-specific claim.** Loop verification accepts a `VerificationContract`; a missing, failed, or malformed required verifier fails the loop run. The CI repair workflow's verifier is the independently rerun test command.
 - **Detection is post-hoc evidence, not prevention.** Built-in detectors can report failure signals after a run; use governance, approval gates, and an appropriate execution boundary to limit actions before they happen.
-- **`VirtualSandbox` is not a security boundary.** It is the convenient default for tests and trusted development. For untrusted model-generated code, use `LocalSandbox` with a tight `SecurityPolicy` or a container/remote sandbox appropriate to your threat model.
+- **`VirtualSandbox` is not a security boundary.** It is the convenient default for tests and trusted development. `LocalSandbox` contains a relative `cwd` beneath its configured root, but commands still run on the host; use a container or remote sandbox when isolation is required.
+- **Serving controls are opt-in.** `create_app(..., authenticator=..., max_prompt_size=..., max_active_runs=...)` persists authenticated tenant-and-subject session ownership, rejects unknown or foreign sessions, and serializes a session's runs. In a multi-worker or container deployment, use one durable shared store for session and ownership state; the active-run limit is per application process.
 - **Receipts are integrity evidence, not third-party attestation.** See the [threat model](docs/threat-model.md) for trust boundaries and remaining risks.
 
 ## Documentation

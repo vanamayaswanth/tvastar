@@ -39,7 +39,9 @@ def evaluate_contract(
     if isinstance(verdict, VerificationVerdict):
         return verdict
     if isinstance(verdict, bool):
-        return VerificationVerdict(verdict, "verification passed" if verdict else "verification failed")
+        return VerificationVerdict(
+            verdict, "verification passed" if verdict else "verification failed"
+        )
     return VerificationVerdict(False, "verification verifier returned an invalid verdict")
 
 

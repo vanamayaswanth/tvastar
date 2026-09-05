@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -252,19 +253,18 @@ class LTMStore:
 
         # Find active row for this key (valid_until IS NULL)
         existing = self._conn.execute(
-            "SELECT version FROM facts WHERE key = ? AND valid_until IS NULL",
+            "SELECT version, valid_from FROM facts WHERE key = ? AND valid_until IS NULL",
             (key,),
         ).fetchone()
 
         if existing:
             new_version = existing[0] + 1
+            now = max(now, math.nextafter(existing[1], math.inf))
             # Close old row's valid_until — never delete
             self._conn.execute(
                 "UPDATE facts SET valid_until = ? WHERE key = ? AND valid_until IS NULL",
                 (now, key),
             )
-            # Auto-create SUPERSEDES relationship (new version supersedes old)
-            self.relate(key, "SUPERSEDES", key)
         else:
             new_version = 1
 
@@ -274,6 +274,13 @@ class LTMStore:
             "VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
             (key, serialized, agent, confidence, now, new_version, now),
         )
+        if existing:
+            # Keep the supersession edge in the same transaction and at the fact boundary.
+            self._conn.execute(
+                "INSERT INTO relationships (source_key, edge_type, target_key, valid_from, valid_until, confidence) "
+                "VALUES (?, ?, ?, ?, NULL, ?)",
+                (key, EdgeType.SUPERSEDES.value, key, now, 1.0),
+            )
         self._conn.commit()
         return Fact(
             key=key,
@@ -597,7 +604,7 @@ class LTMStore:
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-        query += " ORDER BY timestamp DESC LIMIT ?"
+        query += " ORDER BY timestamp DESC, id DESC LIMIT ?"
         params.append(limit)
 
         rows = self._conn.execute(query, params).fetchall()

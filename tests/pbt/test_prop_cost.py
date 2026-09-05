@@ -29,8 +29,13 @@ from tvastar.cost import Cost, BudgetExceeded, BudgetPolicy, COST_TABLE
 # Strategies
 # ---------------------------------------------------------------------------
 
-# Pick a model that has pricing info so .usd is non-zero
+# Cover every registered model, including the intentional zero-priced mock.
 st_model_names = st.sampled_from(list(COST_TABLE.keys()))
+
+# Budget-exceedance properties require an output rate that can meet a positive limit.
+st_positive_output_priced_models = st.sampled_from(
+    [model for model, rates in COST_TABLE.items() if rates["output"] > 0]
+)
 
 # Non-negative token counts for a single model.generate call
 st_token_pair = st.tuples(
@@ -125,7 +130,7 @@ def _make_cost_below(max_usd: float, model: str) -> Cost:
 
 
 @settings(max_examples=100, deadline=None)
-@given(max_usd=st_max_usd, model=st_model_names)
+@given(max_usd=st_max_usd, model=st_positive_output_priced_models)
 def test_budget_raise_on_exceed(max_usd: float, model: str):
     """For any BudgetPolicy with on_exceed='raise' and cost.usd >= max_usd,
     check() SHALL raise BudgetExceeded.
@@ -151,7 +156,7 @@ def test_budget_raise_on_exceed(max_usd: float, model: str):
 
 
 @settings(max_examples=100, deadline=None)
-@given(max_usd=st_max_usd, model=st_model_names)
+@given(max_usd=st_max_usd, model=st_positive_output_priced_models)
 def test_budget_stop_no_exception(max_usd: float, model: str):
     """For any BudgetPolicy with on_exceed='stop' and cost.usd >= max_usd,
     check() SHALL NOT raise. The session handles stopping externally.

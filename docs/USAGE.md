@@ -162,6 +162,22 @@ graph, profiles = await auto_topology(
 results = await graph.run()
 ```
 
+### Verified TaskGraph resume
+
+For crash recovery where reusing a stale result would be unsafe, use `verified_resume=True` with a stable run ID and persistent journal:
+
+```python
+from tvastar.memory.store import FileStore
+
+results = await graph.run(
+    graph_run_id="competitor-analysis-v1",
+    journal=FileStore(".tvastar-graph-journal"),
+    verified_resume=True,
+)
+```
+
+Verified records are versioned and isolated from legacy `resume=True` entries. Tvastar re-executes a node when the fingerprinted graph contract changes or its journal record is corrupt. It does not reuse a result when the contract contains opaque behavior, including tools or anonymous callables; that intentional limitation favors re-execution over a stale result.
+
 ---
 
 ## `@workflow` vs `dispatch()`
@@ -186,6 +202,8 @@ run = await pipeline.run({"input": "data"})
 # Dispatch — fire and move on
 await dispatch(spec, id="user_1", text="Hello", on_complete=send_reply)
 ```
+
+`WorkflowHarness` owns one sandbox for its lifetime. Its sessions, `fs`, and `shell()` calls share that sandbox, so staged files and filesystem side effects are visible across them. A workflow run closes the owned sandbox when it completes; coordinate concurrent writes yourself.
 
 ---
 

@@ -10,6 +10,7 @@ Verifies:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from unittest.mock import patch
@@ -23,8 +24,9 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 from tvastar.agent import AgentSpec
+from tvastar.memory.store import InMemoryStore
 from tvastar.model.mock import MockModel
-from tvastar.serving.http import create_app
+from tvastar.serving.http import Principal, create_app
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +281,188 @@ class TestSessionManagement:
 
 
 # ---------------------------------------------------------------------------
+# Test: optional serving hardening
+# ---------------------------------------------------------------------------
+
+
+def _test_authenticator(connection):
+    """Read a deliberately simple test identity from an inbound header."""
+    identity = connection.headers.get("x-test-principal")
+    if not identity:
+        return None
+    tenant_id, subject_id = identity.split(":", 1)
+    return Principal(tenant_id=tenant_id, subject_id=subject_id)
+
+
+class TestServingHardening:
+    """Verify additive authentication, ownership, limits, and serialization controls."""
+
+    @staticmethod
+    def _headers(tenant_id: str, subject_id: str = "user") -> dict[str, str]:
+        return {"x-test-principal": f"{tenant_id}:{subject_id}"}
+
+    def test_authentication_is_optional_but_required_when_configured(self, mock_spec: AgentSpec):
+        app = create_app(mock_spec, authenticator=_test_authenticator)
+        client = TestClient(app)
+
+        assert client.get("/sessions").status_code == 401
+        assert client.post("/sessions", headers=self._headers("tenant-a")).status_code == 200
+
+    def test_authenticated_sessions_are_tenant_scoped_and_unknown_ids_are_denied(
+        self, mock_spec: AgentSpec
+    ):
+        app = create_app(mock_spec, store=InMemoryStore(), authenticator=_test_authenticator)
+        client = TestClient(app)
+        tenant_a = self._headers("tenant-a", "alice")
+        tenant_b = self._headers("tenant-b", "bob")
+
+        session_id = client.post("/sessions", headers=tenant_a).json()["session_id"]
+        assert (
+            client.post(
+                f"/sessions/{session_id}/prompt", headers=tenant_a, json={"text": "Hi"}
+            ).status_code
+            == 200
+        )
+
+        tenant_a_sessions = client.get("/sessions", headers=tenant_a).json()["sessions"]
+        assert [session["id"] for session in tenant_a_sessions] == [session_id]
+        assert client.get("/sessions", headers=tenant_b).json()["sessions"] == []
+        assert (
+            client.post(
+                f"/sessions/{session_id}/prompt", headers=tenant_b, json={"text": "Hi"}
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post(
+                "/sessions/unknown-session/prompt", headers=tenant_a, json={"text": "Hi"}
+            ).status_code
+            == 404
+        )
+
+    def test_session_owner_survives_app_recreation(self, mock_spec: AgentSpec):
+        store = InMemoryStore()
+        tenant_a = self._headers("tenant-a", "alice")
+        first = TestClient(create_app(mock_spec, store=store, authenticator=_test_authenticator))
+        session_id = first.post("/sessions", headers=tenant_a).json()["session_id"]
+        assert (
+            first.post(
+                f"/sessions/{session_id}/prompt", headers=tenant_a, json={"text": "Persist me"}
+            ).status_code
+            == 200
+        )
+
+        second = TestClient(create_app(mock_spec, store=store, authenticator=_test_authenticator))
+        assert (
+            second.post(
+                f"/sessions/{session_id}/prompt", headers=tenant_a, json={"text": "Resume me"}
+            ).status_code
+            == 200
+        )
+        assert (
+            second.post(
+                f"/sessions/{session_id}/prompt",
+                headers=self._headers("tenant-b", "bob"),
+                json={"text": "No access"},
+            ).status_code
+            == 404
+        )
+
+    def test_prompt_limit_applies_to_http_and_sse(self, mock_spec: AgentSpec):
+        client = TestClient(create_app(mock_spec, max_prompt_size=3))
+
+        assert client.post("/sessions/limited/prompt", json={"text": "four"}).status_code == 413
+        assert client.get("/sessions/limited/stream", params={"text": "four"}).status_code == 413
+        assert client.post("/sessions/limited/prompt", json={"text": "fit"}).status_code == 200
+
+    def test_completed_run_releases_the_active_run_permit(self, mock_spec: AgentSpec):
+        client = TestClient(create_app(mock_spec, max_active_runs=1))
+
+        assert client.post("/sessions/one/prompt", json={"text": "First"}).status_code == 200
+        assert client.post("/sessions/two/prompt", json={"text": "Second"}).status_code == 200
+
+    async def test_active_run_limit_rejects_parallel_work_and_releases(self):
+        from httpx import ASGITransport, AsyncClient
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        class BlockingModel(MockModel):
+            async def generate(self, messages, **kwargs):
+                started.set()
+                await release.wait()
+                return await super().generate(messages, **kwargs)
+
+        app = create_app(AgentSpec(name="blocked", model=BlockingModel()), max_active_runs=1)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            active = asyncio.create_task(
+                client.post("/sessions/active/prompt", json={"text": "Hold the permit"})
+            )
+            await asyncio.wait_for(started.wait(), timeout=1)
+            assert (
+                await client.post("/sessions/rejected/prompt", json={"text": "Reject me"})
+            ).status_code == 429
+            release.set()
+            assert (await active).status_code == 200
+            assert (
+                await client.post("/sessions/reused/prompt", json={"text": "Run again"})
+            ).status_code == 200
+
+    async def test_same_session_runs_are_serialized(self):
+        from httpx import ASGITransport, AsyncClient
+
+        first_started = asyncio.Event()
+        release = asyncio.Event()
+
+        class SerialModel(MockModel):
+            def __init__(self):
+                super().__init__()
+                self.starts = 0
+
+            async def generate(self, messages, **kwargs):
+                self.starts += 1
+                if self.starts == 1:
+                    first_started.set()
+                    await release.wait()
+                return await super().generate(messages, **kwargs)
+
+        model = SerialModel()
+        app = create_app(AgentSpec(name="serial", model=model))
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            first = asyncio.create_task(
+                client.post("/sessions/serial/prompt", json={"text": "First"})
+            )
+            await asyncio.wait_for(first_started.wait(), timeout=1)
+            second = asyncio.create_task(
+                client.post("/sessions/serial/prompt", json={"text": "Second"})
+            )
+            await asyncio.sleep(0.01)
+            assert model.starts == 1
+            release.set()
+            assert (await first).status_code == 200
+            assert (await second).status_code == 200
+            assert model.starts == 2
+
+    def test_sse_and_websocket_release_the_active_run_permit(self, mock_spec: AgentSpec):
+        client = TestClient(create_app(mock_spec, max_active_runs=1))
+
+        assert client.get("/sessions/sse/stream", params={"text": "SSE"}).status_code == 200
+        with client.websocket_connect("/sessions/ws/stream") as ws:
+            ws.send_json({"text": "WebSocket"})
+            while ws.receive_json()["type"] != "done":
+                pass
+        assert (
+            client.post("/sessions/after/prompt", json={"text": "After streams"}).status_code == 200
+        )
+
+    def test_invalid_serving_limits_are_rejected(self, mock_spec: AgentSpec):
+        with pytest.raises(ValueError, match="max_prompt_size"):
+            create_app(mock_spec, max_prompt_size=-1)
+        with pytest.raises(ValueError, match="max_active_runs"):
+            create_app(mock_spec, max_active_runs=0)
+
+
+# ---------------------------------------------------------------------------
 # Test: ImportError with install instructions (Req 24.6)
 # ---------------------------------------------------------------------------
 
@@ -330,3 +514,51 @@ class TestImportErrorPath:
                 assert "serve" in str(e).lower() or "fastapi" in str(e).lower()
             finally:
                 sys.modules.update(saved)
+
+
+class TestAuthenticatedSessionSubjectOwnership:
+    """A tenant principal may access only its own subject's serving sessions."""
+
+    def test_subject_scoping_applies_to_http_sse_websocket_and_list(self, mock_spec: AgentSpec):
+        from starlette.websockets import WebSocketDisconnect
+
+        client = TestClient(
+            create_app(mock_spec, store=InMemoryStore(), authenticator=_test_authenticator)
+        )
+        alice = {"x-test-principal": "tenant-a:alice"}
+        mallory = {"x-test-principal": "tenant-a:mallory"}
+        session_id = client.post("/sessions", headers=alice).json()["session_id"]
+
+        assert [
+            item["id"] for item in client.get("/sessions", headers=alice).json()["sessions"]
+        ] == [session_id]
+        assert client.get("/sessions", headers=mallory).json()["sessions"] == []
+        assert (
+            client.post(
+                f"/sessions/{session_id}/prompt", headers=mallory, json={"text": "no"}
+            ).status_code
+            == 404
+        )
+        assert (
+            client.get(
+                f"/sessions/{session_id}/stream", headers=mallory, params={"text": "no"}
+            ).status_code
+            == 404
+        )
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(f"/sessions/{session_id}/stream", headers=mallory):
+                pass
+
+    def test_created_session_routes_from_another_app_before_first_run(self, mock_spec: AgentSpec):
+        store = InMemoryStore()
+        headers = {"x-test-principal": "tenant-a:alice"}
+        first = TestClient(create_app(mock_spec, store=store, authenticator=_test_authenticator))
+        session_id = first.post("/sessions", headers=headers).json()["session_id"]
+
+        second = TestClient(create_app(mock_spec, store=store, authenticator=_test_authenticator))
+        assert (
+            second.post(
+                f"/sessions/{session_id}/prompt", headers=headers, json={"text": "resume"}
+            ).status_code
+            == 200
+        )

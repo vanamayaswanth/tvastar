@@ -381,3 +381,70 @@ async def test_workflow_context_logging():
     assert log_events[0].data["level"] == "info"
     assert log_events[0].data["message"] == "starting work"
     assert log_events[1].data["level"] == "warn"
+
+
+async def test_workflow_closes_owned_harness_and_reuses_filesystem_sandbox():
+    """One WorkflowHarness owns its sandbox across fs access and run cleanup."""
+    from tvastar.sandbox.virtual import VirtualSandbox
+
+    class TrackingSandbox(VirtualSandbox):
+        def __init__(self):
+            super().__init__()
+            self.starts = 0
+            self.stops = 0
+
+        async def start(self):
+            self.starts += 1
+            await super().start()
+
+        async def stop(self):
+            self.stops += 1
+            await super().stop()
+
+    sandbox = TrackingSandbox()
+
+    @workflow
+    async def use_owned_resources(ctx: WorkflowContext) -> dict:
+        spec = create_agent(
+            "owned-sandbox",
+            model=MockModel(),
+            instructions="",
+            sandbox=lambda: sandbox,
+            detect=False,
+        )
+        harness = await ctx.init(spec)
+        assert harness.fs is harness.fs
+        await harness.fs.write_file("workflow.txt", "durable")
+        return {"contents": await harness.fs.read_file("workflow.txt")}
+
+    run = await use_owned_resources.run()
+
+    assert run.status == RunStatus.COMPLETED
+    assert run.output == {"contents": "durable"}
+    assert sandbox.starts == 1
+    assert sandbox.stops == 1
+
+
+async def test_workflow_session_sees_files_staged_through_workflow_fs():
+    """Workflow fs, shell, and agent sessions share one lifecycle-owned sandbox."""
+    from tvastar.sandbox.virtual import VirtualSandbox
+
+    sandbox = VirtualSandbox()
+
+    @workflow
+    async def staged_input(ctx: WorkflowContext) -> dict:
+        harness = await ctx.init(
+            create_agent(
+                "shared-sandbox",
+                model=MockModel(["done"]),
+                sandbox=lambda: sandbox,
+                detect=False,
+            )
+        )
+        await harness.fs.write_file("input.txt", "visible")
+        session = await harness.session()
+        return {"contents": session.sandbox.fs.read("input.txt")}
+
+    run = await staged_input.run()
+    assert run.status == RunStatus.COMPLETED
+    assert run.output == {"contents": "visible"}

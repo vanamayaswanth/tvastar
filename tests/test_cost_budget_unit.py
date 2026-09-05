@@ -379,3 +379,89 @@ class TestBudgetCheckModes:
         policy = BudgetPolicy(max_usd=0.01, on_exceed="approve")
         cost = Cost(input_tokens=1_000_000, output_tokens=0, model="gpt-4o")
         policy.check(cost)
+
+
+class TestBudgetedModelPricing:
+    """A budget cannot safely enforce spend for an unpriced provider model."""
+
+    async def test_unknown_model_raises_before_provider_execution(self):
+        from tvastar.cost import UnknownModelCostError
+
+        model = MockModel(script=["should not run"])
+        model.name = "unknown-model-for-budget-test"
+        agent = create_agent(
+            "unknown-priced-model",
+            model=model,
+            budget=BudgetPolicy(max_usd=1.0, on_exceed="raise"),
+        )
+
+        with pytest.raises(UnknownModelCostError):
+            await Harness(agent).run("hello")
+        assert model.calls == []
+
+    async def test_unknown_model_stop_skips_provider_execution(self):
+        model = MockModel(script=["should not run"])
+        model.name = "unknown-model-for-stop-test"
+        agent = create_agent(
+            "unknown-priced-model-stop",
+            model=model,
+            budget=BudgetPolicy(max_usd=1.0, on_exceed="stop"),
+        )
+
+        result = await Harness(agent).run("hello")
+        assert result.stopped == "budget"
+        assert model.calls == []
+
+    async def test_unknown_model_approve_fails_closed_before_provider_execution(self):
+        """Approval cannot permit an unknown model because its spend is unmetered."""
+        from tvastar.cost import UnknownModelCostError
+
+        model = MockModel(script=["should not run"])
+        model.name = "unknown-model-for-approve-test"
+        agent = create_agent(
+            "unknown-priced-model-approve",
+            model=model,
+            budget=BudgetPolicy(max_usd=1.0, on_exceed="approve"),
+        )
+
+        with pytest.raises(UnknownModelCostError):
+            await Harness(agent).run("hello")
+        assert model.calls == []
+
+
+class TestBudgetedFallbackPricing:
+    async def test_unpriced_fallback_fails_closed_before_any_provider_call(self):
+        from tvastar.cost import UnknownModelCostError
+
+        primary = _priced_mock([RuntimeError("provider unavailable")], model="gpt-4o")
+        fallback = _priced_mock(["must not run"], model="unpriced-fallback")
+        agent = create_agent(
+            "unpriced-fallback",
+            model=primary,
+            fallback_models=[fallback],
+            budget=BudgetPolicy(max_usd=1.0),
+        )
+
+        with pytest.raises(UnknownModelCostError):
+            await Harness(agent).run("hello")
+        assert primary.calls == []
+        assert fallback.calls == []
+
+    async def test_fallback_cost_uses_the_producing_model_rate(self):
+        primary = _priced_mock([RuntimeError("provider unavailable")], model="gpt-4o")
+        fallback = _priced_mock(["fallback"], model="gpt-4o-mini")
+        result = await Harness(
+            create_agent(
+                "priced-fallback",
+                model=primary,
+                fallback_models=[fallback],
+                budget=BudgetPolicy(max_usd=1.0),
+            )
+        ).run("hello")
+
+        assert primary.calls
+        assert fallback.calls
+        assert result.cost.model == "gpt-4o-mini"
+        assert result.cost.usd == pytest.approx(
+            Cost(result.usage.input_tokens, result.usage.output_tokens, "gpt-4o-mini").usd
+        )

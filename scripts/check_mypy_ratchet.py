@@ -81,12 +81,12 @@ def main() -> int:
             return 1
 
     if baseline == 0:
-        # Baseline is 0 — switch to strict mode and delete baseline
+        # Baseline is 0 — switch to strict mode
         print("Baseline is 0 — switching to --strict mode")
-        BASELINE_FILE.unlink()
         exit_code, output = run_mypy(strict=True)
         print(output)
         if exit_code == 0:
+            BASELINE_FILE.unlink()
             print("PASS: mypy --strict passed with 0 errors (baseline deleted)")
             return 0
         else:
@@ -96,11 +96,14 @@ def main() -> int:
 
     # Normal ratchet mode
     print(f"Baseline: {baseline} errors")
-    _, output = run_mypy(strict=False)
+    exit_code, output = run_mypy(strict=False)
     print(output)
     error_count = count_errors(output)
     print(f"Current errors: {error_count} (baseline: {baseline})")
 
+    if exit_code != 0 and error_count == 0:
+        print(f"FAIL: mypy exited with status {exit_code} without parsed diagnostics")
+        return 1
     if error_count > baseline:
         print(f"FAIL: error count regressed ({error_count} > {baseline})")
         return 1

@@ -239,12 +239,8 @@ def stalled_progress(ctx: RunContext, *, min_steps: int = 5, window: int = 3) ->
 
     # Check last `window` events for progress indicators
     recent = ctx.events[-window:]
-    has_text_output = any(
-        ev.result and len(ev.result.content) > 50 for ev in recent
-    )
-    has_state_change = any(
-        ev.result and not ev.result.is_error for ev in recent
-    )
+    has_text_output = any(ev.result and len(ev.result.content) > 50 for ev in recent)
+    has_state_change = any(ev.result and not ev.result.is_error for ev in recent)
 
     # If all recent tool calls produced minimal output, likely stalled
     if not has_text_output and not has_state_change:

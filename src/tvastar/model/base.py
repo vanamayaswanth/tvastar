@@ -170,7 +170,6 @@ class Model(abc.ABC):
         yield StreamEvent("turn_end", {"response": resp})
 
 
-
 @dataclass
 class CascadeModel(Model):
     """Response-level speculative decoding for cost optimization.

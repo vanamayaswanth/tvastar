@@ -237,3 +237,39 @@ class TestTimeoutHandling:
         """ExecResult.render() includes [timed out] indicator."""
         result = ExecResult(exit_code=124, stdout="", stderr="", timed_out=True)
         assert "[timed out]" in result.render()
+
+
+class TestLocalSandboxCwdContainment:
+    """cwd must use LocalFileSystem containment before process launch."""
+
+    async def test_local_sandbox_rejects_parent_traversal_cwd(self, tmp_path):
+        sandbox = LocalSandbox(tmp_path)
+
+        with pytest.raises(SecurityViolation, match="escapes"):
+            await sandbox.exec("echo blocked", cwd="../outside")
+
+    async def test_local_sandbox_rejects_absolute_cwd(self, tmp_path):
+        sandbox = LocalSandbox(tmp_path)
+
+        with pytest.raises(SecurityViolation, match="Absolute"):
+            await sandbox.exec("echo blocked", cwd=str(tmp_path.parent))
+
+    async def test_local_sandbox_rejects_symlink_escape_cwd(self, tmp_path):
+        outside = tmp_path.parent / "outside"
+        outside.mkdir(exist_ok=True)
+        try:
+            (tmp_path / "escape").symlink_to(outside, target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks are unavailable on this platform")
+        sandbox = LocalSandbox(tmp_path)
+
+        with pytest.raises(SecurityViolation, match="escapes"):
+            await sandbox.exec("echo blocked", cwd="escape")
+
+    async def test_local_sandbox_allows_contained_cwd(self, tmp_path):
+        (tmp_path / "nested").mkdir()
+        sandbox = LocalSandbox(tmp_path)
+
+        result = await sandbox.exec("echo contained", cwd="nested")
+        assert result.ok
+        assert result.stdout.strip() == "contained"

@@ -542,6 +542,21 @@ class Fleet:
         )
         return entry
 
+    def rebind(self, name: str, loop: Any) -> AgentEntry:
+        """Attach a live Loop to metadata recovered by :meth:`load`.
+
+        Loaded entries are intentionally non-executable until this explicit
+        operation succeeds; callers then use normal lifecycle transitions to
+        deploy or resume the reattached loop.
+        """
+        if loop is None:
+            raise RegistrationError("Cannot rebind a fleet agent to None")
+        entry = self._registry.get(name)
+        if entry is None:
+            raise RegistrationError(f"Agent {name!r} is not registered")
+        entry.loop = loop
+        return entry
+
     async def submit(self, task: str, **kwargs: Any) -> Any:
         """Submit a task to the fleet for routing and execution.
 
@@ -566,7 +581,7 @@ class Fleet:
     # Persistence — survive process restarts (#45)
     # ------------------------------------------------------------------
 
-    def persist(self, path: str | None = None) -> str:
+    def persist(self, path: str | None = None, *, safe_recovery: bool = False) -> str:
         """Persist fleet registry state to a JSON file.
 
         Saves all agent registrations, lifecycle states, version histories,
@@ -576,6 +591,9 @@ class Fleet:
         ----------
         path:
             File path to write. Defaults to `.tvastar-fleet/{name}.json`.
+        safe_recovery:
+            When True, persist non-retired agents as ``registered`` so a
+            restart requires an explicit :meth:`rebind` before execution.
 
         Returns
         -------
@@ -601,7 +619,11 @@ class Fleet:
                 "name": entry.name,
                 "version": entry.version,
                 "owner": entry.owner,
-                "state": entry.state.value,
+                "state": (
+                    "registered"
+                    if safe_recovery and entry.state.value != "retired"
+                    else entry.state.value
+                ),
                 "config_overrides": entry.config_overrides,
                 "dependencies": entry.dependencies,
                 "registered_at": entry.registered_at,
@@ -620,15 +642,19 @@ class Fleet:
 
         state["dependencies"] = dict(self._registry._dependencies)
 
-        Path(path).write_text(json.dumps(state, indent=2), encoding="utf-8")
-        return path
+        file_path = Path(path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = file_path.with_suffix(f"{file_path.suffix}.tmp")
+        temporary_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        temporary_path.replace(file_path)
+        return str(file_path)
 
     def load(self, path: str | None = None) -> int:
         """Load fleet registry state from a persisted JSON file.
 
-        Restores agent metadata (state, versions, dependencies) but NOT
-        the Loop instances — those must be re-registered. Loaded agents
-        are placed in their persisted lifecycle state.
+        Restores agent metadata but NOT Loop instances. Every non-retired
+        entry is loaded as ``registered`` and cannot route work until a caller
+        explicitly :meth:`rebind`s a live Loop and applies lifecycle actions.
 
         Parameters
         ----------
@@ -656,42 +682,115 @@ class Fleet:
 
         from tvastar.fleet.registry import AgentEntry, AgentState, AgentVersion
 
-        count = 0
-        for name, data in state.get("agents", {}).items():
-            entry = AgentEntry(
-                name=data["name"],
-                version=data["version"],
-                owner=data["owner"],
-                loop=None,  # Loop must be re-registered
-                state=AgentState(data["state"]),
-                config_overrides=data.get("config_overrides", {}),
-                dependencies=data.get("dependencies", []),
-                registered_at=data.get("registered_at", 0.0),
-            )
-            self._registry._agents[name] = entry
+        # Validate and materialize every structure before mutating the registry.
+        # A corrupt recovery file must leave a live fleet exactly as it was.
+        if (
+            not isinstance(state, dict)
+            or state.get("fleet_name") != self._config.name
+            or not isinstance(state.get("agents"), dict)
+            or not isinstance(state.get("versions"), dict)
+            or not isinstance(state.get("dependencies"), dict)
+        ):
+            return 0
 
-            # Maintain active_set index
-            if entry.state == AgentState.ACTIVE:
-                self._registry._active_set.add(name)
-
-            count += 1
-
-        # Restore version histories
-        for name, versions in state.get("versions", {}).items():
-            self._registry._versions[name] = [
-                AgentVersion(
-                    version=v["version"],
-                    config_snapshot=v.get("config_snapshot", {}),
-                    quality_score=v.get("quality_score"),
-                    created_at=v.get("created_at", 0.0),
+        new_agents: dict[str, AgentEntry] = {}
+        new_versions: dict[str, list[AgentVersion]] = {}
+        new_version_index: dict[str, dict[str, AgentVersion]] = {}
+        new_dependencies: dict[str, list[str]] = {}
+        try:
+            for name, data in state["agents"].items():
+                if (
+                    not isinstance(name, str)
+                    or not isinstance(data, dict)
+                    or data.get("name") != name
+                ):
+                    return 0
+                if not all(
+                    isinstance(data.get(field), str) for field in ("version", "owner", "state")
+                ):
+                    return 0
+                if not isinstance(data.get("config_overrides", {}), dict):
+                    return 0
+                dependencies = data.get("dependencies", [])
+                if not isinstance(dependencies, list) or not all(
+                    isinstance(dependency, str) for dependency in dependencies
+                ):
+                    return 0
+                registered_at = data.get("registered_at", 0.0)
+                if isinstance(registered_at, bool) or not isinstance(registered_at, (int, float)):
+                    return 0
+                persisted_state = AgentState(data["state"])
+                # Loop objects cannot survive restart: loaded metadata must be inert
+                # until Fleet.rebind() attaches a live Loop and normal lifecycle APIs run.
+                loaded_state = (
+                    AgentState.RETIRED
+                    if persisted_state == AgentState.RETIRED
+                    else AgentState.REGISTERED
                 )
-                for v in versions
-            ]
+                new_agents[name] = AgentEntry(
+                    name=name,
+                    version=data["version"],
+                    owner=data["owner"],
+                    loop=None,
+                    state=loaded_state,
+                    config_overrides=data.get("config_overrides", {}),
+                    dependencies=dependencies,
+                    registered_at=float(registered_at),
+                )
+                new_dependencies[name] = list(dependencies)
 
-        # Restore dependency graph
-        self._registry._dependencies = state.get("dependencies", {})
+            for name, versions in state["versions"].items():
+                if name not in new_agents or not isinstance(versions, list):
+                    return 0
+                materialized_versions: list[AgentVersion] = []
+                for version_data in versions:
+                    if not isinstance(version_data, dict) or not isinstance(
+                        version_data.get("version"), str
+                    ):
+                        return 0
+                    snapshot = version_data.get("config_snapshot", {})
+                    created_at = version_data.get("created_at", 0.0)
+                    quality_score = version_data.get("quality_score")
+                    if (
+                        not isinstance(snapshot, dict)
+                        or isinstance(created_at, bool)
+                        or not isinstance(created_at, (int, float))
+                        or (
+                            quality_score is not None
+                            and not isinstance(quality_score, (int, float))
+                        )
+                    ):
+                        return 0
+                    materialized_versions.append(
+                        AgentVersion(
+                            version=version_data["version"],
+                            config_snapshot=snapshot,
+                            quality_score=quality_score,
+                            created_at=float(created_at),
+                        )
+                    )
+                new_versions[name] = materialized_versions
+                new_version_index[name] = {
+                    version.version: version for version in materialized_versions
+                }
 
-        return count
+            for name, dependencies in state["dependencies"].items():
+                if (
+                    name not in new_agents
+                    or not isinstance(dependencies, list)
+                    or not all(isinstance(dependency, str) for dependency in dependencies)
+                    or dependencies != new_dependencies[name]
+                ):
+                    return 0
+        except (TypeError, ValueError):
+            return 0
+
+        self._registry._agents = new_agents
+        self._registry._active_set = set()
+        self._registry._versions = new_versions
+        self._registry._version_index = new_version_index
+        self._registry._dependencies = new_dependencies
+        return len(new_agents)
 
     # ------------------------------------------------------------------
     # Graceful shutdown (#49)
@@ -700,8 +799,8 @@ class Fleet:
     async def shutdown(self, persist: bool = True) -> None:
         """Gracefully shut down the fleet.
 
-        1. Persists registry state (if persist=True)
-        2. Stops all registered Loops that have a stop() method
+        1. Stops all registered Loops that have a stop() method
+        2. Persists non-executable recovery metadata (if persist=True)
         3. Closes backend connections
 
         Parameters
@@ -709,14 +808,7 @@ class Fleet:
         persist:
             Whether to save fleet state before shutting down (default True).
         """
-        # 1. Persist state
-        if persist:
-            try:
-                self.persist()
-            except Exception:
-                pass  # persistence failure must not block shutdown
-
-        # 2. Stop all registered loops
+        # 1. Stop all registered loops before recording their recovery state.
         for name in list(self._registry._agents.keys()):
             entry = self._registry.get(name)
             if entry is None:
@@ -727,6 +819,13 @@ class Fleet:
                     await loop.stop()
                 except Exception:
                     pass  # individual loop stop failure must not block others
+
+        # 2. Persist only a safe, non-executable recovery state.
+        if persist:
+            try:
+                self.persist(safe_recovery=True)
+            except Exception:
+                pass  # persistence failure must not block shutdown
 
         # 3. Close backends
         if hasattr(self._state, "_backend") and self._state._backend is not None:

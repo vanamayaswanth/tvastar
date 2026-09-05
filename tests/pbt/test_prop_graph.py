@@ -81,6 +81,8 @@ class TimingModel:
         self._log = execution_log
         self._delay = delay
         self._call_count = 0
+        self.active_calls = 0
+        self.peak_active_calls = 0
 
     async def generate(
         self,
@@ -107,9 +109,17 @@ class TimingModel:
 
         if task_name:
             self._log[task_name] = {"start": time.monotonic()}
-            # Small delay to allow timing differentiation
+
+        self.active_calls += 1
+        self.peak_active_calls = max(self.peak_active_calls, self.active_calls)
+        try:
+            # Small delay yields to sibling model calls while retaining timestamps
+            # for the dependency-order property.
             await asyncio.sleep(self._delay)
-            self._log[task_name]["end"] = time.monotonic()
+        finally:
+            self.active_calls -= 1
+            if task_name:
+                self._log[task_name]["end"] = time.monotonic()
 
         return ModelResponse(
             message=Message("assistant", [TextBlock(text=f"done:{task_name}")]),
@@ -210,22 +220,9 @@ async def test_dag_independent_tasks_concurrent_eligibility(dag: dict[str, list[
     for root in roots:
         assert root in execution_log, f"Root task {root!r} was not executed"
 
-    # Verify that root tasks have overlapping execution windows (concurrent eligibility).
-    # If they ran sequentially, the last one's start would be >= first one's end * (n-1).
-    # With concurrency, at least two should overlap.
-    root_starts = [(name, execution_log[name]["start"]) for name in roots]
-    root_starts.sort(key=lambda x: x[1])
-
-    # Check that at least the first two roots started before the first root finished
-    first_root_name = root_starts[0][0]
-    first_root_end = execution_log[first_root_name]["end"]
-    second_root_start = root_starts[1][1]
-
-    # The second root task should have started before the first root task finished,
-    # proving they were scheduled concurrently
-    assert second_root_start < first_root_end, (
-        f"Independent root tasks were not scheduled concurrently: "
-        f"{first_root_name!r} ended at {first_root_end:.6f} but "
-        f"{root_starts[1][0]!r} started at {second_root_start:.6f}. "
-        f"Expected overlap for concurrent eligibility."
+    # Peak active model calls is deterministic and directly proves that at least
+    # two independent roots entered the model concurrently.
+    assert model.peak_active_calls >= 2, (
+        f"Independent root tasks did not enter the model concurrently: "
+        f"peak active calls was {model.peak_active_calls}; expected at least 2."
     )

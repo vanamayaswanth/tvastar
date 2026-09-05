@@ -192,7 +192,7 @@ class WorkflowContext:
     _run: WorkflowRun
     _registry: RunRegistry
     _tracer: Optional["Tracer"] = None
-    _harnesses: list[Harness] = field(default_factory=list)
+    _harnesses: list["WorkflowHarness"] = field(default_factory=list)
     _checkpoint_backend: Optional[WorkflowCheckpoint] = None
     _checkpoint_cache: dict[str, Any] = field(default_factory=dict)
 
@@ -234,8 +234,16 @@ class WorkflowContext:
         """
         harness = Harness(spec, store=store, durable=durable, tracer=self._tracer)
         wh = WorkflowHarness(harness, run=self._run, registry=self._registry)
-        self._harnesses.append(harness)
+        self._harnesses.append(wh)
         return wh
+
+    async def _close_harnesses(self) -> None:
+        """Close every workflow-owned harness without masking workflow outcomes."""
+        for harness in reversed(self._harnesses):
+            try:
+                await harness.close()
+            except Exception:
+                self._log("warn", "workflow harness cleanup failed")
 
     # ---- checkpointing ------------------------------------------------------
 
@@ -302,11 +310,17 @@ class WorkflowHarness:
         self._run = run
         self._registry = registry
         self._session_cache: dict[str, Any] = {}
+        self._sandbox = harness.spec.sandbox_factory()
+        self._fs = _WorkflowFS(self._sandbox)
+        self._closed = False
 
     async def session_async(self, name: str = "default") -> Any:
-        """Open (or reuse) a named session."""
+        """Open (or reuse) a named session in the workflow-owned sandbox."""
         if name not in self._session_cache:
+            await self._fs._ensure()
             sess = self._harness.session(session_id=name)
+            sess.sandbox = self._sandbox
+            sess._owns_sandbox = False
             await sess.start()
             self._session_cache[name] = sess
         return self._session_cache[name]
@@ -318,22 +332,25 @@ class WorkflowHarness:
     @property
     def fs(self) -> "_WorkflowFS":
         """Application-level filesystem access (not the agent's tool layer)."""
-        sandbox = self._harness.spec.sandbox_factory()
-        return _WorkflowFS(sandbox)
+        return self._fs
 
     async def shell(self, cmd: str, timeout: Optional[float] = None) -> str:
-        """Run a shell command in the agent sandbox from application code."""
-        sandbox = self._harness.spec.sandbox_factory()
-        await sandbox.start()
-        try:
-            result = await sandbox.exec(cmd, timeout=timeout)
-            return result.render()
-        finally:
-            await sandbox.stop()
+        """Run a shell command in the workflow-owned sandbox."""
+        await self._fs._ensure()
+        result = await self._sandbox.exec(cmd, timeout=timeout)
+        return result.render()
 
     async def close(self) -> None:
-        for sess in self._session_cache.values():
-            await sess.close()
+        """Release cached sessions and the shared sandbox exactly once."""
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            for sess in self._session_cache.values():
+                await sess.close()
+        finally:
+            if self._fs.started:
+                await self._sandbox.stop()
 
 
 class _WorkflowFS:
@@ -342,6 +359,11 @@ class _WorkflowFS:
     def __init__(self, sandbox: Any):
         self._sandbox = sandbox
         self._started = False
+
+    @property
+    def started(self) -> bool:
+        """Whether the owned sandbox has been started."""
+        return self._started
 
     async def _ensure(self) -> Any:
         if not self._started:
@@ -427,6 +449,7 @@ class Workflow:
             wrun.ended_at = time.time()
             wrun.add_event("run_end", status="failed", error=wrun.error)
         finally:
+            await ctx._close_harnesses()
             self.registry.save(wrun)
 
         return wrun

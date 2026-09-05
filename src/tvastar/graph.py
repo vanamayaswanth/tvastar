@@ -33,6 +33,8 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections import defaultdict
 from collections.abc import Sequence
@@ -275,6 +277,7 @@ class TaskGraph:
         resume: bool = False,
         graph_run_id: str | None = None,
         journal: "Store | None" = None,
+        verified_resume: bool = False,
     ) -> GraphResult:
         """
         Execute the task graph and return a :class:`GraphResult`.
@@ -298,7 +301,13 @@ class TaskGraph:
             A Store instance used for persisting completed node results.
             Any Store implementation works (FileStore, InMemoryStore,
             SQLiteStore). Journaling failures never break a run.
+        verified_resume:
+            Opt into versioned, fingerprinted journal records. These records are
+            isolated from legacy ``{graph_run_id}:{node_name}`` string entries;
+            entries from a different graph definition are re-executed.
         """
+        if verified_resume and (journal is None or not graph_run_id):
+            raise ValueError("verified_resume requires both journal and graph_run_id")
         if not self._nodes:
             return GraphResult({})
 
@@ -319,8 +328,13 @@ class TaskGraph:
         self._cycle_tasks: dict[str, asyncio.Task] = {}
         self._cycle_start_times: dict[str, float] = {}
 
-        # Mutable container so nested coroutines can disable journaling on failure
+        # Mutable container so nested coroutines can disable journaling on failure.
+        # Legacy mode retains its string key/value journal format exactly.
         _journal_ref: list["Store | None"] = [journal if graph_run_id else None]
+        _verified_fingerprint = (
+            self._resume_fingerprint(inject_results=inject_results) if verified_resume else None
+        )
+        _resume_enabled = resume or verified_resume
 
         # Reference to active TaskGroup for cycle re-entry spawning
         _tg_ref: list[asyncio.TaskGroup | None] = [None]
@@ -378,28 +392,43 @@ class TaskGraph:
             else:
                 _edge_inject_deps = None  # sentinel: use default behavior
 
-            # --- Journal read: skip execution if valid cached result ---
-            if resume and _journal_ref[0] is not None and graph_run_id:
-                import logging
-
+            # --- Journal read: skip execution if a compatible cached result exists ---
+            if (
+                _resume_enabled
+                and _journal_ref[0] is not None
+                and graph_run_id
+                and (not verified_resume or _verified_fingerprint is not None)
+            ):
                 stored = None
                 try:
-                    stored = _journal_ref[0].get(f"{graph_run_id}:{name}")
+                    key = (
+                        self._verified_journal_key(graph_run_id, name)
+                        if verified_resume
+                        else f"{graph_run_id}:{name}"
+                    )
+                    stored = _journal_ref[0].get(key)
                 except Exception:
                     logging.getLogger("tvastar.graph").warning(
                         "journal read failed for %s; continuing without journaling", name
                     )
                     _journal_ref[0] = None
 
-                if isinstance(stored, str):
-                    # Inject as if node completed
+                text = (
+                    self._verified_journal_text(stored, name, _verified_fingerprint)
+                    if verified_resume
+                    else stored
+                    if isinstance(stored, str)
+                    else None
+                )
+                if text is not None:
+                    # Inject as if node completed.
                     from .session import RunResult as _RunResult
                     from .types import Usage as _Usage
 
-                    completed[name] = _RunResult(text=stored, messages=[], usage=_Usage(), steps=0)
+                    completed[name] = _RunResult(text=text, messages=[], usage=_Usage(), steps=0)
                     done_events[name].set()
                     return  # skip execution
-                # else: discard (None or non-string) and re-execute
+                # Corrupt, stale, or mismatched entries are deliberately re-executed.
 
             # --- LoopNode custom execution path ---
             if node.loop_node is not None:
@@ -477,12 +506,28 @@ class TaskGraph:
                 self._maybe_cycle_reenter(name, run_result, _tg_ref)
 
                 # --- Journal write: persist result after success ---
-                if _journal_ref[0] is not None and graph_run_id:
+                if (
+                    _journal_ref[0] is not None
+                    and graph_run_id
+                    and (not verified_resume or _verified_fingerprint is not None)
+                ):
                     try:
-                        _journal_ref[0].set(f"{graph_run_id}:{name}", run_result.text)
+                        if verified_resume:
+                            _journal_ref[0].set(
+                                self._verified_journal_key(graph_run_id, name),
+                                json.dumps(
+                                    {
+                                        "version": 1,
+                                        "fingerprint": _verified_fingerprint,
+                                        "node": name,
+                                        "text": run_result.text,
+                                    },
+                                    sort_keys=True,
+                                ),
+                            )
+                        else:
+                            _journal_ref[0].set(f"{graph_run_id}:{name}", run_result.text)
                     except Exception:
-                        import logging
-
                         logging.getLogger("tvastar.graph").warning(
                             "journal write failed for %s; continuing without journaling",
                             name,
@@ -524,6 +569,181 @@ class TaskGraph:
         return GraphResult(
             completed, findings=all_findings, cycle_journals=self._cycle_journals, skipped=skipped
         )
+
+    @staticmethod
+    def _verified_journal_key(graph_run_id: str, name: str) -> str:
+        """Return the isolated v1 journal key used by verified resume."""
+        return f"{graph_run_id}:verified-resume:v1:{name}"
+
+    def _resume_fingerprint(self, *, inject_results: bool) -> str | None:
+        """Hash every stable execution input before trusting a verified journal.
+
+        Returning ``None`` intentionally disables verified reuse for opaque inputs:
+        a stale result is worse than re-executing a node.
+        """
+        graph_definition: dict[str, Any] = {"inject_results": inject_results, "nodes": []}
+        for node in self._nodes.values():
+            node_spec = self._harness.spec
+            node_model = node.model if node.model is not None else node_spec.model
+            definition = {
+                "name": node.name,
+                "prompt": node.prompt,
+                "depends_on": node.depends_on,
+                "cycle_policies": self._resume_value(node.cycle_policies),
+                "edge_conditions": self._resume_value(node.edge_conditions),
+                "result": self._resume_value(node.result),
+                "cancel_after": node.cancel_after,
+                "agent": self._resume_agent_contract(node_spec, model=node_model),
+                "loop": None
+                if node.loop_node is None
+                else {
+                    "config": self._resume_value(node.loop_node.config),
+                    "model": self._resume_model(node.loop_node.spec.model),
+                    "instructions": node.loop_node.spec.instructions,
+                    "max_steps": node.loop_node.spec.max_steps,
+                    "max_tokens": node.loop_node.spec.max_tokens,
+                    "temperature": node.loop_node.spec.temperature,
+                    "thinking_level": node.loop_node.spec.thinking_level,
+                },
+            }
+            if self._OPAQUE in definition.values() or self._contains_opaque(definition):
+                return None
+            graph_definition["nodes"].append(definition)
+        encoded = json.dumps(graph_definition, sort_keys=True, separators=(",", ":")).encode()
+        return hashlib.sha256(encoded).hexdigest()
+
+    _OPAQUE = object()
+
+    def _resume_agent_contract(self, spec: Any, *, model: Any) -> Any:
+        """Return a stable ordinary-node agent contract or an opaque sentinel.
+
+        Tools execute arbitrary code, so their behavior cannot be verified from a
+        provider-facing schema alone.  Disable replay rather than claiming a
+        fingerprint for a contract we cannot safely represent.
+        """
+        if spec.tools.names():
+            return self._OPAQUE
+        try:
+            skills = spec.skills.catalog()
+        except Exception:
+            return self._OPAQUE
+        if not isinstance(skills, str):
+            return self._OPAQUE
+        return {
+            "model": self._resume_model(model),
+            "instructions": self._resume_value(spec.instructions),
+            "skills": skills,
+            "max_steps": self._resume_value(spec.max_steps),
+            "max_tokens": self._resume_value(spec.max_tokens),
+            "temperature": self._resume_value(spec.temperature),
+            "thinking_level": self._resume_value(spec.thinking_level),
+            "system_prompt_hook": self._resume_value(spec.system_prompt_hook),
+            "fallback_models": [self._resume_model(item) for item in spec.fallback_models or []],
+        }
+
+    @classmethod
+    def _contains_opaque(cls, value: Any) -> bool:
+        if value is cls._OPAQUE:
+            return True
+        if isinstance(value, dict):
+            return any(cls._contains_opaque(item) for item in value.values())
+        if isinstance(value, list):
+            return any(cls._contains_opaque(item) for item in value)
+        return False
+
+    @classmethod
+    def _resume_value(cls, value: Any) -> Any:
+        """Return a deterministic representation or mark an opaque value unsafe."""
+        import dataclasses
+        from enum import Enum
+
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+        if isinstance(value, Enum):
+            return {
+                "enum": f"{type(value).__module__}.{type(value).__qualname__}",
+                "value": value.value,
+            }
+        resume_key = getattr(value, "__tvastar_resume_key__", None)
+        if isinstance(resume_key, str) and resume_key:
+            return {"resume_key": resume_key}
+        if isinstance(value, type) or callable(value):
+            return cls._resume_callable(value)
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            fields = {
+                field.name: cls._resume_value(getattr(value, field.name))
+                for field in dataclasses.fields(value)
+                if not field.name.startswith("_")
+            }
+            return {
+                "dataclass": f"{type(value).__module__}.{type(value).__qualname__}",
+                "fields": fields,
+            }
+        if isinstance(value, dict):
+            if not all(isinstance(key, str) for key in value):
+                return cls._OPAQUE
+            return {key: cls._resume_value(item) for key, item in sorted(value.items())}
+        if isinstance(value, (list, tuple)):
+            return [cls._resume_value(item) for item in value]
+        if isinstance(value, set):
+            values = [cls._resume_value(item) for item in value]
+            if cls._contains_opaque(values):
+                return cls._OPAQUE
+            return sorted(values, key=lambda item: json.dumps(item, sort_keys=True))
+        return cls._OPAQUE
+
+    @classmethod
+    def _resume_callable(cls, value: Any) -> Any:
+        resume_key = getattr(value, "__tvastar_resume_key__", None)
+        if isinstance(resume_key, str) and resume_key:
+            return {"callable_key": resume_key}
+        target = value if isinstance(value, type) else getattr(value, "__func__", value)
+        module = getattr(target, "__module__", None)
+        qualname = getattr(target, "__qualname__", None)
+        if not isinstance(module, str) or not isinstance(qualname, str):
+            return cls._OPAQUE
+        if "<locals>" in qualname or "<lambda>" in qualname:
+            return cls._OPAQUE
+        version = getattr(value, "__version__", getattr(value, "version", None))
+        if version is not None and not isinstance(version, (str, int, float)):
+            return cls._OPAQUE
+        return {"callable": f"{module}.{qualname}", "version": version}
+
+    @classmethod
+    def _resume_model(cls, model: Any) -> Any:
+        resume_key = getattr(model, "__tvastar_resume_key__", None)
+        if isinstance(resume_key, str) and resume_key:
+            return {"model_key": resume_key}
+        name = getattr(model, "name", None)
+        if not isinstance(name, str) or not name:
+            return cls._OPAQUE
+        version = getattr(model, "__version__", getattr(model, "version", None))
+        if version is not None and not isinstance(version, (str, int, float)):
+            return cls._OPAQUE
+        return {
+            "model": f"{type(model).__module__}.{type(model).__qualname__}",
+            "name": name,
+            "version": version,
+        }
+
+    @staticmethod
+    def _verified_journal_text(stored: Any, name: str, fingerprint: str | None) -> str | None:
+        """Accept only a complete v1 record for this exact graph and node."""
+        if not isinstance(stored, str) or fingerprint is None:
+            return None
+        try:
+            record = json.loads(stored)
+        except json.JSONDecodeError:
+            return None
+        if (
+            not isinstance(record, dict)
+            or record.get("version") != 1
+            or record.get("fingerprint") != fingerprint
+            or record.get("node") != name
+            or not isinstance(record.get("text"), str)
+        ):
+            return None
+        return record["text"]
 
     # ------------------------------------------------------------------
     # Cycle re-entry

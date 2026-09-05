@@ -21,6 +21,7 @@ __all__ = [
     "Cost",
     "BudgetPolicy",
     "BudgetExceeded",
+    "UnknownModelCostError",
     "cost_for_model",
     "register_model_cost",
     "COST_TABLE",
@@ -32,6 +33,8 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 COST_TABLE: dict[str, dict[str, float]] = {
+    # Built-in test model
+    "mock": {"input": 0.0, "output": 0.0},
     # Anthropic
     "claude-opus-4-6": {"input": 15.00, "output": 75.00},
     "claude-opus-4-5": {"input": 15.00, "output": 75.00},
@@ -98,10 +101,13 @@ class Cost:
     input_tokens: int = 0
     output_tokens: int = 0
     model: str = ""
+    _usd: float | None = field(default=None, repr=False)
 
     @property
     def usd(self) -> float:
         """Total cost in US dollars."""
+        if self._usd is not None:
+            return self._usd
         rates = COST_TABLE.get(self.model)
         if rates is None:
             return 0.0
@@ -110,11 +116,17 @@ class Cost:
             + self.output_tokens * rates["output"] / 1_000_000
         )
 
+    @property
+    def is_priced(self) -> bool:
+        """Whether this model has registered token pricing."""
+        return self.model in COST_TABLE
+
     def __add__(self, other: "Cost") -> "Cost":
         return Cost(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
             model=self.model or other.model,
+            _usd=self.usd + other.usd,
         )
 
     def __repr__(self) -> str:
@@ -136,6 +148,18 @@ class BudgetExceeded(RuntimeError):
         self.spent = spent
         self.limit = limit
         super().__init__(f"Budget exceeded: spent ${spent:.4f}, limit ${limit:.4f}")
+
+
+class UnknownModelCostError(BudgetExceeded):
+    """Raised when a budget cannot enforce spend for an unpriced model."""
+
+    def __init__(self, model: str, limit: float) -> None:
+        self.model = model
+        super().__init__(spent=0.0, limit=limit)
+        self.args = (
+            f"Budget requires registered pricing for model {model!r}; "
+            "register it with register_model_cost() before execution",
+        )
 
 
 @dataclass

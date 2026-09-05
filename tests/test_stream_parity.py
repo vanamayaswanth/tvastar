@@ -6,12 +6,13 @@ compaction, and memory_cap policies as Session.prompt().
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import pytest
 
 from tvastar.agent import AgentSpec, create_agent
-from tvastar.cost import BudgetExceeded
+from tvastar.cost import BudgetExceeded, Cost
 from tvastar.harness import Harness
 from tvastar.model.mock import MockModel
 from tvastar.session import Session
@@ -294,3 +295,239 @@ async def test_stream_compacts_on_threshold():
     # doesn't necessarily fire (depends on message size vs threshold)
     types = [e.type for e in events]
     assert "turn_end" in types
+
+
+@pytest.mark.asyncio
+async def test_stream_persists_assured_result_lifecycle():
+    """stream() writes prompt-equivalent records and ends with a JSON-safe result."""
+    import json
+
+    from tvastar.assurance import AssurancePolicy, SanitizationPolicy, TokenVault
+    from tvastar.memory import InMemoryStore
+
+    store = InMemoryStore()
+    vault = TokenVault()
+    spec = AgentSpec(
+        name="assured-stream-test",
+        model=MockModel(script=["safe response"]),
+        detectors=[MockDetector()],
+        assurance=AssurancePolicy(vault=vault, sanitize=SanitizationPolicy.hipaa()),
+        scrub_after_run=True,
+    )
+    session = Harness(spec, store=store).session()
+
+    events = []
+    async with session:
+        async for event in session.stream("contact alice@example.com"):
+            events.append(event)
+
+    result = events[-1]
+    assert result.type == "result"
+    assert events[-2].type == "turn_end"
+    json.dumps(result.data)
+    assert result.data["text"] == "safe response"
+    assert result.data["findings"][0]["detector"] == "test_detector"
+    assert result.data["receipt"]["content_hash"].startswith("sha256:")
+    assert session._last_user_text == "contact alice@example.com"
+
+    records = store.get(f"event_log:{session.id}")
+    record_types = [record["type"] for record in records]
+    assert {"user_message", "assistant_message", "run_start", "step_complete", "run_end"} <= set(
+        record_types
+    )
+    assert "alice@example.com" not in str(records)
+    assert all(message.content.startswith("[scrubbed:") for message in session.messages)
+
+
+@pytest.mark.asyncio
+async def test_stream_unknown_model_stop_skips_provider_execution():
+    """An unpriced model in stop mode returns a terminal budget result without streaming."""
+    from tvastar.cost import BudgetPolicy
+
+    model = MockModel(script=["should not run"])
+    model.name = "unknown-stream-budget-model"
+    session = _make_session(
+        AgentSpec(
+            name="unknown-stream-budget-test",
+            model=model,
+            budget=BudgetPolicy(max_usd=1.0, on_exceed="stop"),
+        )
+    )
+
+    events = []
+    async with session:
+        async for event in session.stream("hello"):
+            events.append(event)
+
+    assert model.calls == []
+    assert events[-1].type == "result"
+    assert events[-1].data["stopped"] == "budget"
+
+
+@pytest.mark.asyncio
+async def test_stream_uses_non_overflow_fallback_model():
+    """stream() matches prompt() by trying fallbacks after provider failures."""
+    primary = MockModel(script=[RuntimeError("provider unavailable")])
+    fallback = MockModel(script=["fallback response"])
+    session = _make_session(
+        AgentSpec(
+            name="fallback-stream-test",
+            model=primary,
+            fallback_models=[fallback],
+        )
+    )
+
+    events = []
+    async with session:
+        async for event in session.stream("hello"):
+            events.append(event)
+
+    assert primary.calls
+    assert fallback.calls
+    assert events[-1].type == "result"
+    assert events[-1].data["text"] == "fallback response"
+
+
+@pytest.mark.asyncio
+async def test_stream_runs_step_callback_before_finishing():
+    """stream() invokes the same post-response callback as prompt()."""
+    calls = []
+    session = _make_session(
+        AgentSpec(
+            name="callback-stream-test",
+            model=MockModel(script=["response"]),
+            step_callback=lambda step, response, messages: calls.append((step, response, messages)),
+        )
+    )
+
+    async with session:
+        async for _ in session.stream("hello"):
+            pass
+
+    assert len(calls) == 1
+    assert calls[0][0] == 1
+    assert calls[0][1].message.text == "response"
+    assert calls[0][2][-1].role == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_stream_honors_stop_predicate_before_tool_execution():
+    """stream() terminates with predicate semantics before executing requested tools."""
+    tool_call = ToolUseBlock(id="stop", name="unused", input={})
+    session = _make_session(
+        AgentSpec(
+            name="predicate-stream-test",
+            model=MockModel(script=[tool_call]),
+            stop_predicate=lambda result: result.steps == 1,
+        )
+    )
+
+    events = []
+    async with session:
+        async for event in session.stream("hello"):
+            events.append(event)
+
+    assert [event.type for event in events].count("tool_call") == 0
+    assert (
+        next(event for event in events if event.type == "turn_end").data["stopped"] == "predicate"
+    )
+    assert events[-1].data["stopped"] == "predicate"
+
+
+@pytest.mark.asyncio
+async def test_stream_unknown_model_approve_fails_closed_before_provider_execution():
+    """Unknown-model approval cannot authorize unmetered provider spend."""
+    from tvastar.cost import BudgetPolicy, UnknownModelCostError
+
+    model = MockModel(script=["should not run"])
+    model.name = "unknown-approved-stream-model"
+    session = _make_session(
+        AgentSpec(
+            name="unknown-approved-stream-test",
+            model=model,
+            budget=BudgetPolicy(max_usd=1.0, on_exceed="approve"),
+        )
+    )
+
+    with pytest.raises(UnknownModelCostError):
+        async with session:
+            async for _ in session.stream("hello"):
+                pass
+
+    assert model.calls == []
+
+
+@pytest.mark.asyncio
+async def test_stream_cancellation_persists_terminal_lifecycle_and_propagates():
+    """Consumer cancellation records an aborted run without swallowing cancellation."""
+    from tvastar.memory import InMemoryStore
+
+    store = InMemoryStore()
+    session = Harness(
+        AgentSpec(name="cancel-stream-test", model=MockModel(script=["done"])), store=store
+    ).session()
+
+    async with session:
+        stream = session.stream("hello")
+        assert (await anext(stream)).type == "turn_start"
+        with pytest.raises(asyncio.CancelledError):
+            await stream.athrow(asyncio.CancelledError())
+
+    records = store.get(f"event_log:{session.id}")
+    record_types = [record["type"] for record in records]
+    assert record_types[-3:] == ["error", "run_end", "session_end"]
+    assert records[-2]["data"]["stopped"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_stream_unpriced_fallback_fails_closed_before_any_provider_call():
+    from tvastar.cost import BudgetPolicy, UnknownModelCostError
+
+    primary = MockModel(script=[RuntimeError("provider unavailable")])
+    primary.name = "gpt-4o"
+    fallback = MockModel(script=["must not run"])
+    fallback.name = "unpriced-stream-fallback"
+    session = _make_session(
+        AgentSpec(
+            name="unpriced-stream-fallback",
+            model=primary,
+            fallback_models=[fallback],
+            budget=BudgetPolicy(max_usd=1.0),
+        )
+    )
+
+    with pytest.raises(UnknownModelCostError):
+        async with session:
+            async for _ in session.stream("hello"):
+                pass
+    assert primary.calls == []
+    assert fallback.calls == []
+
+
+@pytest.mark.asyncio
+async def test_stream_attributes_priced_fallback_usage_to_the_producer():
+    from tvastar.cost import BudgetPolicy
+
+    primary = MockModel(script=[RuntimeError("provider unavailable")])
+    primary.name = "gpt-4o"
+    fallback = MockModel(script=["fallback"])
+    fallback.name = "gpt-4o-mini"
+    budget = BudgetPolicy(max_usd=1.0)
+    session = _make_session(
+        AgentSpec(
+            name="priced-stream-fallback",
+            model=primary,
+            fallback_models=[fallback],
+            budget=budget,
+        )
+    )
+
+    async with session:
+        async for _ in session.stream("hello"):
+            pass
+
+    attributed = budget.cost_breakdown()["_unattributed"]
+    assert attributed.model == "gpt-4o-mini"
+    assert attributed.usd == pytest.approx(
+        Cost(attributed.input_tokens, attributed.output_tokens, "gpt-4o-mini").usd
+    )

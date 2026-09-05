@@ -49,6 +49,16 @@ class Task:
     estimated_effort: str = "small"  # small | medium | large
 
 
+@dataclass(frozen=True)
+class PlanDiagnostic:
+    """A machine-readable reason a plan could not be safely executed."""
+
+    phase: str
+    code: str
+    message: str
+    details: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class Plan:
     """Complete plan output from full spec-driven planning."""
@@ -58,32 +68,48 @@ class Plan:
     design: DesignDoc
     tasks: list[Task]
     methodology: str  # name of the methodology used
+    valid: bool = True
+    diagnostics: list[PlanDiagnostic] = field(default_factory=list)
+
+    @property
+    def is_valid(self) -> bool:
+        """Whether this plan passed the planner's structured-output validation."""
+        return self.valid
 
     @property
     def task_graph(self) -> dict[str, list[str]]:
         """Return tasks as a dependency graph: {task_id: [dependency_ids]}."""
         return {t.id: t.depends_on for t in self.tasks}
 
-    async def execute(self, harness: Any) -> Any:
+    async def execute(
+        self,
+        harness: Any,
+        *,
+        resume: bool = False,
+        graph_run_id: str | None = None,
+        journal: Any = None,
+        verified_resume: bool = False,
+    ) -> Any:
         """Execute this plan's tasks via TaskGraph.
 
-        Convenience method that feeds all tasks into a TaskGraph with
-        their dependency relationships and runs them.
-
-        Parameters
-        ----------
-        harness: A Harness instance to run tasks against.
-
-        Returns
-        -------
-        GraphResult from the task execution.
+        Invalid plans fail before creating graph tasks. Resume options are passed
+        through unchanged so callers may opt into verified graph journals.
         """
+        if not self.valid:
+            details = "; ".join(f"{d.phase}: {d.message}" for d in self.diagnostics)
+            raise ValueError(f"Cannot execute invalid plan{': ' + details if details else ''}")
+
         from tvastar.graph import TaskGraph
 
         graph = TaskGraph(harness)
         for task in self.tasks:
             graph.task(task.id, task.description, depends_on=task.depends_on)
-        return await graph.run()
+        return await graph.run(
+            resume=resume,
+            graph_run_id=graph_run_id,
+            journal=journal,
+            verified_resume=verified_resume,
+        )
 
 
 @dataclass

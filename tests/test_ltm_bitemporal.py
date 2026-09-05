@@ -56,6 +56,21 @@ class TestBitemporalRemember:
         history = store.recall_history("k")
         assert len(history) == 3
 
+    def test_remember_same_timestamp_uses_contiguous_strict_boundary(self, store: LTMStore):
+        """Equal clock readings produce contiguous versions and select the new fact at the boundary."""
+        timestamp = 1_700_000_000.0
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr("tvastar.contrib.ltm.store.time.time", lambda: timestamp)
+            first = store.remember("city", "NYC", agent="a")
+            second = store.remember("city", "SF", agent="b")
+
+        history = store.recall_history("city")
+        old = next(fact for fact in history if fact.version == first.version)
+        assert first.valid_from == timestamp
+        assert old.valid_from < old.valid_until == second.valid_from
+        assert store.recall("city", at=timestamp) == "NYC"
+        assert store.recall("city", at=second.valid_from) == "SF"
+
 
 class TestBitemporalRecall:
     def test_recall_returns_active_fact(self, store: LTMStore):

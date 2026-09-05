@@ -6,6 +6,20 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.28.1] — 2026-09-04
+
+### Hardened
+
+- **Serving** — optional authenticated serving persists tenant-and-subject session ownership, hides unknown or foreign sessions, serializes each session, and supports prompt-size and process-local active-run limits. Multi-worker and container deployments must use one durable shared store for session and ownership state.
+- **Sandboxing** — `LocalSandbox` rejects absolute working directories and resolves relative `cwd` values beneath its configured root; it still executes host subprocesses and is not an isolation boundary.
+- **Budgets** — a configured budget now fails closed before any call when its primary or fallback model has no registered price. Use `register_model_cost()` to register provider pricing.
+- **TaskGraph** — `verified_resume=True` uses isolated, versioned fingerprints and reruns nodes for changed, corrupt, or unverifiable graph definitions instead of reusing results.
+- **Workflows and Fleet** — each `WorkflowHarness` now owns one sandbox shared by its sessions, filesystem, and shell calls; fleet recovery loads non-retired metadata inertly and requires explicit `rebind()` before deployment or routing.
+
+### Changed
+
+- **Streaming** — `Session.stream()` now emits an additive terminal `result` event after the existing conversational events, with the final text, usage, stop reason, findings, and receipt summary.
+
 ## [0.28.0] — 2026-09-04
 
 ### Added
@@ -1468,7 +1482,19 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.5...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.28.1...HEAD
+[0.28.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.28.0...v0.28.1
+[0.28.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.27.0...v0.28.0
+[0.27.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.26.0...v0.27.0
+[0.26.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.25.0...v0.26.0
+[0.25.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.24.0...v0.25.0
+[0.24.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.23.0...v0.24.0
+[0.23.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.22.0...v0.23.0
+[0.22.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.21.0...v0.22.0
+[0.21.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.20.0...v0.21.0
+[0.20.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.19.0...v0.20.0
+[0.19.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.5...v0.18.0
 [0.15.5]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.4...v0.15.5
 [0.15.4]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.3...v0.15.4
 [0.15.3]: https://github.com/vanamayaswanth/tvastar/compare/v0.15.2...v0.15.3

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
 
 from tvastar.fleet import Fleet, FleetConfig
 from tvastar.fleet.registry import AgentState
@@ -54,7 +56,8 @@ class TestFleetPersist:
         assert entry.name == "worker"
         assert entry.version == "2.0.0"
         assert entry.owner == "ml-team"
-        assert entry.state == AgentState.PAUSED
+        assert entry.state == AgentState.REGISTERED
+        assert entry.loop is None
 
     def test_persist_multiple_agents(self, fleet, mock_loop):
         f, tmp_path = fleet
@@ -70,8 +73,8 @@ class TestFleetPersist:
         count = f2.load(path)
 
         assert count == 3
-        assert f2.registry.get("a").state == AgentState.ACTIVE
-        assert f2.registry.get("b").state == AgentState.ACTIVE
+        assert f2.registry.get("a").state == AgentState.REGISTERED
+        assert f2.registry.get("b").state == AgentState.REGISTERED
         assert f2.registry.get("c").state == AgentState.REGISTERED
 
     def test_load_nonexistent_file_returns_zero(self, fleet):
@@ -124,8 +127,7 @@ class TestFleetPersist:
         f2.load(path)
 
         active = f2.registry.active_agents()
-        assert len(active) == 1
-        assert active[0].name == "active-agent"
+        assert active == []
 
 
 class TestFleetShutdown:
@@ -138,13 +140,19 @@ class TestFleetShutdown:
         mock.config.goal = "work"
         mock.stop = AsyncMock()
         f.register(mock, name="w", version="1.0.0", owner="t")
+        f.registry.deploy("w")
 
         await f.shutdown(persist=True)
 
-        # State file should exist in default location
+        # State file should exist in default location and be non-executable.
         from pathlib import Path
 
-        assert Path(".tvastar-fleet/shutdown-test.json").exists()
+        state_path = Path(".tvastar-fleet/shutdown-test.json")
+        assert state_path.exists()
+        assert (
+            json.loads(state_path.read_text(encoding="utf-8"))["agents"]["w"]["state"]
+            == "registered"
+        )
 
         # Cleanup
         import shutil
@@ -193,3 +201,53 @@ class TestFleetShutdown:
         import shutil
 
         shutil.rmtree(".tvastar-fleet", ignore_errors=True)
+
+
+class TestFleetRecoverySafety:
+    def test_load_is_atomic_on_invalid_metadata(self, tmp_path, mock_loop):
+        fleet = Fleet(FleetConfig(name="atomic-load"))
+        fleet.register(mock_loop, name="live", version="1.0.0", owner="team")
+        broken = tmp_path / "broken.json"
+        broken.write_text(
+            json.dumps(
+                {
+                    "fleet_name": "atomic-load",
+                    "agents": {},
+                    "versions": [],
+                    "dependencies": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        assert fleet.load(str(broken)) == 0
+        assert fleet.registry.get("live") is not None
+
+    def test_loaded_agent_requires_public_rebind_before_deploy(self, tmp_path, mock_loop):
+        source = Fleet(FleetConfig(name="rebind"))
+        source.register(mock_loop, name="worker", version="1.0.0", owner="team")
+        source.registry.deploy("worker")
+        path = source.persist(str(tmp_path / "fleet.json"))
+
+        recovered = Fleet(FleetConfig(name="rebind"))
+        assert recovered.load(path) == 1
+        assert recovered.registry.get("worker").loop is None
+        assert recovered.registry.get("worker").state == AgentState.REGISTERED
+
+        rebound = recovered.rebind("worker", mock_loop)
+        assert rebound.loop is mock_loop
+        assert recovered.registry.deploy("worker").state == AgentState.ACTIVE
+
+    @pytest.mark.asyncio
+    async def test_shutdown_persists_non_executable_recovery_state(self, tmp_path, mock_loop):
+        fleet = Fleet(FleetConfig(name="safe-shutdown"))
+        fleet.register(mock_loop, name="worker", version="1.0.0", owner="team")
+        fleet.registry.deploy("worker")
+        path = tmp_path / "fleet.json"
+
+        # Use the existing explicit path for inspection while exercising the safe format.
+        await fleet.shutdown(persist=False)
+        fleet.persist(str(path), safe_recovery=True)
+
+        persisted = json.loads(path.read_text(encoding="utf-8"))
+        assert persisted["agents"]["worker"]["state"] == "registered"

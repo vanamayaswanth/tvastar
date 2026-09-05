@@ -1,6 +1,6 @@
 # Tvastar API Reference
 
-Complete API reference for Tvastar v0.27.0. Every public symbol, field, and signature.
+Complete API reference for the current release of Tvastar. Every public symbol, field, and signature.
 
 ---
 
@@ -346,11 +346,14 @@ class StreamEvent:
         'text_delta', 'tool_call', 'tool_result',
         'turn_start', 'turn_end',
         'skill_loaded', 'task_spawned',   # emitted by skill/task delegation
+        'result',                         # additive terminal RunResult summary
         'error',
     ]
     data: dict[str, Any]
     at: float
 ```
+
+`Session.stream()` preserves its existing conversational events and then emits one terminal `result` event after `turn_end`. Its `data` contains final `text`, `steps`, `stopped`, aggregate token `usage`, serialized `findings`, and a receipt summary (`run_id`, `content_hash`, `quality_score`, `quality_grade`) when assurance is enabled. Consume `result` for final run metadata; do not infer it from deltas.
 
 ---
 
@@ -724,6 +727,8 @@ class WorkflowContext:
     ) -> WorkflowHarness
 
 class WorkflowHarness:
+    # One workflow-owned sandbox is shared by every session(), fs, and shell() call.
+    # It is started lazily and closed once when the workflow run finishes.
     async def session(self, name: str = "default") -> Session
     async def session_async(self, name: str = "default") -> Session
     @property fs: _WorkflowFS
@@ -916,6 +921,7 @@ class LocalSandbox(Sandbox):
         credential_filter: CredentialFilter | None = None,
         shell: str | None = None,
     )
+    # exec() rejects absolute cwd values. A relative cwd is resolved beneath root.
     # snapshot() → dict[str, bytes] — recursive walk of root, relative POSIX paths.
     # restore(snap) — deletes extra files, recreates snapshotted ones.
     # < 500 ms on ~500 KB.
@@ -976,6 +982,8 @@ class CredentialFilter:
 
     def filter_env(self, env: dict[str, str]) -> dict[str, str]
 ```
+
+`LocalSandbox` contains only the supplied working-directory argument: absolute `cwd` values are rejected and relative values begin beneath `root`. It runs a shell subprocess on the host, so this is not host, filesystem, or container isolation; a command can still use host capabilities outside that starting directory. Use a container or remote sandbox when the threat model requires isolation.
 
 ### Durable Compute Lifecycle (`tvastar/sandbox/lifecycle.py`, `durable_docker.py`)
 
@@ -1142,6 +1150,8 @@ class BudgetPolicy:
     #             falls back to "raise" if no gate is configured
     warn_at: float | None = 0.8   # warn when spend reaches this fraction of max_usd
 ```
+
+When `budget` is configured, every selectable model must have registered pricing: the primary model and every entry in `fallback_models`. Tvastar checks this before provider execution. An unpriced model raises `UnknownModelCostError` for `"raise"` or `"approve"`; `"stop"` returns a `RunResult` with `stopped="budget"`. Register the rate with `register_model_cost()` before the run rather than treating an unknown price as zero.
 
 ---
 
@@ -1505,6 +1515,11 @@ class TaskGraph:
         *,
         inject_results: bool = True,  # prepend dependency output to downstream prompts
         concurrency: int = 8,         # semaphore cap; 0 = unlimited
+        resume: bool = False,         # legacy string journal reuse
+        graph_run_id: str | None = None,
+        journal: Store | None = None,
+        verified_resume: bool = False,
+        # requires journal + graph_run_id; uses isolated versioned fingerprints
     ) -> GraphResult
 
 @dataclass
@@ -1520,6 +1535,8 @@ class GraphResult:
     @property def text(self) -> dict[str, str]    # {task_name: result.text}
     @property def all_findings(self) -> list[Finding]  # flat list across all tasks
 ```
+
+`verified_resume=True` requires both `journal` and `graph_run_id`. It stores a versioned record under an isolated key and reuses it only when its fingerprint matches the graph definition. A changed, corrupt, mismatched, or unverifiable record is re-executed. Verified reuse is deliberately disabled for opaque execution inputs such as tools and anonymous callables; use legacy `resume=True` only when you accept its unverified string-cache semantics.
 
 ---
 
@@ -1540,6 +1557,31 @@ def serverless_handler(spec: AgentSpec) -> Callable
 def run_github_action(spec: AgentSpec) -> None
 # Reads INPUT_PROMPT env var, runs agent, writes step outputs — call in __main__
 ```
+
+### Production serving
+
+```python
+@dataclass(frozen=True)
+class Principal:
+    tenant_id: str
+    subject_id: str
+
+Authenticator = Callable[[Request | WebSocket], Principal | Awaitable[Principal]]
+
+def create_app(
+    spec: AgentSpec,
+    *,
+    store: Store | None = None,
+    authenticator: Authenticator | None = None,
+    max_prompt_size: int | None = None,  # characters; non-negative
+    max_active_runs: int | None = None,  # per app process; at least 1
+    ...,
+) -> Any
+```
+
+Authentication is optional. When `authenticator` is configured, it must return a non-empty tenant and subject; sessions created through the API persist that ownership in `store`. Only the same tenant and subject can list or use a session. Unknown, unowned, and foreign session IDs all return `404`; authentication failures return `401` (WebSocket connections close with policy-violation status).
+
+`max_prompt_size` rejects oversized HTTP and SSE prompts with `413` and closes oversized WebSockets. `max_active_runs` rejects excess concurrent work with `429`, while each session is serialized. Both the active-run limit and session-lock map are local to an application process. The default local `.tvastar-state` store is not sufficient for multi-worker or container deployment: configure every worker with one durable shared store for session history and ownership state, and use external coordination when a fleet-wide concurrency limit is required.
 
 ---
 
@@ -1970,17 +2012,20 @@ use as CI gates: `tvastar loop audit .tvastar/loops/ci.py:loop || exit 1`
 
 ---
 
-## `tvastar.assurance` — Verifiable Execution
+## `tvastar.assurance` — Receipts and Trust Logs
 
-> Added in v0.15.0. Provides cryptographically-signed per-run receipts, an append-only
-> chain-linked audit log, PII redaction before hashing, configurable retention, and
-> quality SLA enforcement.
+> Added in v0.15.0. Provides per-run receipts, an append-only chain-linked audit
+> log, PII redaction before hashing, configurable retention, and quality SLA enforcement.
+>
+> Receipts and a local `TrustLog` are operator-controlled evidence: HMAC verification
+> depends on protecting the signing key, and log integrity depends on protecting the
+> backing storage. They are tamper-evident, not independent attestation.
 
 ```python
 from tvastar.assurance import (
     AssurancePolicy,     # attach to create_agent()
     ExecutionReceipt,    # available on result.receipt after each run
-    TrustLog,            # append-only chain-linked WORM log
+    TrustLog,            # append-only chain-linked JSONL log
     SanitizationPolicy,  # PII/PHI redaction applied before hashing
     RetentionPolicy,     # archive old entries for SOX/HIPAA/GDPR schedules
     SLABreached,         # exception raised when quality_score < min_score
@@ -2762,3 +2807,16 @@ class EscalationPolicy:
 ```
 
 When attached to `LoopConfig(escalation_policy=...)`, the Loop uses the escalation pathway instead of HANDOFF.
+
+---
+
+## Fleet recovery
+
+```python
+class Fleet:
+    def persist(self, path: str | None = None, *, safe_recovery: bool = False) -> str
+    def load(self, path: str | None = None) -> int
+    def rebind(self, name: str, loop: Any) -> AgentEntry
+```
+
+`load()` validates the recovery file before changing the registry. It restores metadata only: every non-retired agent becomes `registered` with no live loop and cannot route work. Call `rebind()` with a live loop, then use normal lifecycle actions (for example, deploy) before execution. `shutdown(persist=True)` writes this non-executable recovery state atomically; corrupt or incompatible recovery data leaves the current registry unchanged.
