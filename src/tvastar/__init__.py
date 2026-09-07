@@ -107,6 +107,15 @@ from .errors import (
     ToolNotFound,
     TvastarError,
 )
+from .execution import (
+    ExecutionEnvelope,
+    ExecutionLineage,
+    ExecutionOutcome,
+    ExecutionQuery,
+    ExecutionView,
+    LineageDiagnostic,
+    get_execution_lineage,
+)
 from .eval import (
     Case,
     CaseResult,
@@ -274,7 +283,7 @@ def __getattr__(name: str):
     raise AttributeError(f"module 'tvastar' has no attribute {name!r}")
 
 
-__version__ = "0.28.1"
+__version__ = "0.29.0"
 
 __all__ = [
     "CORE_API",
@@ -283,6 +292,13 @@ __all__ = [
     "Harness",
     "Session",
     "RunResult",
+    "ExecutionEnvelope",
+    "ExecutionOutcome",
+    "ExecutionView",
+    "ExecutionLineage",
+    "ExecutionQuery",
+    "LineageDiagnostic",
+    "get_execution_lineage",
     "workflow",
     "Workflow",
     "WorkflowCheckpoint",

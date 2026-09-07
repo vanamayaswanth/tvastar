@@ -6,6 +6,22 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-09-05
+
+### Added
+
+- **Execution lineage** — every `Session.prompt()`, `Session.skill()`, and iterated `Session.stream()` receives a canonical execution ID. `Harness(lineage_scope=...)` optionally persists payload-free, versioned envelopes and outcomes without changing default Store behavior.
+- **Scoped lineage queries** — `ExecutionQuery.get()` performs direct lookup, while bounded, cycle-safe `ExecutionQuery.ancestors()` follows explicit `Session.task()` parent relationships without scanning the Store.
+
+### Hardened
+
+- **Isolation and privacy** — unrelated nested Harnesses remain independent roots in their own scopes; persisted Session references are pseudonymous, public stream events do not expose Store scope, and execution contexts exposed to extensions are immutable snapshots.
+- **Streaming lifecycle** — abandoned, cancelled, timed-out, failed, and completed streams produce at most one terminal lineage outcome; bundled HTTP, SSE, WebSocket, and CLI consumers close streams deterministically.
+
+### Performance
+
+- Added a release benchmark for recording overhead, record size, and direct/ancestry queries at 100,000 SQLite lineage records. Lineage persistence remains best-effort and is not an atomic or audit-grade mechanism.
+
 ## [0.28.1] — 2026-09-04
 
 ### Hardened
@@ -1482,7 +1498,8 @@ Initial release. Tvastar is a programmable agent harness for Python:
 - Examples, a test suite, CI (lint + format + tests on Python 3.10–3.13), and a
   live real-model proof run.
 
-[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.28.1...HEAD
+[Unreleased]: https://github.com/vanamayaswanth/tvastar/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.28.1...v0.29.0
 [0.28.1]: https://github.com/vanamayaswanth/tvastar/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/vanamayaswanth/tvastar/compare/v0.26.0...v0.27.0

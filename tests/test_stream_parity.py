@@ -469,6 +469,7 @@ async def test_stream_cancellation_persists_terminal_lifecycle_and_propagates():
 
     async with session:
         stream = session.stream("hello")
+        assert (await anext(stream)).type == "execution_started"
         assert (await anext(stream)).type == "turn_start"
         with pytest.raises(asyncio.CancelledError):
             await stream.athrow(asyncio.CancelledError())

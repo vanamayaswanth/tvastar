@@ -25,6 +25,7 @@ from .conversation.reducer import reduce
 from .conversation.records import RecordType, record_to_dict, Record
 from .conversation.writer import ConversationWriter
 from .durable import Checkpointer
+from .execution import ExecutionRecorder, validate_lineage_scope
 from .memory.store import InMemoryStore, Store
 from .observability import NULL_TRACER, Tracer
 from .sandbox.virtual import VirtualSandbox
@@ -117,12 +118,21 @@ class Harness:
         tracer: Optional[Tracer] = None,
         durable: bool = True,
         compaction_threshold: int = 500,
+        lineage_scope: Optional[str] = None,
     ):
         self.spec = spec
         self.store: Store = store or InMemoryStore()
         self.tracer: Tracer = tracer or NULL_TRACER
         self._durable: bool = durable
         self._compaction_threshold: int = compaction_threshold
+        self.lineage_scope: Optional[str] = (
+            validate_lineage_scope(lineage_scope) if lineage_scope is not None else None
+        )
+        self._lineage_recorder: Optional[ExecutionRecorder] = (
+            ExecutionRecorder(self.store, self.lineage_scope)
+            if self.lineage_scope is not None
+            else None
+        )
         # ponytail: keep _checkpointer for one release cycle (backward compat)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)

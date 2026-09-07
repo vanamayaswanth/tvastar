@@ -285,6 +285,8 @@ class StreamEvent:
         "turn_end",
         "skill_loaded",
         "task_spawned",
+        "execution_started",
+        "result",
         "error",
     ]
     data: dict[str, Any] = field(default_factory=dict)

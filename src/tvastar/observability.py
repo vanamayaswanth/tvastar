@@ -123,6 +123,19 @@ class Tracer:
 
     @contextmanager
     def span(self, name: str, **attributes: Any):
+        # Correlation is additive and payload-free; importing lazily avoids a
+        # dependency from the tracing primitive back into session runtime.
+        try:
+            from .execution import get_execution_context
+
+            execution = get_execution_context()
+            if execution is not None:
+                attributes.setdefault("execution_id", execution.execution_id)
+                attributes.setdefault("root_execution_id", execution.root_execution_id)
+                if execution.scope is not None:
+                    attributes.setdefault("lineage_scope", execution.scope)
+        except Exception:
+            pass
         stack = _span_stack.get()
         span = Span(
             name=name,

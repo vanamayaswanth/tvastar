@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from contextlib import aclosing
 from pathlib import Path
 
 from ..harness import Harness
@@ -224,14 +225,15 @@ async def _chat(ref: str, trace: bool) -> int:
             if not line:
                 continue
             print("agent › ", end="", flush=True)
-            async for ev in session.stream(line):
-                if ev.type == "text_delta":
-                    print(ev.data["text"], end="", flush=True)
-                elif ev.type == "tool_call":
-                    print(f"\n  ⚙ {ev.data['name']}({ev.data['input']})", flush=True)
-                elif ev.type == "tool_result":
-                    snippet = str(ev.data["content"])[:200]
-                    print(f"  ↳ {snippet}", flush=True)
+            async with aclosing(session.stream(line)) as stream:
+                async for ev in stream:
+                    if ev.type == "text_delta":
+                        print(ev.data["text"], end="", flush=True)
+                    elif ev.type == "tool_call":
+                        print(f"\n  ⚙ {ev.data['name']}({ev.data['input']})", flush=True)
+                    elif ev.type == "tool_result":
+                        snippet = str(ev.data["content"])[:200]
+                        print(f"  ↳ {snippet}", flush=True)
             print()
     finally:
         await session.close()

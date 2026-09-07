@@ -169,3 +169,18 @@ Should VirtualSandbox be documented as secure?
 - Fork semantics intentionally diverge by backend: Docker = filesystem-only (`docker commit`), Cube = full process state (server-side). Documented, not unified.
 - State transitions serialized via `asyncio.Lock` — simple, zero-dependency, sufficient for single-instance ownership.
 - Trade-off: mixin-based design means `isinstance(sandbox, LifecycleMixin)` is the runtime check for lifecycle support, not a method on the ABC.
+
+## ADR-010: Default-Off, Payload-Free Execution Lineage
+
+**Date:** 2026-03
+
+**Context:** Operators need to correlate a root prompt with delegated `Session.task()` work without coupling execution identity to conversation compaction, receipts, Workflow, Dispatch, TaskGraph, Fleet, or Loop interfaces.
+
+**Decision:** `Harness(lineage_scope=...)` opt-in records exact versioned `tvastar.execution.envelope` and `tvastar.execution.outcome` schemas under direct Store keys. IDs exist for every prompt, skill, and iterated stream even when persistence is off. Envelopes replace raw caller Session IDs with deterministic SHA-256 `session_ref` values; these are pseudonymous and linkable, not anonymous. `Session.task()` explicitly hands a frozen execution/root/scope snapshot to its child; other nested harness calls start independent roots in their own scopes. A private `ContextVar` exposes immutable correlation snapshots to tracing while retaining mutable attempt/timing state internally. `ExecutionQuery.get()` reads one execution directly, while `ancestors()` alone follows explicit `spawned_by` keys with fixed safety limits and diagnostics.
+
+**Consequences:**
+- Default behavior and Store interfaces are unchanged; core remains stdlib-only.
+- Recording failure never changes agent or stream behavior; `lineage_complete` reports persistence completeness.
+- Store `get`/`set`/readback provides best-effort create-once behavior, not atomicity, tamper evidence, or an audit claim. Use ExecutionReceipt/TrustLog for separately configured evidence.
+- Streams allocate on first iteration and must be closed when abandoned so cancellation outcomes can be recorded.
+- Conversation compaction and lineage records remain independent, so compaction cannot rewrite ancestry.

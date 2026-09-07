@@ -20,6 +20,7 @@ import asyncio
 import inspect
 import json
 import time
+from contextlib import aclosing
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Optional
 
@@ -277,8 +278,9 @@ def create_app(
                     return
                 try:
                     await sess.start()
-                    async for ev in sess.stream(text):
-                        await ws.send_json({"type": ev.type, "data": ev.data})
+                    async with aclosing(sess.stream(text)) as stream:
+                        async for ev in stream:
+                            await ws.send_json({"type": ev.type, "data": ev.data})
                     await ws.send_json({"type": "done", "data": {}})
                 finally:
                     _release_run(lock)
@@ -319,11 +321,12 @@ def create_app(
         async def _event_generator() -> AsyncIterator[str]:
             try:
                 await sess.start()
-                async for ev in sess.stream(text):
-                    if await request.is_disconnected():
-                        break
-                    payload = json.dumps({"type": ev.type, "data": ev.data})
-                    yield f"data: {payload}\n\n"
+                async with aclosing(sess.stream(text)) as stream:
+                    async for ev in stream:
+                        if await request.is_disconnected():
+                            break
+                        payload = json.dumps({"type": ev.type, "data": ev.data})
+                        yield f"data: {payload}\n\n"
                 yield "data: [DONE]\n\n"
             except Exception as exc:
                 error = json.dumps({"type": "error", "data": {"message": str(exc)}})

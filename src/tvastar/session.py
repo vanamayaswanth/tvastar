@@ -18,6 +18,7 @@ import asyncio
 import time
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -27,6 +28,15 @@ from .conversation.records import RecordType
 from .conversation.writer import ConversationWriter
 from .cost import BudgetExceeded, Cost
 from .errors import ToolError, ToolNotFound
+from .execution import (
+    ExecutionContext,
+    _create_execution_context,
+    _execution_context,
+    _get_execution_state,
+    _TaskParent,
+    _task_parent_snapshot,
+    get_execution_context,
+)
 from .memory.store import Memory
 from .observability import Tracer
 from .profiles import MAX_TASK_DEPTH, AgentProfile
@@ -171,6 +181,9 @@ class RunResult:
     cost: Optional[Cost] = None  # token cost for this run (model-priced)
     receipt: Optional[Any] = None  # ExecutionReceipt when assurance is configured
     conversation_id: Optional[str] = None  # session id for Event_Log lookup
+    execution_id: Optional[str] = field(default=None, compare=False)
+    root_execution_id: Optional[str] = field(default=None, compare=False)
+    lineage_complete: Optional[bool] = field(default=None, compare=False)
 
     def __str__(self) -> str:
         return self.text
@@ -203,6 +216,7 @@ class Session:
     _started: bool = False
     _active_skill: Optional[Skill] = None
     _task_depth: int = 0  # how deep in the task delegation tree we are
+    _task_parent: Optional[_TaskParent] = None
     _cancel_event: Optional[asyncio.Event] = None
     _last_compact_at: float = 0.0  # monotonic time of last compaction attempt
     _last_user_text: str = ""  # most-recent user message text (for LTM hook)
@@ -370,9 +384,80 @@ class Session:
             )
         return base
 
+    def _begin_execution(self, invocation: str) -> tuple[ExecutionContext, Optional[bool]]:
+        parent = self._task_parent
+        self._task_parent = None
+        context = _create_execution_context(self.harness.lineage_scope, parent)
+        recorder = self.harness._lineage_recorder
+        persisted = (
+            recorder.start(context, session_id=self.id, invocation=invocation)
+            if recorder is not None
+            else None
+        )
+        return context, persisted
+
+    def _finish_execution(
+        self, context: ExecutionContext, started: Optional[bool], status: str
+    ) -> Optional[bool]:
+        recorder = self.harness._lineage_recorder
+        if recorder is None:
+            return None
+        finished = recorder.finish(context, status=status)
+        return bool(started and finished)
+
+    @staticmethod
+    def _execution_status(exc: BaseException) -> str:
+        if isinstance(exc, (asyncio.CancelledError, GeneratorExit)):
+            return "cancelled"
+        if isinstance(exc, TimeoutError):
+            return "timed_out"
+        return "failed"
+
+    @staticmethod
+    async def _anext_in_execution(context: ExecutionContext, iterator: Any) -> Any:
+        with _execution_context(context):
+            return await anext(iterator)
+
+    @staticmethod
+    def _set_result_execution(
+        result: RunResult, context: ExecutionContext, complete: Optional[bool]
+    ) -> RunResult:
+        result.execution_id = context.execution_id
+        result.root_execution_id = context.root_execution_id
+        result.lineage_complete = complete
+        return result
+
     # ---- public API ---------------------------------------------------------
 
     async def prompt(
+        self,
+        text: str,
+        *,
+        images: Optional[list[ImageBlock]] = None,
+        result: Optional[Any] = None,
+        cancel_after: Optional[float] = None,
+        strict: bool = False,
+        reflect: bool = False,
+    ) -> RunResult:
+        context, started = self._begin_execution("prompt")
+        try:
+            with _execution_context(context):
+                self.tracer_event("execution_started", invocation="prompt")
+                run_result = await self._prompt_inner(
+                    text,
+                    images=images,
+                    result=result,
+                    cancel_after=cancel_after,
+                    strict=strict,
+                    reflect=reflect,
+                )
+                complete = self._finish_execution(context, started, "completed")
+                return self._set_result_execution(run_result, context, complete)
+        except BaseException as exc:
+            self._finish_execution(context, started, self._execution_status(exc))
+            raise
+
+    async def _prompt_inner(
         self,
         text: str,
         *,
@@ -457,6 +542,25 @@ class Session:
         images: Optional[list[ImageBlock]] = None,
         result: Optional[Any] = None,
     ) -> RunResult:
+        context, started = self._begin_execution("skill")
+        try:
+            with _execution_context(context):
+                self.tracer_event("execution_started", invocation="skill", skill=name)
+                run_result = await self._skill_inner(name, text, images=images, result=result)
+                complete = self._finish_execution(context, started, "completed")
+                return self._set_result_execution(run_result, context, complete)
+        except BaseException as exc:
+            self._finish_execution(context, started, self._execution_status(exc))
+            raise
+
+    async def _skill_inner(
+        self,
+        name: str,
+        text: str,
+        *,
+        images: Optional[list[ImageBlock]] = None,
+        result: Optional[Any] = None,
+    ) -> RunResult:
         """Invoke a named skill for one prompt, then deactivate it."""
         skill_obj = self.spec.skills.get(name)
         self.tracer_event("skill_loaded", name=name)
@@ -509,6 +613,8 @@ class Session:
             router: Optional AgentRouter. When agent is None, the router picks
                     the best matching profile automatically via semantic similarity.
         """
+        task_parent = _task_parent_snapshot()
+
         # ── auto-route when no agent specified ───────────────────────────────
         if agent is None and router is not None:
             agent = router.route(prompt)
@@ -550,6 +656,7 @@ class Session:
 
         child = self.harness.session(spec=child_spec)
         child._task_depth = self._task_depth + 1
+        child._task_parent = task_parent
         # Share the active parent sandbox so child work observes the same files
         # and transaction boundary. The parent remains responsible for lifecycle.
         if self.sandbox is not None:
@@ -699,6 +806,13 @@ class Session:
         return child_spec
 
     def tracer_event(self, kind: str, **data: Any) -> None:
+        context = get_execution_context()
+        if context is not None:
+            data = {
+                "execution_id": context.execution_id,
+                "root_execution_id": context.root_execution_id,
+                **data,
+            }
         safe = {f"attr_{k}" if k == "name" else k: v for k, v in data.items()}
         with self.tracer.span(f"event.{kind}", **safe):
             pass
@@ -707,6 +821,10 @@ class Session:
 
     async def _run_with_schema(self, schema: Optional[Any], *, strict: bool = False) -> RunResult:
         """Run the agent loop; if structured output fails to parse, correct and retry."""
+        execution = _get_execution_state()
+        if execution is not None:
+            execution.attempt_count += 1
+            execution.attempt_trace.append(f"attempt_started:{execution.attempt_count}")
         run_result = await self._run_loop()
         if schema is None:
             return run_result
@@ -718,11 +836,19 @@ class Session:
         for _ in range(retries):
             if ok:
                 break
+            if execution is not None:
+                execution.attempt_trace.append(f"parse_failed:{execution.attempt_count}")
             self.tracer_event("structured_output_retry")
             parse_error_msg = str(parsed) if not ok else ""
             self.messages.append(Message("user", _correction_message(parsed, schema)))
+            if execution is not None:
+                execution.attempt_count += 1
+                execution.attempt_trace.append(f"attempt_started:{execution.attempt_count}")
             run_result = await self._run_loop()
             parsed, ok = _try_parse(run_result.text, schema)
+
+        if not ok and execution is not None:
+            execution.attempt_trace.append(f"parse_failed:{execution.attempt_count}")
 
         if ok:
             run_result.data = parsed
@@ -1220,6 +1346,54 @@ class Session:
     # ---- streaming variant --------------------------------------------------
 
     async def stream(self, text: str) -> AsyncIterator[StreamEvent]:
+        """Stream one execution, allocating it lazily on first iteration."""
+        context, started = self._begin_execution("stream")
+        context.attempt_count = 1
+        context.attempt_trace.append("attempt_started:1")
+        finalized = False
+        complete: Optional[bool] = None
+
+        def finalize(status: str) -> Optional[bool]:
+            nonlocal finalized, complete
+            if not finalized:
+                finalized = True
+                complete = self._finish_execution(context, started, status)
+            return complete
+
+        inner = self._stream_inner(text)
+        try:
+            yield StreamEvent(
+                "execution_started",
+                {
+                    "execution_id": context.execution_id,
+                    "root_execution_id": context.root_execution_id,
+                },
+            )
+            async with aclosing(inner):
+                while True:
+                    try:
+                        event = await self._anext_in_execution(context, inner)
+                    except StopAsyncIteration:
+                        break
+                    if event.type == "result":
+                        lineage_complete = finalize("completed")
+                        event.data.update(
+                            {
+                                "execution_id": context.execution_id,
+                                "root_execution_id": context.root_execution_id,
+                                "lineage_complete": lineage_complete,
+                            }
+                        )
+                    elif event.type == "error":
+                        error_type = event.data.get("error_type")
+                        finalize("timed_out" if error_type == "TimeoutError" else "failed")
+                    yield event
+            finalize("completed")
+        except BaseException as exc:
+            finalize(self._execution_status(exc))
+            raise
+
+    async def _stream_inner(self, text: str) -> AsyncIterator[StreamEvent]:
         """Stream a run while preserving prompt() durability and assurance semantics."""
         if not self._started:
             await self.start()

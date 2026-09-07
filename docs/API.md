@@ -114,6 +114,7 @@ class Harness:
         tracer: Tracer | None = None,     # default: NULL_TRACER
         durable: bool = True,             # enable event-sourced session logging
         compaction_threshold: int = 500,  # event log compaction threshold (0=never)
+        lineage_scope: str | None = None, # opt-in payload-free execution lineage
     )
 
     # Properties
@@ -259,7 +260,12 @@ class RunResult:
     stopped: str                     # 'end_turn'|'max_steps'|'error'|'memory_cap'
     findings: list[Finding]          # from silent-failure detectors
     data: Any | None                 # populated when result= schema used
-    cost: Cost | None = None         # populated when BudgetPolicy is configured
+    cost: Cost | None = None         # model-priced token cost
+    receipt: ExecutionReceipt | None = None
+    conversation_id: str | None = None
+    execution_id: str | None = None       # always set by prompt/skill/stream results
+    root_execution_id: str | None = None  # inherited across Session.task()
+    lineage_complete: bool | None = None  # None=disabled, True=both records persisted
 
     @property
     def ok(self) -> bool             # stopped=='end_turn' and no warnings
@@ -345,6 +351,7 @@ class StreamEvent:
     type: Literal[
         'text_delta', 'tool_call', 'tool_result',
         'turn_start', 'turn_end',
+        'execution_started',                # first event of an iterated Session.stream
         'skill_loaded', 'task_spawned',   # emitted by skill/task delegation
         'result',                         # additive terminal RunResult summary
         'error',
@@ -2820,3 +2827,23 @@ class Fleet:
 ```
 
 `load()` validates the recovery file before changing the registry. It restores metadata only: every non-retired agent becomes `registered` with no live loop and cannot route work. Call `rebind()` with a live loop, then use normal lifecycle actions (for example, deploy) before execution. `shutdown(persist=True)` writes this non-executable recovery state atomically; corrupt or incompatible recovery data leaves the current registry unchanged.
+
+## Execution lineage (`tvastar.execution`)
+
+Execution lineage is default-off. Enable it per harness with `Harness(spec, lineage_scope="tenant-a")`; scopes must match `[A-Za-z0-9._-]{1,128}`. Every prompt, skill, and iterated stream still receives an `exec_<uuid4 hex>` identity when persistence is disabled.
+
+The Store receives payload-free version-1 records at `lineage:v1:{scope}:execution:{execution_id}` and `lineage:v1:{scope}:outcome:{execution_id}`. Records use the exact schemas `tvastar.execution.envelope` and `tvastar.execution.outcome`; unknown schemas or versions are rejected. Envelopes persist a deterministic SHA-256 `session_ref`, which is pseudonymous and linkable—not anonymous—and never persist the raw caller Session ID. Outcomes include monotonic-runtime `duration_ms`. Writes are best-effort create-once using Store `get`/`set`/readback; equivalent replays succeed, conflicts fail, and this is not atomic compare-and-swap or an audit guarantee.
+
+```python
+from tvastar import ExecutionQuery, Harness
+
+harness = Harness(agent, store=store, lineage_scope="tenant-a")
+result = await harness.run("work")
+query = ExecutionQuery(store, "tenant-a")
+execution = query.get(result.execution_id)       # this execution only
+lineage = query.ancestors(result.execution_id)   # bounded parent traversal
+assert execution.complete
+assert lineage.complete
+```
+
+`ExecutionQuery.get()` reads exactly one envelope/outcome pair and does not follow `spawned_by`. `ExecutionQuery.ancestors()` follows explicit parent keys with maximum depth 20 and 10,000 visited IDs. Neither query calls `Store.keys()`. Views/results expose `complete=False` when a required valid envelope or outcome is absent or diagnostics exist. Diagnostics include `missing`, `corrupt`, `unknown`, `cycle`, `cross_scope`, `max_depth`, and `max_visited`. `get_execution_lineage()` remains a compatibility convenience that delegates to `ancestors()`. `Session.task()` alone propagates lineage through a one-shot internal parent snapshot; ordinary nested prompt, skill, and stream calls—including calls through another `Harness`—start independent roots in that harness's scope. Streaming emits `execution_started` first with execution/root IDs only and adds `execution_id`, `root_execution_id`, and `lineage_complete` to the terminal `result` event. Consumers that can stop early should use `contextlib.aclosing()`.

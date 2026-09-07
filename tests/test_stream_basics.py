@@ -80,7 +80,8 @@ async def test_stream_yields_turn_start_text_turn_end():
             events.append(ev)
 
     types = [e.type for e in events]
-    assert types[0] == "turn_start", "First event should be turn_start"
+    assert types[0] == "execution_started", "Execution identity must be emitted first"
+    assert types[1] == "turn_start", "First conversational event should be turn_start"
     assert "text_delta" in types, "Should include at least one text_delta event"
     assert types[-2] == "turn_end", "turn_end remains the final conversational event"
     assert types[-1] == "result", "result is the terminal additive lifecycle event"
