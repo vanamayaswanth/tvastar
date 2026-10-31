@@ -46,6 +46,7 @@ from .skills.loader import Skill
 from .tools.base import ToolContext, ToolRegistry
 from .types import (
     ImageBlock,
+    DocumentBlock,
     Message,
     ModelResponse,
     StopReason,
@@ -434,6 +435,7 @@ class Session:
         text: str,
         *,
         images: Optional[list[ImageBlock]] = None,
+        documents: Optional[list["DocumentBlock"]] = None,
         result: Optional[Any] = None,
         cancel_after: Optional[float] = None,
         strict: bool = False,
@@ -446,6 +448,7 @@ class Session:
                 run_result = await self._prompt_inner(
                     text,
                     images=images,
+                    documents=documents,
                     result=result,
                     cancel_after=cancel_after,
                     strict=strict,
@@ -462,6 +465,7 @@ class Session:
         text: str,
         *,
         images: Optional[list[ImageBlock]] = None,
+        documents: Optional[list["DocumentBlock"]] = None,
         result: Optional[Any] = None,
         cancel_after: Optional[float] = None,
         strict: bool = False,
@@ -498,8 +502,13 @@ class Session:
         if _policy is not None and getattr(_policy, "vault", None) is not None:
             _vault = _policy.vault
             prompt_text = _vault.tokenize(prompt_text, getattr(_policy, "sanitize", None))
-        if images:
-            self.messages.append(Message("user", [TextBlock(text=prompt_text), *images]))
+        if images or documents:
+            blocks: list = [TextBlock(text=prompt_text)]
+            if images:
+                blocks.extend(images)
+            if documents:
+                blocks.extend(documents)
+            self.messages.append(Message("user", blocks))
         else:
             self.messages.append(Message("user", prompt_text))
         # Record user message to event log
@@ -532,6 +541,9 @@ class Session:
                     _run_result.text = _reflection.final_text
             except Exception:
                 pass  # reflection failure must never break a run
+
+        # finish_hook: if it returns a non-empty string, re-run the loop
+        _run_result = await self._apply_finish_hook(_run_result, result=result)
         return _run_result
 
     async def skill(
@@ -573,8 +585,13 @@ class Session:
                 prompt_text = text
                 if result is not None:
                     prompt_text = _inject_schema_instruction(text, result)
-                if images:
-                    self.messages.append(Message("user", [TextBlock(text=prompt_text), *images]))
+                if images or documents:
+                    _blocks: list = [TextBlock(text=prompt_text)]
+                    if images:
+                        _blocks.extend(images)
+                    if documents:
+                        _blocks.extend(documents)
+                    self.messages.append(Message("user", _blocks))
                 else:
                     self.messages.append(Message("user", prompt_text))
                 return await self._run_with_schema(result)
@@ -1873,6 +1890,31 @@ class Session:
             self.tracer_event("context_overflow_compacted", step=step)
             return True
         return False
+
+    async def _apply_finish_hook(self, result: "RunResult", *, result_schema: Any = None) -> "RunResult":
+        """Call finish_hook; if it returns a continuation string, re-run the loop.
+
+        Guards against infinite loops with finish_hook_max_cycles (default 3).
+        Any exception in the hook is swallowed — the current result is returned.
+        """
+        hook = getattr(self.spec, "finish_hook", None)
+        if hook is None:
+            return result
+        max_cycles = getattr(self.spec, "finish_hook_max_cycles", 3)
+        for _ in range(max_cycles):
+            try:
+                continuation = hook(result)
+            except Exception:
+                break  # ponytail: hook failure never breaks the run
+            if not continuation:
+                break
+            # Append continuation as a new user turn and re-run the loop
+            self.messages.append(Message("user", continuation))
+            try:
+                result = await self._run_with_schema(result_schema, strict=False)
+            except Exception:
+                break
+        return result
 
     async def _maybe_compact(self) -> None:
         """Auto-compact context if the spec's compaction policy is set."""

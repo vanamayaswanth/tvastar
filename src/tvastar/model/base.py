@@ -116,6 +116,9 @@ class Model(abc.ABC):
     name: str = "model"
     #: provider family for OTel GenAI traces (gen_ai.system), e.g. "anthropic"
     system: str = "unknown"
+    #: context window size in tokens; None = unknown.
+    #: Used by compaction to cap max_tokens_estimate for small-window models.
+    context_window: Optional[int] = None
 
     @abc.abstractmethod
     async def generate(

@@ -68,6 +68,7 @@ class DispatchInput:
     type: str = "chat.message"  # chat.message | task | event | custom
     message_id: Optional[str] = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    idempotency_key: Optional[str] = None  # stable key → same dispatch_id; deduplicates concurrent at-least-once delivery
 
 
 # ── Dispatch event ────────────────────────────────────────────────────────────
@@ -197,7 +198,17 @@ class DispatchPool:
             input = DispatchInput(text=text or "")
 
         session_id = session or id
-        dispatch_id = f"dispatch_{uuid.uuid4().hex[:12]}"
+
+        # Idempotent dispatch: stable key → deterministic dispatch_id.
+        # Two concurrent calls with the same key on the same agent id converge to one run.
+        if input.idempotency_key:
+            import hashlib as _hl
+            key_hash = _hl.sha256(f"{id}:{input.idempotency_key}".encode()).hexdigest()[:16]
+            dispatch_id = f"dispatch_ik_{key_hash}"
+            if dispatch_id in self._active and not self._active[dispatch_id].done():
+                return dispatch_id  # already running — deduplicated
+        else:
+            dispatch_id = f"dispatch_{uuid.uuid4().hex[:12]}"
 
         # Reuse or create a harness per agent instance id
         shared_store = store or self._default_store

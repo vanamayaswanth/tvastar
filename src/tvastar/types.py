@@ -201,6 +201,28 @@ ContentBlock = Union[TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock]
 
 
 @dataclass
+class DocumentBlock:
+    """A PDF document in a user message, forwarded to models that support it.
+
+    Args:
+        data: Base64-encoded PDF bytes.
+        filename: Optional filename hint sent to the model.
+        media_type: Always ``"application/pdf"`` — only PDFs are supported today.
+
+    Models that do not support documents receive a text placeholder:
+    ``"[document <filename> omitted — model does not support documents]"``
+    """
+
+    data: str
+    filename: Optional[str] = None
+    media_type: str = "application/pdf"
+    type: Literal["document"] = "document"
+
+
+UserContentBlock = Union[TextBlock, ImageBlock, DocumentBlock]
+
+
+@dataclass
 class Message:
     """A single turn in a conversation.
 

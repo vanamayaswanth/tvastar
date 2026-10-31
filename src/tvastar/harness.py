@@ -368,8 +368,23 @@ class Harness:
 
         return result[:limit]
 
+    def session_history(self, session_id: str, limit: int = 50) -> list:
+        """Return the last *limit* messages from a session without keeping it open.
+
+        Useful for displaying recent context from a long session without loading
+        the full message history into memory. Returns [] if the session is not found.
+
+        Args:
+            session_id: The session to read.
+            limit: Maximum number of messages to return (most recent first reversed).
+        """
+        sess = self.resume(session_id)
+        if sess is None:
+            return []
+        return sess.messages[-limit:]
+
     def delete_session(self, session_id: str) -> bool:
-        """Remove all event log records and metadata for a session.
+        """Permanently remove a session's event log. Returns False if not found.
 
         Returns True if the session existed and was deleted, False otherwise.
         """

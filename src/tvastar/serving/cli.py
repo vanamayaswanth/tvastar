@@ -79,6 +79,15 @@ def main(argv: list[str] | None = None) -> int:
     bench_p.add_argument("--concurrency", type=int, default=2, help="parallel tasks (default 2)")
     bench_p.add_argument("--out", default=None, help="write JSON report to this file")
 
+    # ── tvastar docs <subcommand> ──────────────────────────────────────────
+    docs_p = sub.add_parser("docs", help="browse bundled documentation offline")
+    docs_sub = docs_p.add_subparsers(dest="docs_cmd", required=True)
+    docs_sub.add_parser("list", help="list all documentation pages")
+    docs_read = docs_sub.add_parser("read", help="print a documentation page as Markdown")
+    docs_read.add_argument("path", help="page path, e.g. ARCHITECTURE.md or runbooks/error_rate.md")
+    docs_search = docs_sub.add_parser("search", help="search documentation by keyword")
+    docs_search.add_argument("query", help="search query")
+
     # ── tvastar loop <subcommand> ──────────────────────────────────────────
     loop_p = sub.add_parser("loop", help="loop engineering commands")
     loop_sub = loop_p.add_subparsers(dest="loop_cmd", required=True)
@@ -123,6 +132,9 @@ def main(argv: list[str] | None = None) -> int:
     loop_reset.add_argument("ref", help="loop reference, e.g. .tvastar/loops/ci.py:loop")
 
     args = parser.parse_args(argv)
+
+    if args.cmd == "docs":
+        return _docs(args)
 
     if args.cmd == "loop":
         from ..loop.cli import (
@@ -307,3 +319,71 @@ def _print_quality(result) -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
+
+
+def _docs_dir() -> Path:
+    """Locate the bundled docs/ directory.
+
+    Installed wheel: docs are at tvastar/_docs/ (bundled via force-include).
+    Development install: fall back two levels to the project root docs/.
+    """
+    bundled = Path(__file__).parent.parent / "_docs"
+    if bundled.is_dir():
+        return bundled
+    dev = Path(__file__).parent.parent.parent.parent / "docs"
+    if dev.is_dir():
+        return dev
+    raise FileNotFoundError(
+        "Bundled documentation not found. "
+        "Reinstall tvastar or run from the project root."
+    )
+
+
+def _docs(args) -> int:
+    """Handle tvastar docs list/read/search."""
+    try:
+        root = _docs_dir()
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+    cmd = args.docs_cmd
+
+    if cmd == "list":
+        pages = sorted(root.rglob("*.md"))
+        for p in pages:
+            print(p.relative_to(root).as_posix())
+        return 0
+
+    if cmd == "read":
+        # Allow exact path or case-insensitive basename match
+        target = root / args.path
+        if not target.exists():
+            # Try basename match
+            matches = [p for p in root.rglob("*.md") if p.name.lower() == Path(args.path).name.lower()]
+            if not matches:
+                print(f"Page not found: {args.path}", file=sys.stderr)
+                print("Run 'tvastar docs list' to see all pages.", file=sys.stderr)
+                return 1
+            target = matches[0]
+        print(target.read_text(encoding="utf-8"))
+        return 0
+
+    if cmd == "search":
+        query = args.query.lower()
+        results = []
+        for p in root.rglob("*.md"):
+            text = p.read_text(encoding="utf-8").lower()
+            if query in text:
+                # Count occurrences as a simple relevance score
+                score = text.count(query)
+                results.append((score, p.relative_to(root).as_posix()))
+        results.sort(reverse=True)
+        if not results:
+            print(f"No pages found matching {args.query!r}", file=sys.stderr)
+            return 1
+        for score, page in results:
+            print(f"{page}  ({score} occurrence{'s' if score != 1 else ''})")
+        return 0
+
+    return 1

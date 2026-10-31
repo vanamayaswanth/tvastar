@@ -25,6 +25,7 @@ from typing import Any, Optional
 from ..errors import ModelError
 from ..types import (
     ImageBlock,
+    DocumentBlock,
     Message,
     ModelResponse,
     StopReason,
@@ -92,6 +93,11 @@ class OpenAIModel(Model):
                         b.data if b.source_type == "url" else f"data:{b.media_type};base64,{b.data}"
                     )
                     image_parts.append({"type": "image_url", "image_url": {"url": url}})
+                elif isinstance(b, DocumentBlock):
+                    # OpenAI file input — supported on o-series and GPT-4o
+                    fname = b.filename or "document.pdf"
+                    data_url = f"data:{b.media_type};base64,{b.data}"
+                    image_parts.append({"type": "file", "file": {"filename": fname, "file_data": data_url}})
                 elif isinstance(b, ToolUseBlock):
                     tool_calls.append(
                         {

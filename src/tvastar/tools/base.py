@@ -100,6 +100,7 @@ class Tool:
     input_schema: dict[str, Any]
     wants_ctx: bool = False
     retry: Optional[ToolRetryPolicy] = None
+    timeout: Optional[float] = None  # per-tool execution timeout in seconds
 
     @property
     def spec(self) -> ToolSpec:
@@ -132,9 +133,18 @@ class Tool:
         for attempt in range(max_attempts):
             try:
                 if asyncio.iscoroutinefunction(self.fn):
-                    result = await self.fn(**call_args)
+                    coro = self.fn(**call_args)
                 else:
-                    result = await asyncio.to_thread(self.fn, **call_args)
+                    coro = asyncio.to_thread(self.fn, **call_args)
+                if self.timeout is not None:
+                    try:
+                        result = await asyncio.wait_for(coro, timeout=self.timeout)
+                    except asyncio.TimeoutError:
+                        raise ToolError(
+                            f"Tool '{self.name}' timed out after {self.timeout}s"
+                        )
+                else:
+                    result = await coro
                 return _stringify(result)
             except ToolError:
                 raise  # already formatted — don't retry
@@ -177,6 +187,7 @@ def tool(
     name: Optional[str] = None,
     description: Optional[str] = None,
     retry: Optional[ToolRetryPolicy] = None,
+    timeout: Optional[float] = None,
 ) -> Any:
     """Decorator turning a function into a :class:`Tool`.
 
@@ -189,6 +200,11 @@ def tool(
 
         @tool(retry=ToolRetryPolicy(max_attempts=3))
         async def flaky_api(url: str) -> str:
+            ...
+
+        @tool(timeout=15.0)
+        async def slow_api(url: str) -> str:
+            "Times out after 15 seconds — model sees ToolTimeoutError."
             ...
     """
 
@@ -204,6 +220,7 @@ def tool(
             input_schema=schema_from_callable(f),
             wants_ctx=wants_ctx,
             retry=retry,
+            timeout=timeout,
         )
 
     if fn is not None:

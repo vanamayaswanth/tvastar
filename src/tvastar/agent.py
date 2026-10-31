@@ -115,6 +115,14 @@ class AgentSpec:
     #: "llm" = prompt model for structured facts, "pattern" = regex extraction,
     #: None/False = disabled (default, opt-in only).
     memory_extraction: Optional[str] = None
+
+    #: called after each run completes; if it returns a non-empty string, that
+    #: string is appended as a user message and the loop re-runs (up to
+    #: finish_hook_max_cycles times). Return None or "" to end normally.
+    #: Use case: inline self-verification, output formatting, completeness checks.
+    finish_hook: Optional[Callable[["RunResult"], Optional[str]]] = None
+    finish_hook_max_cycles: int = 3  # guard against infinite loops
+
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def build_system_prompt(self, *, last_user_text: str = "") -> str:
@@ -192,6 +200,8 @@ def create_agent(
     tool_order_fn: Optional[Callable[["list"], "list"]] = None,
     compress_tool_output: bool = True,
     memory_extraction: Optional[str] = None,
+    finish_hook: Optional[Callable[["RunResult"], Optional[str]]] = None,
+    finish_hook_max_cycles: int = 3,
     **metadata: Any,
 ) -> AgentSpec:
     """Create an agent specification.
@@ -313,5 +323,7 @@ def create_agent(
         fallback_models=fallback_models,
         tool_order_fn=tool_order_fn,
         memory_extraction=memory_extraction,
+        finish_hook=finish_hook,
+        finish_hook_max_cycles=finish_hook_max_cycles,
         metadata=metadata,
     )

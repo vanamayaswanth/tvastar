@@ -29,6 +29,7 @@ from typing import Any, Optional
 from ..errors import ModelError
 from ..types import (
     ImageBlock,
+    DocumentBlock,
     Message,
     ModelResponse,
     StopReason,
@@ -105,6 +106,18 @@ class AnthropicModel(Model):
                                 },
                             }
                         )
+                elif isinstance(b, DocumentBlock):
+                    content.append(
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "base64",
+                                "media_type": b.media_type,
+                                "data": b.data,
+                            },
+                            **({"title": b.filename} if b.filename else {}),
+                        }
+                    )
                 elif isinstance(b, ToolUseBlock):
                     content.append(
                         {

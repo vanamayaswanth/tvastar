@@ -207,6 +207,7 @@ from .tools.latchkey import latchkey_curl
 from .types import (
     Detector,
     ImageBlock,
+    DocumentBlock,
     Message,
     ModelResponse,
     StreamEvent,
@@ -371,6 +372,7 @@ __all__ = [
     "TvastarEventExporter",
     "Detector",
     "ImageBlock",
+    "DocumentBlock",
     "Message",
     "ModelResponse",
     "TextBlock",

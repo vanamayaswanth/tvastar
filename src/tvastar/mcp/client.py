@@ -239,6 +239,7 @@ async def connect_mcp_server(
     url: Optional[str] = None,
     headers: Optional[dict[str, str]] = None,
     timeout: float = 30.0,
+    optional: bool = False,
     **kw: Any,
 ) -> MCPClient:
     """Connect to an MCP server (local stdio or remote HTTP) and return a ready
@@ -246,6 +247,11 @@ async def connect_mcp_server(
 
     Provide either ``command`` (+ optional ``args``) for a local stdio server,
     or ``url`` (+ optional ``headers``) for a remote HTTP server.
+
+    Args:
+        optional: When True, a connection failure returns an empty MCPClient
+                  (zero tools) instead of raising, so agents degrade gracefully
+                  when a non-critical MCP server is unavailable.
     """
     if command:
         client = MCPClient.stdio(command, args, timeout=timeout, **kw)
@@ -253,4 +259,15 @@ async def connect_mcp_server(
         client = MCPClient.http(url, headers=headers, timeout=timeout)
     else:
         raise MCPError("connect_mcp_server requires either 'command' or 'url'")
+    if optional:
+        try:
+            return await client.connect()
+        except Exception as exc:
+            import warnings
+            warnings.warn(
+                f"Optional MCP server '{client.name}' failed to connect: {exc}. "
+                "Continuing with zero tools from this server.",
+                stacklevel=2,
+            )
+            return client  # unconnected — .tools is [] by default
     return await client.connect()

@@ -6,6 +6,19 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-10-11
+
+### Added — inspired by Flue gap analysis
+
+- **Per-tool `timeout`** — `@tool(timeout=15.0)` bounds a single tool call. On expiry the model sees `ToolTimeoutError("timed out after 15s")` and can retry or change approach; the session continues. No more hung tool calls consuming the entire loop budget.
+- **Idempotent dispatch** — `DispatchInput(idempotency_key="...")` makes `dispatch()` deduplicate concurrent at-least-once deliveries. Two calls with the same key on the same agent id converge to one run instead of firing two background tasks. Stable key derivation: `dispatch_ik_<sha256(id:key)[:16]>`.
+- **Model-aware compaction** — `Model.context_window: int | None = None` added to the base class. `compact_session()` now caps `CompactionPolicy.max_tokens_estimate` to `0.8 × context_window` so small-window models (local Ollama, Haiku at 8–32K) no longer get compaction that fires incorrectly on every turn.
+- **PDF document attachments** — `DocumentBlock(data, filename, media_type)` in `tvastar.types`. Pass `documents=[DocumentBlock(...)]` to `session.prompt()` and `session.skill()`. Anthropic receives native document blocks; OpenAI receives `input_file` parts. `DocumentBlock` exported from `tvastar` public surface.
+- **MCP `optional=True`** — `connect_mcp_server(..., optional=True)` returns an empty `MCPClient` (zero tools) on connection failure instead of raising, with a `UserWarning`. Non-critical MCP servers no longer crash sessions.
+- **Offline CLI docs** — `tvastar docs list`, `tvastar docs read <path>`, `tvastar docs search <query>`. Reads from bundled docs in the installed wheel (`tvastar/_docs/`) with dev fallback to `docs/`. Designed for coding agents: search → read.
+- **`finish_hook`** — `create_agent(..., finish_hook=fn, finish_hook_max_cycles=3)` calls `fn(RunResult)` after each run. If it returns a non-empty string, that string is appended as a user message and the loop re-runs (guarded by `finish_hook_max_cycles`). Enables inline self-verification and completeness checks.
+- **`Harness.session_history(session_id, limit=50)`** — returns the last N messages from a session without holding the session open. Useful for displaying recent context from long sessions without loading the full history.
+
 ## [0.30.0] — 2026-10-11
 
 ### Added

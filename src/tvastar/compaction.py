@@ -566,6 +566,13 @@ async def compact_session(
     """
     eff_policy = policy or getattr(session.spec, "compaction", None) or CompactionPolicy()
 
+    # Model-aware: cap max_tokens_estimate to 80% of the model's context window
+    # to prevent compaction misfiring on small-window models (Haiku, local Ollama).
+    _cw = getattr(session.spec.model, "context_window", None)
+    if _cw and eff_policy.max_tokens_estimate > int(_cw * 0.8):
+        from dataclasses import replace as _replace
+        eff_policy = _replace(eff_policy, max_tokens_estimate=int(_cw * 0.8))
+
     if not force and not should_compact(session.messages, eff_policy):
         return False
 
