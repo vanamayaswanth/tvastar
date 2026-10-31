@@ -6,6 +6,19 @@ All notable changes to Tvastar are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.30.0] — 2026-10-11
+
+### Added
+
+- **YAML agent config** — `tvastar run agent.yaml`, `tvastar chat agent.yaml`, `tvastar serve agent.yaml`, and all other CLI commands now accept a YAML config file directly. Install `PyYAML` with `pip install tvastar[yaml]`.
+  - Named definition sections (`models:`, `sandboxes:`, `toolsets:`) — define once, reference by name anywhere in the file.
+  - Full `AgentSpec` coverage: model (anthropic/openai/litellm/mock), sandbox (`SecurityPolicy` + `ResourcePolicy` + `CredentialFilter` including `allowed_mcp_tools`/`denied_mcp_tools`), tools, skills, subagents, compaction (all 9 fields including `summary_temperature`), budget, governance, `tool_retry`, `approval_gate`, `detect`, and all 11 scalar params.
+  - Context injection: `add_date`, `add_environment_info`, `add_prompt_files` compose into a single `system_prompt_hook`.
+  - Environment variable expansion (`${VAR}`) in all string values.
+  - `instruction_file` loads system prompt from an external Markdown file.
+  - MCP toolsets emit a `UserWarning` and skip gracefully — wire after load via `connect_mcp_server()`.
+  - `assurance:` and `pruner:` not yet wired from YAML (marked with `ponytail:` comment in source).
+
 ## [0.29.0] — 2026-09-05
 
 ### Added

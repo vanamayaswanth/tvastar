@@ -15,11 +15,17 @@ from ..errors import TvastarError
 
 
 def load_agent(ref: str) -> AgentSpec:
-    """Resolve ``"path/to/file.py:agent"`` or ``"package.module:agent"``.
+    """Resolve ``"path/to/file.py:agent"``, ``"package.module:agent"``,
+    or ``"path/to/agent.yaml"`` (no colon needed for YAML files).
 
     The attribute must be an AgentSpec (or a zero-arg callable returning one).
     Defaults the attribute name to ``agent`` when ``:name`` is omitted.
     """
+    # YAML shortcut — no colon needed, just pass the file path directly
+    if ref.endswith(".yaml") or ref.endswith(".yml"):
+        from .yaml_loader import load_agent_from_yaml
+        return load_agent_from_yaml(ref)
+
     target, _, attr = ref.partition(":")
     attr = attr or "agent"
 

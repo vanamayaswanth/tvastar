@@ -57,3 +57,5 @@ helpers_docs/
 # Previous/backup files
 AGENTS._prevmd
 CLAUDE_prev.md
+
+system_prompt.md
